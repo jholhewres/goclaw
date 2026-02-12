@@ -63,27 +63,52 @@ A QR code will be displayed on first run to link your WhatsApp.
 
 ## Architecture
 
+GoClaw has three layers of extensibility: **Core**, **Plugins**, and **Skills**. Each serves a different purpose.
+
 ```
-┌──────────────────────────────────────────────────────┐
-│                       GoClaw                          │
-├──────────────────────────────────────────────────────┤
-│  CLI (cmd/copilot/)                                   │
-│  chat · serve · schedule · skill · config · remember  │
-├──────────────────────────────────────────────────────┤
-│  Channels        │  Copilot Core     │  Skills        │
-│  ├── WhatsApp    │  ├── Assistant    │  ├── Registry  │
-│  ├── Discord     │  ├── Prompt (8L)  │  ├── Loader    │
-│  └── Telegram    │  ├── Sessions     │  └── Index     │
-│                  │  └── Security     │                │
-├──────────────────────────────────────────────────────┤
-│  AgentGo SDK (github.com/jholhewres/agent-go)        │
-│  Agent · Models · Tools · Memory · Hooks · Guardrails │
-└──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                           GoClaw                              │
+├──────────────────────────────────────────────────────────────┤
+│  CLI (cmd/copilot/)                                           │
+│  chat · serve · schedule · skill · config · remember · health │
+├───────────────┬──────────────────┬───────────────────────────┤
+│  Core         │  Plugins (.so)   │  Skills (separate repo)   │
+│  Compiled in  │  Loaded at       │  Installed via CLI         │
+│  the binary   │  runtime         │  from goclaw-skills        │
+│               │                  │                           │
+│  ▸ WhatsApp   │  ▸ Extra         │  ▸ Prompt / Soul          │
+│  ▸ Hooks      │    channels      │  ▸ Tools for the agent    │
+│  ▸ Guardrails │  ▸ Webhooks      │  ▸ Triggers               │
+│  ▸ Sessions   │  ▸ Custom        │  ▸ Config schema          │
+│  ▸ Scheduler  │    integrations  │  ▸ System prompt inject   │
+│  ▸ Prompt     │                  │                           │
+│    Composer   │                  │                           │
+├───────────────┴──────────────────┴───────────────────────────┤
+│  AgentGo SDK (github.com/jholhewres/agent-go)                │
+│  Agent · Models · Tools · Memory · Hooks · Guardrails         │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-GoClaw **does not reimplement** the AI core — it uses the AgentGo SDK directly for agent execution, LLM models, tools, and memory.
+### Core vs Plugins vs Skills
+
+| | **Core** | **Plugins** | **Skills** |
+|---|----------|-------------|-----------|
+| **What** | Essential runtime | Optional extensions | Agent capabilities |
+| **Where** | Compiled in binary | `.so` loaded at runtime | `goclaw-skills` repo |
+| **Examples** | WhatsApp channel, hooks, guardrails, scheduler, prompt composer | Discord channel, Telegram channel, webhooks, custom integrations | Calendar, Gmail, GitHub, weather, calculator |
+| **Install** | Always available | Drop `.so` in plugins dir | `copilot skill install` |
+| **Contains** | Go code | Go code (plugin interface) | Prompt/soul + tools + triggers + config |
+| **Lifecycle** | Starts with the binary | Loaded on startup | Registered in skill registry |
+
+**Why this separation?**
+
+- **Core** = what GoClaw needs to run. WhatsApp is core because it's the primary channel. Hooks and guardrails are core because security is not optional.
+- **Plugins** = runtime extensions via Go's native plugin system (`.so`). Add channels, webhooks, or custom integrations without recompiling. Not everyone needs Discord or Telegram — load them only if enabled.
+- **Skills** = what the *agent* can do. A skill teaches the LLM new capabilities by injecting prompt instructions, exposing tools, and defining triggers. Skills live in a separate repository and are managed via CLI.
 
 ## Connecting to AgentGo SDK
+
+GoClaw **does not reimplement** the AI core — it uses the [AgentGo SDK](https://github.com/jholhewres/agent-go) directly for agent execution, LLM models, tools, and memory.
 
 ### Model + Agent
 
@@ -151,7 +176,7 @@ model, _ := ollama.New("llama2", ollama.Config{
 
 ### Tools
 
-GoClaw inherits all built-in tools from AgentGo and adds its own via Skills:
+GoClaw inherits all 20+ built-in tools from AgentGo. Custom tools can be created inline or packaged as skills:
 
 ```go
 import (
@@ -166,7 +191,7 @@ toolkits := []toolkit.Toolkit{
     websearch.New(websearch.Config{APIKey: "..."}),
 }
 
-// Custom tool
+// Custom inline tool
 myTool := toolkit.NewBaseToolkit("my_tool")
 myTool.RegisterFunction(&toolkit.Function{
     Name:        "get_price",
@@ -199,19 +224,21 @@ hybridMem := memory.NewHybridMemory(memory.HybridConfig{
 
 ### Hooks & Guardrails
 
+GoClaw has its own hook system on top of the AgentGo SDK hooks. Core hooks run at the GoClaw level (message routing, session management, security). AgentGo hooks run at the agent execution level (pre/post LLM call, tool calls).
+
 ```go
 import (
     "github.com/jholhewres/agent-go/pkg/agentgo/hooks"
     "github.com/jholhewres/agent-go/pkg/agentgo/guardrails"
 )
 
-// Pre-execution logging hook
+// Pre-execution logging hook (AgentGo level)
 preHook := hooks.HookFunc(func(ctx context.Context, input *hooks.HookInput) error {
     log.Printf("Input: %s", input.Input)
     return nil
 })
 
-// Prompt injection guardrail
+// Prompt injection guardrail (AgentGo level)
 injectionGuard := guardrails.NewPromptInjectionGuardrail()
 
 ag, _ := agent.New(agent.Config{
@@ -221,11 +248,21 @@ ag, _ := agent.New(agent.Config{
 })
 ```
 
+GoClaw-level hooks (applied before the message reaches the agent):
+
+| Hook | Stage | Purpose |
+|------|-------|---------|
+| Input guardrail | Before agent | Rate limit, injection detection, max length |
+| Session hook | Before agent | Load/create session, apply per-chat config |
+| Prompt composer | Before agent | Build 8-layer prompt with token budget |
+| Output guardrail | After agent | Leak detection, PII check, empty fallback |
+| Memory hook | After agent | Store conversation, extract facts |
+
 ## Channels
 
-### WhatsApp
+### WhatsApp (core)
 
-Uses [whatsmeow](https://go.mau.fi/whatsmeow) — native Go, no Node.js or Baileys.
+Uses [whatsmeow](https://go.mau.fi/whatsmeow) — native Go, no Node.js or Baileys. Compiled into the binary.
 
 ```yaml
 # config.yaml
@@ -247,9 +284,9 @@ User: @copilot remind me to call John at 3pm
 Copilot: ✅ Reminder set for 3pm: "call John"
 ```
 
-### Discord
+### Discord (plugin)
 
-Uses [discordgo](https://github.com/bwmarrin/discordgo).
+Uses [discordgo](https://github.com/bwmarrin/discordgo). Loaded as a Go plugin at runtime.
 
 ```yaml
 channels:
@@ -259,9 +296,9 @@ channels:
     trigger: "!copilot"
 ```
 
-### Telegram
+### Telegram (plugin)
 
-Uses [telego](https://github.com/mymmrac/telego).
+Uses [telego](https://github.com/mymmrac/telego). Loaded as a Go plugin at runtime.
 
 ```yaml
 channels:
@@ -271,9 +308,48 @@ channels:
     trigger: "/copilot"
 ```
 
+### Adding a channel via plugin
+
+Plugins implement the `Channel` interface and are compiled as `.so` files:
+
+```go
+// my_channel_plugin.go
+package main
+
+import "github.com/jholhewres/goclaw/pkg/goclaw/channels"
+
+type MyChannel struct { /* ... */ }
+
+func (c *MyChannel) Name() string                                           { return "mychannel" }
+func (c *MyChannel) Connect(ctx context.Context) error                      { /* ... */ }
+func (c *MyChannel) Disconnect() error                                      { /* ... */ }
+func (c *MyChannel) Send(ctx context.Context, to string, msg *channels.OutgoingMessage) error { /* ... */ }
+func (c *MyChannel) Receive() <-chan *channels.IncomingMessage              { /* ... */ }
+func (c *MyChannel) IsConnected() bool                                      { /* ... */ }
+func (c *MyChannel) Health() channels.HealthStatus                          { /* ... */ }
+
+// Exported symbol for plugin loading
+var Channel channels.Channel = &MyChannel{}
+```
+
+```bash
+# Build as plugin
+go build -buildmode=plugin -o plugins/mychannel.so my_channel_plugin.go
+```
+
 ## Skills
 
-Skills are modules that add capabilities to the assistant. They can be built-in, installed from the registry, or community-contributed.
+Skills teach the agent new capabilities. Unlike plugins (which extend the runtime), skills extend the *agent's knowledge and tools*. They live in a separate repository ([goclaw-skills](https://github.com/jholhewres/goclaw-skills)) and follow the OpenClaw skill model.
+
+### What a skill contains
+
+| Component | Purpose | Required |
+|-----------|---------|----------|
+| **Prompt / Soul** | Instructions injected into the system prompt | ✅ |
+| **Tools** | Functions the LLM can call | Optional |
+| **Triggers** | Natural language patterns that activate the skill | Optional |
+| **Config schema** | User-configurable parameters | Optional |
+| **Metadata** | Name, version, author, category, tags | ✅ |
 
 ### CLI Management
 
@@ -289,71 +365,122 @@ copilot skill list
 
 # Update all
 copilot skill update --all
+
+# Create new skill (scaffold)
+copilot skill create my-skill
 ```
 
-### Creating a Skill
+### Skill definition
 
 ```yaml
 # skill.yaml
-name: my-weather
+name: calendar
 version: 1.0.0
-author: your-name
-description: Weather information
-category: builtin
-tags: [weather, forecast]
+author: goclaw
+description: Google Calendar integration
+category: productivity
+tags: [calendar, google, scheduling]
+
+config:
+  type: object
+  properties:
+    credentials_path:
+      type: string
+      description: Path to Google credentials JSON
+    calendar_id:
+      type: string
+      default: primary
 
 tools:
-  - name: get_weather
-    description: Get weather for a city
+  - name: list_events
+    description: List calendar events for a date range
     parameters:
-      city:
+      start_date:
+        type: string
+        description: Start date (YYYY-MM-DD)
+      end_date:
+        type: string
+        description: End date (YYYY-MM-DD)
+
+  - name: create_event
+    description: Create a new calendar event
+    parameters:
+      title:
         type: string
         required: true
+      start_time:
+        type: string
+        required: true
+      duration_minutes:
+        type: integer
+        default: 60
 
 system_prompt: |
-  You can check weather for any city using get_weather.
+  You have access to the user's Google Calendar.
+  When asked about schedule, use list_events.
+  When asked to schedule something, use create_event.
+  Always confirm before deleting events.
 
 triggers:
-  - "weather in"
-  - "what's the weather"
+  - "what's on my calendar"
+  - "schedule a meeting"
+  - "check my schedule"
 ```
+
+### Skill implementation
 
 ```go
 // skill.go
-package weather
+package calendar
 
 import (
     "context"
     "github.com/jholhewres/goclaw/pkg/goclaw/skills"
 )
 
-type WeatherSkill struct{}
+type CalendarSkill struct {
+    calendarID string
+}
 
-func (s *WeatherSkill) Metadata() skills.Metadata {
+func (s *CalendarSkill) Metadata() skills.Metadata {
     return skills.Metadata{
-        Name:        "weather",
+        Name:        "calendar",
         Version:     "1.0.0",
-        Description: "Weather information",
-        Category:    "builtin",
+        Description: "Google Calendar integration",
+        Category:    "productivity",
+        Tags:        []string{"calendar", "google", "scheduling"},
     }
 }
 
-func (s *WeatherSkill) Tools() []skills.Tool {
+func (s *CalendarSkill) SystemPrompt() string {
+    return `You have access to the user's Google Calendar.
+When asked about schedule, use list_events.
+When asked to schedule something, use create_event.`
+}
+
+func (s *CalendarSkill) Triggers() []string {
+    return []string{"what's on my calendar", "schedule a meeting", "check my schedule"}
+}
+
+func (s *CalendarSkill) Tools() []skills.Tool {
     return []skills.Tool{
         {
-            Name:        "get_weather",
-            Description: "Get current weather for a city",
+            Name:        "list_events",
+            Description: "List calendar events for a date range",
             Parameters: []skills.ToolParameter{
-                {Name: "city", Type: "string", Required: true},
+                {Name: "start_date", Type: "string", Description: "Start date (YYYY-MM-DD)", Required: true},
+                {Name: "end_date", Type: "string", Description: "End date (YYYY-MM-DD)", Required: true},
             },
-            Handler: s.getWeather,
+            Handler: s.listEvents,
         },
     }
 }
 
-func (s *WeatherSkill) getWeather(ctx context.Context, args map[string]any) (any, error) {
-    city := args["city"].(string)
-    return map[string]any{"city": city, "temp": 25, "condition": "sunny"}, nil
+func (s *CalendarSkill) listEvents(ctx context.Context, args map[string]any) (any, error) {
+    startDate := args["start_date"].(string)
+    endDate := args["end_date"].(string)
+    // Google Calendar API call here
+    return map[string]any{"events": []string{}, "start": startDate, "end": endDate}, nil
 }
 ```
 
@@ -429,6 +556,9 @@ scheduler:
   enabled: true
   storage: "./data/scheduler.db"
 
+plugins:
+  dir: "./plugins"              # Directory for .so plugin files
+
 skills:
   builtin:
     - weather
@@ -487,11 +617,13 @@ goclaw/
 │   ├── main.go
 │   └── commands/             # Cobra commands
 ├── pkg/goclaw/
-│   ├── channels/             # Channel interface + Manager
-│   ├── skills/               # Skill interface + Registry
-│   ├── copilot/              # Assistant + Prompt + Session
-│   │   └── security/         # I/O guardrails
-│   └── scheduler/            # Cron-based job scheduling
+│   ├── channels/             # Channel interface + Manager (core)
+│   ├── copilot/              # Assistant + Prompt + Session (core)
+│   │   └── security/         # I/O guardrails (core)
+│   ├── plugins/              # Plugin loader (core)
+│   ├── skills/               # Skill interface + Registry (core)
+│   └── scheduler/            # Cron-based job scheduling (core)
+├── plugins/                  # Plugin .so files (loaded at runtime)
 ├── skills/                   # Submodule → goclaw-skills
 ├── configs/                  # Example configs
 ├── docs/                     # Plans & specs
@@ -506,9 +638,9 @@ goclaw/
 | Package | Purpose |
 |---------|---------|
 | [agent-go](https://github.com/jholhewres/agent-go) | Agent SDK (models, tools, memory, hooks) |
-| [whatsmeow](https://go.mau.fi/whatsmeow) | WhatsApp (native Go) |
-| [discordgo](https://github.com/bwmarrin/discordgo) | Discord |
-| [telego](https://github.com/mymmrac/telego) | Telegram |
+| [whatsmeow](https://go.mau.fi/whatsmeow) | WhatsApp channel (native Go, core) |
+| [discordgo](https://github.com/bwmarrin/discordgo) | Discord channel (plugin) |
+| [telego](https://github.com/mymmrac/telego) | Telegram channel (plugin) |
 | [cobra](https://github.com/spf13/cobra) | CLI framework |
 | [cron](https://github.com/robfig/cron) | Task scheduler |
 
@@ -521,9 +653,11 @@ goclaw/
 - [x] Session isolation with auto-pruning
 - [x] Docker + systemd + Makefile
 - [x] Skills repository as submodule
-- [ ] WhatsApp channel implementation (whatsmeow)
-- [ ] Discord channel implementation (discordgo)
-- [ ] Telegram channel implementation (telego)
+- [ ] WhatsApp channel implementation (whatsmeow, core)
+- [ ] Plugin loader system (Go native plugins)
+- [ ] Discord channel as plugin
+- [ ] Telegram channel as plugin
+- [ ] Webhook plugin
 - [ ] Full AgentGo SDK integration (agent.Run in message loop)
 - [ ] Memory persistence (SQLite)
 - [ ] RAG with embeddings
