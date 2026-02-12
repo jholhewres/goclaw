@@ -74,8 +74,11 @@ func (r *Registry) LoadAll(ctx context.Context) error {
 
 		for _, skill := range skills {
 			meta := skill.Metadata()
+			// Só indexa se a skill ainda não existia para evitar duplicatas no índice.
+			if _, existed := r.skills[meta.Name]; !existed {
+				r.indexSkill(meta)
+			}
 			r.skills[meta.Name] = skill
-			r.indexSkill(meta)
 
 			r.logger.Info("skill carregada",
 				"name", meta.Name,

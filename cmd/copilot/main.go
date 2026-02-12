@@ -1,5 +1,5 @@
 // Package main é o ponto de entrada do CLI do AgentGo Copilot.
-// Utiliza cobra para gerenciamento de comandos e viper para configuração.
+// Utiliza cobra para gerenciamento de comandos.
 package main
 
 import (

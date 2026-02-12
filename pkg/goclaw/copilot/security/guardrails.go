@@ -177,6 +177,14 @@ func (rl *RateLimiter) Allow(userID string) bool {
 		}
 	}
 
+	// Remove usuários sem requisições válidas para evitar leak de memória.
+	if len(valid) == 0 {
+		delete(rl.requests, userID)
+		// Registra nova requisição.
+		rl.requests[userID] = []time.Time{now}
+		return true
+	}
+
 	// Verifica se excedeu o limite.
 	if len(valid) >= rl.maxRequests {
 		rl.requests[userID] = valid
@@ -192,7 +200,7 @@ func (rl *RateLimiter) Allow(userID string) bool {
 
 // ToolSecurityPolicy define políticas de segurança para execução de tools.
 type ToolSecurityPolicy struct {
-	// AllowedTools lista as tools permitidas por nível de acesso.
+	// AllowedTools lista as tools permitidas por skill (chave = skill name, valor = tool names).
 	AllowedTools map[string][]string
 
 	// RequiresConfirmation lista tools que precisam de confirmação do usuário.
@@ -202,26 +210,46 @@ type ToolSecurityPolicy struct {
 	ToolRateLimits map[string]int
 }
 
-// BeforeToolCall valida se uma tool pode ser executada.
-func (p *ToolSecurityPolicy) BeforeToolCall(tool string, _ map[string]any) error {
-	// Verifica se a tool requer confirmação.
-	for _, t := range p.RequiresConfirmation {
-		if t == tool {
-			return ErrConfirmationRequired
+// BeforeToolCall valida se uma tool pode ser executada para uma skill específica.
+func (p *ToolSecurityPolicy) BeforeToolCall(skillName, tool string) error {
+	// 1. Verifica whitelist se configurada.
+	if len(p.AllowedTools) > 0 {
+		allowed, ok := p.AllowedTools[skillName]
+		if !ok {
+			return fmt.Errorf("%w: skill %q não possui tools permitidas", ErrToolNotAllowed, skillName)
 		}
+		if !containsString(allowed, tool) {
+			return fmt.Errorf("%w: tool %q não permitida para skill %q", ErrToolNotAllowed, tool, skillName)
+		}
+	}
+
+	// 2. Verifica se a tool requer confirmação.
+	if containsString(p.RequiresConfirmation, tool) {
+		return ErrConfirmationRequired
 	}
 
 	return nil
 }
 
+// containsString verifica se um slice contém uma string.
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 // --- Errors ---
 
 var (
-	ErrInputTooLong       = fmt.Errorf("mensagem excede o tamanho máximo permitido")
-	ErrRateLimited        = fmt.Errorf("limite de mensagens por minuto excedido, aguarde um momento")
-	ErrPromptInjection    = fmt.Errorf("conteúdo potencialmente malicioso detectado")
-	ErrEmptyOutput        = fmt.Errorf("resposta vazia gerada pelo modelo")
-	ErrSystemPromptLeak   = fmt.Errorf("possível vazamento de instruções internas")
-	ErrHallucinatedURL    = fmt.Errorf("URL na resposta não corresponde aos resultados")
+	ErrInputTooLong         = fmt.Errorf("mensagem excede o tamanho máximo permitido")
+	ErrRateLimited          = fmt.Errorf("limite de mensagens por minuto excedido, aguarde um momento")
+	ErrPromptInjection      = fmt.Errorf("conteúdo potencialmente malicioso detectado")
+	ErrEmptyOutput          = fmt.Errorf("resposta vazia gerada pelo modelo")
+	ErrSystemPromptLeak     = fmt.Errorf("possível vazamento de instruções internas")
+	ErrHallucinatedURL      = fmt.Errorf("URL na resposta não corresponde aos resultados")
 	ErrConfirmationRequired = fmt.Errorf("esta ação requer confirmação do usuário")
+	ErrToolNotAllowed       = fmt.Errorf("tool não permitida pela política de segurança")
 )

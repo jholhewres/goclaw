@@ -156,22 +156,28 @@ func (s *Scheduler) List() []*Job {
 func (s *Scheduler) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
-	// Carrega jobs persistidos.
+	// Carrega jobs persistidos sob lock para evitar race com Add/Remove.
 	if s.storage != nil {
 		jobs, err := s.storage.LoadAll()
 		if err != nil {
 			s.logger.Error("falha ao carregar jobs", "error", err)
 		} else {
+			s.mu.Lock()
 			for _, job := range jobs {
 				s.jobs[job.ID] = job
 			}
+			s.mu.Unlock()
 			s.logger.Info("jobs carregados do storage", "count", len(jobs))
 		}
 	}
 
+	s.mu.RLock()
+	jobCount := len(s.jobs)
+	s.mu.RUnlock()
+
 	// TODO: Integrar com robfig/cron para execução real dos jobs.
 	// Por enquanto, o loop de execução será implementado na próxima fase.
-	s.logger.Info("scheduler iniciado", "jobs", len(s.jobs))
+	s.logger.Info("scheduler iniciado", "jobs", jobCount)
 	return nil
 }
 

@@ -33,8 +33,9 @@ func newConfigInitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Inicializa configuração padrão",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			// TODO: Gerar config.yaml padrão.
-			fmt.Println("Configuração criada em ./config.yaml")
+			// TODO: Copiar configs/copilot.example.yaml para ./config.yaml.
+			fmt.Println("Configuração ainda não implementada.")
+			fmt.Println("Copie manualmente: cp configs/copilot.example.yaml config.yaml")
 			return nil
 		},
 	}

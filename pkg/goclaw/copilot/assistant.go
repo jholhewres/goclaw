@@ -50,7 +50,11 @@ type Assistant struct {
 }
 
 // New cria um novo Assistant com as dependências fornecidas.
+// Se cfg for nil, usa a configuração padrão.
 func New(cfg *Config, logger *slog.Logger) *Assistant {
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -81,10 +85,13 @@ func (a *Assistant) Start(ctx context.Context) error {
 		a.logger.Error("falha ao carregar skills", "error", err)
 	}
 
-	// 2. Inicia o gerenciador de canais.
+	// 2. Inicia o gerenciador de canais (permite 0 canais no modo CLI).
 	if err := a.channelMgr.Start(a.ctx); err != nil {
 		return fmt.Errorf("falha ao iniciar canais: %w", err)
 	}
+
+	// 2.1. Inicia pruner de sessões inativas.
+	a.sessionStore.StartPruner(a.ctx)
 
 	// 3. Inicia o scheduler, se habilitado.
 	if a.scheduler != nil {

@@ -11,8 +11,10 @@ services:
       - TZ=America/Sao_Paulo
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    ports:
-      - "8080:8080"  # Health check e futuro web interface
+    # Porta reservada para futuro web interface/health HTTP endpoint.
+    # Descomente quando implementado:
+    # ports:
+    #   - "8080:8080"
     logging:
       driver: json-file
       options:

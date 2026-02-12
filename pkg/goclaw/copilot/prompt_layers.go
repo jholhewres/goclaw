@@ -76,11 +76,12 @@ func (p *PromptComposer) Compose(session *Session, input string) string {
 		})
 	}
 
-	// Layer 20: Business - contexto do usuário.
-	if session.Config.BusinessContext != "" {
+	// Layer 20: Business - contexto do usuário (via getter thread-safe).
+	cfg := session.GetConfig()
+	if cfg.BusinessContext != "" {
 		layers = append(layers, layerEntry{
 			layer:   LayerBusiness,
-			content: session.Config.BusinessContext,
+			content: cfg.BusinessContext,
 		})
 	}
 
@@ -130,15 +131,17 @@ func (p *PromptComposer) buildCoreLayer() string {
 }
 
 // buildSkillsLayer monta as instruções das skills ativas da sessão.
+// Usa getter thread-safe para evitar race conditions.
 func (p *PromptComposer) buildSkillsLayer(session *Session) string {
-	if len(session.ActiveSkills) == 0 {
+	activeSkills := session.GetActiveSkills()
+	if len(activeSkills) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("## Available Skills\n\n")
 
-	for _, skillName := range session.ActiveSkills {
+	for _, skillName := range activeSkills {
 		b.WriteString(fmt.Sprintf("### %s\n", skillName))
 		// TODO: Injetar SystemPrompt() de cada skill ativa.
 		b.WriteString("\n")
@@ -148,15 +151,17 @@ func (p *PromptComposer) buildSkillsLayer(session *Session) string {
 }
 
 // buildMemoryLayer monta os fatos relevantes da memória de longo prazo.
+// Usa getter thread-safe para evitar race conditions.
 func (p *PromptComposer) buildMemoryLayer(session *Session, _ string) string {
-	if len(session.Facts) == 0 {
+	facts := session.GetFacts()
+	if len(facts) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("## Remembered Facts\n")
 
-	for _, fact := range session.Facts {
+	for _, fact := range facts {
 		b.WriteString(fmt.Sprintf("- %s\n", fact))
 	}
 

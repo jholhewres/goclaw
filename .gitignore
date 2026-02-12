@@ -1,7 +1,6 @@
 # Binaries
 /bin/
 /dist/
-/bin/copilot
 *.exe
 *.exe~
 *.dll

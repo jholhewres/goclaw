@@ -4,11 +4,18 @@
 package copilot
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 )
+
+// DefaultMaxHistory é o limite padrão de entradas no histórico por sessão.
+const DefaultMaxHistory = 100
+
+// DefaultSessionTTL é o tempo de inatividade antes de uma sessão ser removida.
+const DefaultSessionTTL = 24 * time.Hour
 
 // Session representa uma sessão isolada de conversa para um chat/grupo específico.
 type Session struct {
@@ -21,23 +28,26 @@ type Session struct {
 	// ChatID é o identificador do grupo ou DM.
 	ChatID string
 
-	// Config contém configurações específicas desta sessão.
-	Config SessionConfig
+	// config contém configurações específicas desta sessão.
+	config SessionConfig
 
-	// ActiveSkills lista as skills ativas nesta sessão.
-	ActiveSkills []string
+	// activeSkills lista as skills ativas nesta sessão.
+	activeSkills []string
 
-	// Facts são fatos de longo prazo extraídos e salvos para esta sessão.
-	Facts []string
+	// facts são fatos de longo prazo extraídos e salvos para esta sessão.
+	facts []string
 
 	// history é o histórico de mensagens da sessão.
 	history []ConversationEntry
 
+	// maxHistory é o limite máximo de entradas no histórico.
+	maxHistory int
+
 	// CreatedAt é o timestamp de criação da sessão.
 	CreatedAt time.Time
 
-	// LastActiveAt é o timestamp da última atividade.
-	LastActiveAt time.Time
+	// lastActiveAt é o timestamp da última atividade.
+	lastActiveAt time.Time
 
 	mu sync.RWMutex
 }
@@ -68,6 +78,7 @@ type ConversationEntry struct {
 }
 
 // AddMessage adiciona uma nova entrada de conversa à sessão.
+// Aplica o limite de maxHistory, removendo mensagens antigas quando excedido.
 func (s *Session) AddMessage(userMsg, assistantResp string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -77,10 +88,16 @@ func (s *Session) AddMessage(userMsg, assistantResp string) {
 		AssistantResponse: assistantResp,
 		Timestamp:         time.Now(),
 	})
-	s.LastActiveAt = time.Now()
+
+	// Trim histórico se exceder o limite para evitar leak de memória.
+	if s.maxHistory > 0 && len(s.history) > s.maxHistory {
+		s.history = s.history[len(s.history)-s.maxHistory:]
+	}
+
+	s.lastActiveAt = time.Now()
 }
 
-// RecentHistory retorna as últimas N entradas de conversa.
+// RecentHistory retorna as últimas N entradas de conversa (cópia thread-safe).
 func (s *Session) RecentHistory(maxEntries int) []ConversationEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -101,7 +118,54 @@ func (s *Session) RecentHistory(maxEntries int) []ConversationEntry {
 func (s *Session) AddFact(fact string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Facts = append(s.Facts, fact)
+	s.facts = append(s.facts, fact)
+}
+
+// GetFacts retorna uma cópia thread-safe dos fatos da sessão.
+func (s *Session) GetFacts() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]string, len(s.facts))
+	copy(result, s.facts)
+	return result
+}
+
+// GetActiveSkills retorna uma cópia thread-safe das skills ativas.
+func (s *Session) GetActiveSkills() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]string, len(s.activeSkills))
+	copy(result, s.activeSkills)
+	return result
+}
+
+// SetActiveSkills define as skills ativas da sessão.
+func (s *Session) SetActiveSkills(skills []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activeSkills = make([]string, len(skills))
+	copy(s.activeSkills, skills)
+}
+
+// GetConfig retorna uma cópia thread-safe da configuração da sessão.
+func (s *Session) GetConfig() SessionConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config
+}
+
+// SetConfig atualiza a configuração da sessão.
+func (s *Session) SetConfig(cfg SessionConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config = cfg
+}
+
+// LastActiveAt retorna o timestamp da última atividade (thread-safe).
+func (s *Session) LastActiveAt() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastActiveAt
 }
 
 // ClearHistory limpa o histórico de conversa mantendo fatos de longo prazo.
@@ -112,10 +176,12 @@ func (s *Session) ClearHistory() {
 }
 
 // SessionStore gerencia sessões ativas, criando e recuperando por canal e chatID.
+// Implementa pruning automático de sessões inativas.
 type SessionStore struct {
-	sessions map[string]*Session
-	logger   *slog.Logger
-	mu       sync.RWMutex
+	sessions   map[string]*Session
+	sessionTTL time.Duration
+	logger     *slog.Logger
+	mu         sync.RWMutex
 }
 
 // NewSessionStore cria um novo store de sessões.
@@ -125,8 +191,9 @@ func NewSessionStore(logger *slog.Logger) *SessionStore {
 	}
 
 	return &SessionStore{
-		sessions: make(map[string]*Session),
-		logger:   logger,
+		sessions:   make(map[string]*Session),
+		sessionTTL: DefaultSessionTTL,
+		logger:     logger,
 	}
 }
 
@@ -144,7 +211,7 @@ func (ss *SessionStore) GetOrCreate(channel, chatID string) *Session {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
-	// Double-check após adquirir write lock.
+	// Double-check após adquirir write lock para evitar race.
 	if session, exists := ss.sessions[key]; exists {
 		return session
 	}
@@ -153,12 +220,13 @@ func (ss *SessionStore) GetOrCreate(channel, chatID string) *Session {
 		ID:           key,
 		Channel:      channel,
 		ChatID:       chatID,
-		Config:       SessionConfig{},
-		ActiveSkills: []string{},
-		Facts:        []string{},
+		config:       SessionConfig{},
+		activeSkills: []string{},
+		facts:        []string{},
 		history:      []ConversationEntry{},
+		maxHistory:   DefaultMaxHistory,
 		CreatedAt:    time.Now(),
-		LastActiveAt: time.Now(),
+		lastActiveAt: time.Now(),
 	}
 
 	ss.sessions[key] = session
@@ -182,6 +250,50 @@ func (ss *SessionStore) Count() int {
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
 	return len(ss.sessions)
+}
+
+// Prune remove sessões inativas há mais tempo que o TTL configurado.
+// Deve ser chamado periodicamente (ex: via goroutine com ticker).
+func (ss *SessionStore) Prune() int {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	cutoff := time.Now().Add(-ss.sessionTTL)
+	pruned := 0
+
+	for key, session := range ss.sessions {
+		if session.LastActiveAt().Before(cutoff) {
+			delete(ss.sessions, key)
+			pruned++
+		}
+	}
+
+	if pruned > 0 {
+		ss.logger.Info("sessões inativas removidas",
+			"pruned", pruned,
+			"remaining", len(ss.sessions),
+		)
+	}
+
+	return pruned
+}
+
+// StartPruner inicia uma goroutine que executa Prune periodicamente.
+// Para quando o contexto é cancelado.
+func (ss *SessionStore) StartPruner(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(ss.sessionTTL / 2)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				ss.Prune()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // sessionKey gera a chave única para uma sessão.

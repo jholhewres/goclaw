@@ -33,9 +33,9 @@ COPY --from=builder /app/configs/copilot.example.yaml /etc/copilot/config.exampl
 # Volumes para persistência de sessões e dados
 VOLUME ["/home/copilot/sessions", "/home/copilot/data"]
 
-# Health check
+# Health check via comando `copilot health`.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD copilot health || exit 1
+    CMD ["copilot", "health"]
 
 ENTRYPOINT ["copilot"]
 CMD ["serve", "--config", "/etc/copilot/config.yaml"]

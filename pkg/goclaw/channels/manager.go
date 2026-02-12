@@ -22,6 +22,9 @@ type Manager struct {
 	// logger para logs estruturados.
 	logger *slog.Logger
 
+	// listenWg sincroniza goroutines de escuta para shutdown seguro.
+	listenWg sync.WaitGroup
+
 	mu     sync.RWMutex
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -57,11 +60,25 @@ func (m *Manager) Register(ch Channel) error {
 
 // Start conecta todos os canais registrados e começa a escutar mensagens.
 // Canais que falharem na conexão são logados mas não impedem os demais.
+// Retorna nil se pelo menos um canal conectou ou se nenhum canal foi registrado.
 func (m *Manager) Start(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
+	// Snapshot dos canais sob lock para evitar race com Register.
+	m.mu.RLock()
+	snapshot := make(map[string]Channel, len(m.channels))
+	for k, v := range m.channels {
+		snapshot[k] = v
+	}
+	m.mu.RUnlock()
+
+	if len(snapshot) == 0 {
+		m.logger.Warn("nenhum canal registrado, rodando sem canais de mensagem")
+		return nil
+	}
+
 	var connected int
-	for name, ch := range m.channels {
+	for name, ch := range snapshot {
 		if err := ch.Connect(m.ctx); err != nil {
 			m.logger.Error("falha ao conectar canal",
 				"channel", name,
@@ -73,8 +90,12 @@ func (m *Manager) Start(ctx context.Context) error {
 		connected++
 		m.logger.Info("canal conectado", "channel", name)
 
-		// Escuta mensagens deste canal em goroutine separada.
-		go m.listenChannel(ch)
+		// Escuta mensagens deste canal em goroutine rastreada pelo WaitGroup.
+		m.listenWg.Add(1)
+		go func(c Channel) {
+			defer m.listenWg.Done()
+			m.listenChannel(c)
+		}(ch)
 	}
 
 	if connected == 0 {
@@ -86,10 +107,14 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 // Stop desconecta todos os canais de forma graciosa.
+// Aguarda todas as goroutines de escuta finalizarem antes de fechar o canal de mensagens.
 func (m *Manager) Stop() {
 	if m.cancel != nil {
 		m.cancel()
 	}
+
+	// Aguarda goroutines de escuta finalizarem para evitar panic ao fechar o channel.
+	m.listenWg.Wait()
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -147,6 +172,13 @@ func (m *Manager) HealthAll() map[string]HealthStatus {
 		statuses[name] = ch.Health()
 	}
 	return statuses
+}
+
+// HasChannels retorna true se há pelo menos um canal registrado.
+func (m *Manager) HasChannels() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.channels) > 0
 }
 
 // listenChannel escuta mensagens de um canal e repassa ao stream agregado.

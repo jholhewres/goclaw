@@ -33,7 +33,10 @@ Exemplos:
 
 func runServe(cmd *cobra.Command, _ []string) error {
 	// Configura logger estruturado.
-	verbose, _ := cmd.Flags().GetBool("verbose")
+	verbose, err := cmd.Root().PersistentFlags().GetBool("verbose")
+	if err != nil {
+		verbose = false
+	}
 	logLevel := slog.LevelInfo
 	if verbose {
 		logLevel = slog.LevelDebug
@@ -41,6 +44,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 
 	// Carrega configuração.
+	// TODO: Implementar carregamento real via viper quando --config for especificado.
+	configPath, _ := cmd.Root().PersistentFlags().GetString("config")
+	if configPath != "" {
+		logger.Info("carregando configuração", "path", configPath)
+		// TODO: Carregar config do arquivo YAML.
+	}
 	cfg := copilot.DefaultConfig()
 
 	// Cria o assistente.

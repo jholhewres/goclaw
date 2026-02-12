@@ -73,13 +73,16 @@ func newSkillUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update [name]",
 		Short: "Atualiza skills instaladas",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			all, _ := cmd.Flags().GetBool("all")
 			if all {
+				// TODO: Atualizar todas as skills do registry.
 				fmt.Println("Atualizando todas as skills...")
 				return nil
 			}
 			if len(args) > 0 {
+				// TODO: Atualizar skill específica.
 				fmt.Printf("Atualizando skill %q...\n", args[0])
 				return nil
 			}
