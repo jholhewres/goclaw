@@ -339,17 +339,69 @@ go build -buildmode=plugin -o plugins/mychannel.so my_channel_plugin.go
 
 ## Skills
 
-Skills teach the agent new capabilities. Unlike plugins (which extend the runtime), skills extend the *agent's knowledge and tools*. They live in a separate repository ([goclaw-skills](https://github.com/jholhewres/goclaw-skills)) and follow the OpenClaw skill model.
+Skills teach the agent new capabilities. Unlike plugins (which extend the runtime), skills extend the *agent's knowledge and tools*. They live in a separate repository ([goclaw-skills](https://github.com/jholhewres/goclaw-skills)) and are managed via CLI.
+
+GoClaw supports **two skill formats**:
+
+| Format | Origin | Files | Runtime |
+|--------|--------|-------|---------|
+| **Native Go** | GoClaw | `skill.yaml` + `skill.go` | Compiled Go |
+| **SKILL.md** | [ClawdHub](https://github.com/openclaw/skills) | `SKILL.md` + `scripts/` | Python, Node.js, Shell (sandboxed) |
+
+### Skills Catalog
+
+#### Builtin
+
+| Skill | Tools | Description | API Key |
+|-------|-------|-------------|---------|
+| **weather** | `get_weather`, `get_forecast`, `get_moon` | Weather via [wttr.in](https://wttr.in) + Open-Meteo | No |
+| **calculator** | `calculate`, `convert_units` | Math expressions and unit conversions | No |
+
+#### Data
+
+| Skill | Tools | Description | Requires |
+|-------|-------|-------------|----------|
+| **web-search** | `search`, `search_news` | Web search via Brave Search API or SearXNG | `BRAVE_API_KEY` or `SEARXNG_URL` |
+| **web-fetch** | `fetch`, `fetch_headers`, `fetch_json` | Fetch URLs, extract text/markdown, parse JSON | — |
+| **summarize** | `summarize_url`, `transcribe_url`, `summarize_file`, `summarize_text` | Summarize articles, YouTube, podcasts, files | `summarize` CLI |
+
+#### Development
+
+| Skill | Tools | Description | Requires |
+|-------|-------|-------------|----------|
+| **github** | 17 tools: issues (CRUD), PRs (list/view/diff/checks/merge), CI/CD (runs/rerun), releases, search, raw API | Full GitHub integration | `gh` CLI |
+
+#### Productivity
+
+| Skill | Tools | Description | Requires |
+|-------|-------|-------------|----------|
+| **gog** | Gmail (list/read/send/reply), Calendar (list/create/delete), Drive (list/download/upload) | Google Workspace | `gog` CLI |
+| **calendar** | `list_events`, `create_event`, `delete_event` | Google Calendar | Credentials JSON |
+
+#### ClawdHub Community (900+ skills)
+
+GoClaw can run any skill from the [ClawdHub repository](https://github.com/openclaw/skills) — the community skills archive with 924 stars and 23K+ commits. These skills use Python, Node.js, and Shell scripts, executed inside GoClaw's [script sandbox](#script-sandbox).
+
+```bash
+# Install a ClawdHub skill
+copilot skill install --from clawdhub 1password
+
+# List all available ClawdHub skills
+copilot skill search --source clawdhub
+```
+
+See the full [Skills Catalog](docs/skills-catalog.md) for the complete list and roadmap.
 
 ### What a skill contains
 
 | Component | Purpose | Required |
 |-----------|---------|----------|
-| **Prompt / Soul** | Instructions injected into the system prompt | ✅ |
+| **Prompt / Soul** | Instructions injected into the system prompt | Yes |
 | **Tools** | Functions the LLM can call | Optional |
 | **Triggers** | Natural language patterns that activate the skill | Optional |
 | **Config schema** | User-configurable parameters | Optional |
-| **Metadata** | Name, version, author, category, tags | ✅ |
+| **Metadata** | Name, version, author, category, tags | Yes |
+| **Requirements** | Binaries, env vars, OS (auto-checked) | Optional |
 
 ### CLI Management
 
@@ -357,8 +409,11 @@ Skills teach the agent new capabilities. Unlike plugins (which extend the runtim
 # Search available skills
 copilot skill search calendar
 
-# Install a skill
-copilot skill install github.com/jholhewres/goclaw-skills/calendar
+# Install a skill (native Go)
+copilot skill install calendar
+
+# Install from ClawdHub (Python/JS/Shell, sandboxed)
+copilot skill install --from clawdhub openai-image-gen
 
 # List installed
 copilot skill list
@@ -370,7 +425,7 @@ copilot skill update --all
 copilot skill create my-skill
 ```
 
-### Skill definition
+### Native Go skill (skill.yaml + skill.go)
 
 ```yaml
 # skill.yaml
@@ -386,7 +441,6 @@ config:
   properties:
     credentials_path:
       type: string
-      description: Path to Google credentials JSON
     calendar_id:
       type: string
       default: primary
@@ -395,25 +449,15 @@ tools:
   - name: list_events
     description: List calendar events for a date range
     parameters:
-      start_date:
-        type: string
-        description: Start date (YYYY-MM-DD)
-      end_date:
-        type: string
-        description: End date (YYYY-MM-DD)
+      start_date: { type: string, required: true }
+      end_date:   { type: string, required: true }
 
   - name: create_event
     description: Create a new calendar event
     parameters:
-      title:
-        type: string
-        required: true
-      start_time:
-        type: string
-        required: true
-      duration_minutes:
-        type: integer
-        default: 60
+      title:    { type: string, required: true }
+      start_time: { type: string, required: true }
+      duration_minutes: { type: integer, default: 60 }
 
 system_prompt: |
   You have access to the user's Google Calendar.
@@ -426,8 +470,6 @@ triggers:
   - "schedule a meeting"
   - "check my schedule"
 ```
-
-### Skill implementation
 
 ```go
 // skill.go
@@ -444,45 +486,115 @@ type CalendarSkill struct {
 
 func (s *CalendarSkill) Metadata() skills.Metadata {
     return skills.Metadata{
-        Name:        "calendar",
-        Version:     "1.0.0",
+        Name: "calendar", Version: "1.0.0",
         Description: "Google Calendar integration",
-        Category:    "productivity",
-        Tags:        []string{"calendar", "google", "scheduling"},
+        Category: "productivity",
     }
-}
-
-func (s *CalendarSkill) SystemPrompt() string {
-    return `You have access to the user's Google Calendar.
-When asked about schedule, use list_events.
-When asked to schedule something, use create_event.`
-}
-
-func (s *CalendarSkill) Triggers() []string {
-    return []string{"what's on my calendar", "schedule a meeting", "check my schedule"}
 }
 
 func (s *CalendarSkill) Tools() []skills.Tool {
-    return []skills.Tool{
-        {
-            Name:        "list_events",
-            Description: "List calendar events for a date range",
-            Parameters: []skills.ToolParameter{
-                {Name: "start_date", Type: "string", Description: "Start date (YYYY-MM-DD)", Required: true},
-                {Name: "end_date", Type: "string", Description: "End date (YYYY-MM-DD)", Required: true},
-            },
-            Handler: s.listEvents,
+    return []skills.Tool{{
+        Name:        "list_events",
+        Description: "List calendar events for a date range",
+        Parameters: []skills.ToolParameter{
+            {Name: "start_date", Type: "string", Required: true},
+            {Name: "end_date", Type: "string", Required: true},
         },
-    }
+        Handler: s.listEvents,
+    }}
 }
 
 func (s *CalendarSkill) listEvents(ctx context.Context, args map[string]any) (any, error) {
-    startDate := args["start_date"].(string)
-    endDate := args["end_date"].(string)
     // Google Calendar API call here
-    return map[string]any{"events": []string{}, "start": startDate, "end": endDate}, nil
+    return map[string]any{"events": []string{}}, nil
 }
 ```
+
+### ClawdHub skill (SKILL.md + scripts/)
+
+GoClaw reads the same `SKILL.md` format used by OpenClaw/ClawdHub. Scripts run in the [sandbox](#script-sandbox).
+
+```markdown
+---
+name: openai-image-gen
+description: Batch-generate images via OpenAI Images API.
+metadata: { "openclaw": { "emoji": "...", "requires": { "bins": ["python3"], "env": ["OPENAI_API_KEY"] } } }
+---
+# OpenAI Image Gen
+Run: `python3 {baseDir}/scripts/gen.py --prompt "a sunset" --count 4`
+```
+
+The `{baseDir}` token is automatically replaced with the skill's directory path at runtime.
+
+## Script Sandbox
+
+GoClaw includes a multi-level sandbox for secure execution of Python, Node.js, and Shell scripts from community skills. This is what enables running [ClawdHub](https://github.com/openclaw/skills) skills safely.
+
+### Isolation Levels
+
+| Level | How | Use Case |
+|-------|-----|----------|
+| **none** | Direct `exec.Command` | Trusted/builtin skills |
+| **restricted** | Linux namespaces (PID, mount, network, user) | Community skills |
+| **container** | Docker with purpose-built image | Untrusted scripts |
+
+### Security Layers
+
+```
+Script → Policy Check → Env Filter → Scanner → Executor
+           │                │            │
+           ├─ Allowlist      ├─ Blocks    ├─ Detects eval(),
+           │  validation     │  injection │  reverse shells,
+           └─ Requirement    │  vectors   │  crypto mining,
+              check          │  (LD_*,    │  obfuscated code
+                             │  NODE_*,   └─ data exfiltration
+                             │  PYTHON*)
+                             └─ Strips dangerous env vars
+```
+
+**Environment filtering** blocks injection vectors: `NODE_OPTIONS`, `PYTHONPATH`, `LD_PRELOAD`, `BASH_ENV`, `DYLD_INSERT_LIBRARIES`, and 10+ more.
+
+**Script scanning** detects dangerous patterns before execution:
+
+| Rule | Severity | Detects |
+|------|----------|---------|
+| `python-exec` | Critical | `exec()`, `eval()` in Python |
+| `subprocess-shell` | Critical | `subprocess.run(shell=True)` |
+| `node-eval` | Critical | `eval()`, `new Function()` |
+| `reverse-shell` | Critical | `/dev/tcp/`, `nc -e`, socket.connect |
+| `crypto-mining` | Critical | stratum+tcp, coinhive, xmrig |
+| `exfiltration` | Warn | Access to `/etc/passwd`, `.ssh/` |
+| `obfuscation` | Warn | Hex-encoded strings, base64+exec |
+
+### Sandbox Configuration
+
+```yaml
+# config.yaml
+sandbox:
+  default_isolation: restricted   # none, restricted, container
+  timeout: 60s
+  max_memory_mb: 256
+  max_cpu_percent: 50
+  max_output_bytes: 1048576       # 1MB
+  allow_network: false
+  docker:
+    image: goclaw-sandbox:latest
+    build_on_start: true
+    network: none
+```
+
+### Docker Sandbox Image
+
+The container executor auto-builds a Debian image with Python 3, Node.js, and common tools:
+
+```bash
+# Build manually
+docker build -t goclaw-sandbox -f Dockerfile.sandbox .
+
+# Or let GoClaw build it on first use (docker.build_on_start: true)
+```
+
+The container runs as non-root, with `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, and `--network none` by default.
 
 ## Scheduler
 
@@ -512,6 +624,7 @@ GoClaw applies guardrails at every stage of the message flow:
 | **Session** | Isolated per chat/group, auto-pruning of inactive sessions |
 | **Prompt** | 8-layer system with token budget, no unbounded context |
 | **Tools** | Whitelist per skill, confirmation for destructive actions |
+| **Scripts** | Multi-level sandbox (namespaces/Docker), env filtering, content scanning |
 | **Output** | System prompt leak detection, empty response fallback |
 | **Deploy** | systemd hardening (ProtectSystem, PrivateTmp, MemoryMax) |
 
@@ -563,7 +676,23 @@ skills:
   builtin:
     - weather
     - calculator
-    - websearch
+    - web-search
+    - web-fetch
+  installed:
+    - github
+    - gog
+    - summarize
+  clawdhub_dirs:                # Directories with SKILL.md format skills
+    - "./skills/clawdhub"
+
+sandbox:
+  default_isolation: restricted # none, restricted, container
+  timeout: 60s
+  max_memory_mb: 256
+  allow_network: false
+  docker:
+    image: goclaw-sandbox:latest
+    build_on_start: true
 ```
 
 ## Deploy
@@ -613,20 +742,40 @@ make build
 
 ```
 goclaw/
-├── cmd/copilot/              # CLI application
+├── cmd/copilot/                # CLI application
 │   ├── main.go
-│   └── commands/             # Cobra commands
+│   └── commands/               # Cobra commands (chat, serve, skill, ...)
 ├── pkg/goclaw/
-│   ├── channels/             # Channel interface + Manager (core)
-│   ├── copilot/              # Assistant + Prompt + Session (core)
-│   │   └── security/         # I/O guardrails (core)
-│   ├── plugins/              # Plugin loader (core)
-│   ├── skills/               # Skill interface + Registry (core)
-│   └── scheduler/            # Cron-based job scheduling (core)
-├── plugins/                  # Plugin .so files (loaded at runtime)
-├── skills/                   # Submodule → goclaw-skills
-├── configs/                  # Example configs
-├── docs/                     # Plans & specs
+│   ├── channels/               # Channel interface + Manager (core)
+│   ├── copilot/                # Assistant + Prompt + Session (core)
+│   │   └── security/           # I/O guardrails (core)
+│   ├── sandbox/                # Script sandbox (multi-level isolation)
+│   │   ├── sandbox.go          #   Interface, config, types
+│   │   ├── runner.go           #   Main runner (dispatch + policy)
+│   │   ├── policy.go           #   Security policy (allowlist, scanner)
+│   │   ├── exec_direct.go      #   IsolationNone executor
+│   │   ├── exec_restricted.go  #   Linux namespace executor
+│   │   └── exec_docker.go      #   Docker container executor
+│   ├── skills/                 # Skill system (core)
+│   │   ├── skill.go            #   Skill interface + types
+│   │   ├── registry.go         #   Registry + index + loaders
+│   │   ├── clawdhub_loader.go  #   ClawdHub SKILL.md parser
+│   │   └── script_skill.go     #   Script→Skill adapter
+│   ├── plugins/                # Plugin loader (core)
+│   └── scheduler/              # Cron-based job scheduling (core)
+├── plugins/                    # Plugin .so files (loaded at runtime)
+├── skills/                     # Submodule → goclaw-skills
+│   ├── skills/
+│   │   ├── builtin/            #   weather, calculator
+│   │   ├── data/               #   web-search, web-fetch, summarize
+│   │   ├── development/        #   github
+│   │   ├── productivity/       #   gog, calendar
+│   │   └── communication/      #   gmail
+│   ├── schemas/                #   skill.schema.json
+│   ├── templates/              #   Scaffolding templates
+│   └── index.yaml              #   Skills catalog
+├── configs/                    # Example configs
+├── docs/                       # Plans, specs, skills catalog
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Makefile
@@ -644,6 +793,8 @@ goclaw/
 | [cobra](https://github.com/spf13/cobra) | CLI framework |
 | [cron](https://github.com/robfig/cron) | Task scheduler |
 
+No external dependencies for the sandbox — it uses Go's `os/exec`, `syscall` (Linux namespaces), and Docker CLI.
+
 ## Roadmap
 
 - [x] Core scaffolding: channels, skills, scheduler, assistant, security
@@ -653,6 +804,10 @@ goclaw/
 - [x] Session isolation with auto-pruning
 - [x] Docker + systemd + Makefile
 - [x] Skills repository as submodule
+- [x] 10+ skills: weather, calculator, github, web-search, web-fetch, summarize, gog, calendar
+- [x] Script sandbox (none / Linux namespaces / Docker)
+- [x] ClawdHub SKILL.md compatibility layer
+- [x] Script security: env filtering, content scanning, allowlisting
 - [ ] WhatsApp channel implementation (whatsmeow, core)
 - [ ] Plugin loader system (Go native plugins)
 - [ ] Discord channel as plugin
@@ -661,7 +816,10 @@ goclaw/
 - [ ] Full AgentGo SDK integration (agent.Run in message loop)
 - [ ] Memory persistence (SQLite)
 - [ ] RAG with embeddings
-- [ ] 10+ skills in the repository
+- [ ] Filesystem skill loader (auto-discover skills from disk)
+- [ ] `copilot skill install --from clawdhub` implementation
+- [ ] Phase 2 skills: 1password, obsidian, notion, openai-image-gen, memory-search
+- [ ] Phase 3 skills: tts, whisper, video-frames, spotify, openhue, browser
 - [ ] Web dashboard
 - [ ] Multi-agent teams
 

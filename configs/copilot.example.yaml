@@ -55,12 +55,40 @@ token_budget:
   history: 8000
   tools: 4000
 
-# Skills habilitadas
+# Plugins (Go native .so)
+plugins:
+  dir: "./plugins"
+
+# Skills
 skills:
   builtin:
     - weather
     - calculator
-    - websearch
+    - web-search
+    - web-fetch
+  installed:
+    - github
+    - gog
+    - summarize
+  clawdhub_dirs:          # Directories with ClawdHub SKILL.md skills
+    # - "./skills/clawdhub"
+
+# Script sandbox (for Python/Node.js/Shell skills)
+sandbox:
+  default_isolation: restricted   # none, restricted, container
+  timeout: 60s
+  max_memory_mb: 256
+  max_cpu_percent: 50
+  max_output_bytes: 1048576       # 1MB
+  allow_network: false
+  runtimes:
+    python: python3
+    node: node
+    shell: /bin/sh
+  docker:
+    image: goclaw-sandbox:latest
+    build_on_start: true          # Auto-build if missing
+    network: none                 # No network by default
 
 # Logging
 logging:
