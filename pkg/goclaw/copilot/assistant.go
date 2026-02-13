@@ -174,6 +174,13 @@ func (a *Assistant) Start(ctx context.Context) error {
 		"workspaces", a.workspaceMgr.Count(),
 	)
 
+	// 0pre. Inject vault secrets as environment variables so skills and scripts
+	// can access them via os.Getenv / process.env without needing .env files.
+	// This runs once at startup with zero runtime cost.
+	if a.vault != nil && a.vault.IsUnlocked() {
+		a.injectVaultEnvVars()
+	}
+
 	// 0. Initialize memory stores.
 	memDir := filepath.Join(filepath.Dir(a.config.Memory.Path), "memory")
 	memStore, err := memory.NewFileStore(memDir)
@@ -417,6 +424,42 @@ func (a *Assistant) SetVault(v *Vault) {
 // Vault returns the vault instance (may be nil if unavailable).
 func (a *Assistant) Vault() *Vault {
 	return a.vault
+}
+
+// injectVaultEnvVars loads all vault secrets as environment variables.
+// Key names are uppercased and prefixed if not already (e.g. "brave_api_key" → "BRAVE_API_KEY").
+// Existing env vars are NOT overwritten — vault only fills gaps.
+// This allows skills/scripts to use process.env.BRAVE_API_KEY without .env files.
+func (a *Assistant) injectVaultEnvVars() {
+	keys := a.vault.List()
+	if len(keys) == 0 {
+		return
+	}
+
+	injected := 0
+	for _, key := range keys {
+		envName := strings.ToUpper(key)
+
+		// Don't overwrite existing env vars.
+		if os.Getenv(envName) != "" {
+			continue
+		}
+
+		val, err := a.vault.Get(key)
+		if err != nil || val == "" {
+			continue
+		}
+
+		if err := os.Setenv(envName, val); err != nil {
+			a.logger.Warn("failed to set env from vault", "key", envName, "error", err)
+			continue
+		}
+		injected++
+	}
+
+	if injected > 0 {
+		a.logger.Info("vault secrets injected as env vars", "count", injected, "total_keys", len(keys))
+	}
 }
 
 // AccessManager returns the access manager.
