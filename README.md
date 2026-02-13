@@ -36,20 +36,30 @@ git clone https://github.com/jholhewres/goclaw.git
 cd goclaw
 make build
 
-# Create config and set your phone number
-make init
-# Edit config.yaml → access.owners → your phone number
+# Interactive setup wizard (config + encrypted vault)
+./bin/copilot setup
 
 # Start (scan QR code on first run)
 make run
 ```
 
+The setup wizard guides you through all configuration: assistant name, phone number, access policy, API key (encrypted), model selection, language, and WhatsApp settings.
+
 Or install directly:
 
 ```bash
 go install github.com/jholhewres/goclaw/cmd/copilot@latest
-copilot config init
+copilot setup
 copilot serve
+```
+
+### CLI Chat
+
+Talk to the assistant directly from the terminal — same agent loop, tools, and skills as WhatsApp:
+
+```bash
+copilot chat                           # Interactive REPL
+copilot chat "What time is it in SP?"  # Single message
 ```
 
 ## Access Control
@@ -327,6 +337,7 @@ Security is applied at every stage of the message flow:
 
 | Stage | Protection |
 |-------|-----------|
+| **Secrets** | Encrypted vault (AES-256-GCM + Argon2id), OS keyring, env vars — never plaintext on disk |
 | **Access** | Allowlist/blocklist, deny-by-default, per-user and per-group permissions |
 | **Input** | Rate limiting, prompt injection detection, max input length |
 | **Session** | Isolated per chat and per workspace, auto-pruning |
@@ -336,13 +347,44 @@ Security is applied at every stage of the message flow:
 | **Output** | System prompt leak detection, empty response fallback |
 | **Deploy** | systemd hardening (ProtectSystem, PrivateTmp, MemoryMax) |
 
+### Encrypted Vault
+
+API keys and secrets are stored in an **encrypted vault** (`.goclaw.vault`) protected by a master password you choose during setup. Even with full filesystem access, nobody can read your credentials without the password.
+
+- **Encryption**: AES-256-GCM (authenticated encryption)
+- **Key derivation**: Argon2id (64 MB memory, 3 iterations, 4 threads — resistant to brute-force and GPU attacks)
+- **Password**: never stored anywhere — exists only in your memory
+- **File permissions**: 0600 (owner read/write only)
+
+```
+Secret resolution order (first match wins):
+
+  1. Encrypted vault   (.goclaw.vault)     — password required, most secure
+  2. OS keyring        (GNOME/macOS/Win)   — requires user session
+  3. Environment var   (GOCLAW_API_KEY)    — process-level
+  4. config.yaml       (${GOCLAW_API_KEY}) — plaintext, least secure
+```
+
+#### Vault Commands
+
+```bash
+copilot config vault-init              # Create vault with master password
+copilot config vault-set               # Store API key in vault (encrypted)
+copilot config vault-status            # Show vault status and stored keys
+copilot config vault-change-password   # Re-encrypt with new password
+copilot config key-status              # Show where the API key is loaded from
+```
+
+On startup (`copilot serve` or `copilot chat`), if the vault exists, GoClaw prompts for the master password before connecting.
+
 ## Configuration
 
 ```bash
-make init          # Create config.yaml with defaults
-make validate      # Validate without running
-make run           # Build + serve (auto-detects config.yaml)
-make run VERBOSE=1 # With debug logs
+./bin/copilot setup    # Interactive wizard (recommended for first time)
+make init              # Create config.yaml with defaults
+make validate          # Validate without running
+make run               # Build + serve (auto-detects config.yaml)
+make run VERBOSE=1     # With debug logs
 ```
 
 Full config reference: see [configs/copilot.example.yaml](configs/copilot.example.yaml).
@@ -375,11 +417,18 @@ make build
 
 | Command | Description |
 |---------|-------------|
+| `copilot setup` | Interactive setup wizard (config + vault) |
 | `copilot chat [msg]` | Interactive chat or single message |
 | `copilot serve` | Start daemon with messaging channels |
 | `copilot config init` | Create default config |
 | `copilot config show` | Show current config |
 | `copilot config validate` | Validate config |
+| `copilot config vault-init` | Create encrypted vault |
+| `copilot config vault-set` | Store API key in vault |
+| `copilot config vault-status` | Show vault status |
+| `copilot config vault-change-password` | Change vault master password |
+| `copilot config set-key` | Store API key in OS keyring |
+| `copilot config key-status` | Show API key resolution source |
 | `copilot skill list` | List installed skills |
 | `copilot skill search <query>` | Search available skills |
 | `copilot skill install <name>` | Install a skill |
@@ -393,25 +442,35 @@ make build
 ```
 goclaw/
 ├── cmd/copilot/                # CLI application
-│   └── commands/               # Cobra commands
+│   └── commands/               # Cobra commands (chat, serve, setup, config, etc.)
 ├── pkg/goclaw/
 │   ├── channels/               # Channel interface + Manager
 │   │   └── whatsapp/           # WhatsApp (whatsmeow, core)
 │   ├── copilot/                # Assistant orchestrator
+│   │   ├── assistant.go        # Main message flow + agent orchestration
+│   │   ├── agent.go            # Agent loop (multi-turn tool calling)
 │   │   ├── access.go           # Access control (allowlist/blocklist)
 │   │   ├── workspace.go        # Multi-tenant workspaces
 │   │   ├── commands.go         # Admin commands via chat
-│   │   ├── assistant.go        # Main message flow
 │   │   ├── prompt_layers.go    # 8-layer prompt composer
-│   │   ├── session.go          # Session isolation
-│   │   ├── loader.go           # YAML config loader
+│   │   ├── session.go          # Session isolation + compaction
+│   │   ├── llm.go              # LLM client (OpenAI-compatible)
+│   │   ├── tool_executor.go    # Tool registry + dispatch
+│   │   ├── system_tools.go     # Built-in tools (web, file, memory, cron)
+│   │   ├── skill_creator.go    # Create skills via chat
+│   │   ├── heartbeat.go        # Proactive agent behavior
+│   │   ├── vault.go            # Encrypted vault (AES-256-GCM + Argon2id)
+│   │   ├── keyring.go          # OS keyring + secret resolution chain
+│   │   ├── loader.go           # YAML config loader + env expansion
+│   │   ├── memory/             # Persistent memory (filesystem)
 │   │   └── security/           # I/O guardrails
 │   ├── plugins/                # Go native plugin loader (.so)
 │   ├── sandbox/                # Script sandbox (namespaces/Docker)
-│   ├── skills/                 # Skill system + ClawdHub loader
-│   └── scheduler/              # Cron-based scheduling
+│   ├── skills/                 # Skill system + ClawdHub + builtin adapter
+│   └── scheduler/              # Cron scheduler with file persistence
 ├── skills/                     # Submodule → goclaw-skills
-├── configs/                    # Example configs
+├── configs/                    # Example configs + bootstrap files
+├── .goclaw.vault               # Encrypted secrets (gitignored)
 ├── Makefile
 ├── Dockerfile
 ├── docker-compose.yml
@@ -423,33 +482,44 @@ goclaw/
 
 | Package | Purpose |
 |---------|---------|
-| [agent-go](https://github.com/jholhewres/agent-go) | Agent SDK (models, tools, memory, hooks) |
 | [whatsmeow](https://go.mau.fi/whatsmeow) | WhatsApp (native Go, core) |
 | [cobra](https://github.com/spf13/cobra) | CLI framework |
 | [cron](https://github.com/robfig/cron) | Task scheduler |
 | [yaml.v3](https://gopkg.in/yaml.v3) | Configuration |
+| [go-keyring](https://github.com/zalando/go-keyring) | OS keyring (GNOME/macOS/Windows) |
+| [x/crypto](https://pkg.go.dev/golang.org/x/crypto) | Argon2id key derivation for vault |
+| [x/term](https://pkg.go.dev/golang.org/x/term) | Hidden password input |
+| [godotenv](https://github.com/joho/godotenv) | .env file loading |
 
 No external dependencies for the sandbox — uses Go's `os/exec`, `syscall` (Linux namespaces), and Docker CLI.
+Encryption uses Go's standard library (`crypto/aes`, `crypto/cipher`) + `x/crypto` for Argon2id.
 
 ## Roadmap
 
 - [x] Core: channels, skills, scheduler, assistant, security guardrails
-- [x] CLI: chat, serve, schedule, skill, config, remember, health
+- [x] CLI: chat (interactive REPL), serve, schedule, skill, config, setup, remember, health
+- [x] Interactive setup wizard (guided config + vault creation)
+- [x] Encrypted vault for secrets (AES-256-GCM + Argon2id)
+- [x] OS keyring integration (GNOME Keyring / macOS Keychain / Windows Credential Manager)
+- [x] Agent loop with multi-turn tool calling and reflection
+- [x] Persistent memory (filesystem-based: MEMORY.md, daily logs)
+- [x] Session compaction (LLM-based summarization)
 - [x] Prompt composer (8 layers with token budget)
 - [x] Session isolation with auto-pruning
 - [x] WhatsApp channel (whatsmeow — text, media, audio, video, docs, stickers, reactions)
 - [x] Plugin loader (Go native `.so`)
-- [x] Access control (allowlist, blocklist, deny-by-default)
+- [x] Access control (allowlist, blocklist, deny-by-default, LID resolution)
 - [x] Multi-tenant workspaces with isolated memory
 - [x] Admin commands via chat (/allow, /block, /ws, /group)
-- [x] YAML config loader with auto-discovery
+- [x] YAML config loader with auto-discovery + env expansion
 - [x] Script sandbox (none / Linux namespaces / Docker)
 - [x] OpenClaw SKILL.md compatibility layer
-- [x] 10+ skills: weather, calculator, github, web-search, web-fetch, summarize, gog
-- [ ] Full AgentGo SDK integration (agent.Run in message loop)
+- [x] Cron scheduler with file persistence + proactive heartbeat
+- [x] Skill creation via chat (init_skill, edit_skill, add_script)
+- [x] Built-in tools: web_search, web_fetch, exec, read/write/list files, memory, cron
+- [x] 8 skills: weather, calculator, github, web-search, web-fetch, summarize, gog, calendar
 - [ ] Discord channel plugin
 - [ ] Telegram channel plugin
-- [ ] Memory persistence (SQLite)
 - [ ] `copilot skill install --from clawdhub` implementation
 - [ ] RAG with embeddings
 - [ ] Web dashboard
