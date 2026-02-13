@@ -1,12 +1,13 @@
-// Package copilot implementa o orquestrador principal do AgentGo Copilot.
-// Coordena canais, skills, scheduler, memória e segurança para processar
-// mensagens de usuários e gerar respostas via LLM.
+// Package copilot implements the main orchestrator for GoClaw.
+// Coordinates channels, skills, scheduler, access control, workspaces,
+// and security to process user messages and generate LLM responses.
 package copilot
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jholhewres/goclaw/pkg/goclaw/channels"
@@ -15,42 +16,46 @@ import (
 	"github.com/jholhewres/goclaw/pkg/goclaw/skills"
 )
 
-// Assistant é o orquestrador principal do AgentGo Copilot.
-// Coordena o fluxo completo: recepção → validação → contexto → execução → resposta.
+// Assistant is the main orchestrator for GoClaw.
+// Message flow: receive → access check → command check → trigger check →
+// workspace resolve → input validation → context build → agent → output validation → send.
 type Assistant struct {
-	// config contém as configurações do assistente.
 	config *Config
 
-	// channelMgr gerencia os canais de comunicação.
+	// channelMgr manages communication channels.
 	channelMgr *channels.Manager
 
-	// skillRegistry gerencia as skills disponíveis.
+	// accessMgr manages access control (who can use the bot).
+	accessMgr *AccessManager
+
+	// workspaceMgr manages isolated workspaces/profiles.
+	workspaceMgr *WorkspaceManager
+
+	// skillRegistry manages available skills.
 	skillRegistry *skills.Registry
 
-	// scheduler gerencia tarefas agendadas.
+	// scheduler manages scheduled tasks.
 	scheduler *scheduler.Scheduler
 
-	// sessionStore gerencia sessões por chat/grupo.
+	// sessionStore manages sessions for the default workspace (backward compat).
 	sessionStore *SessionStore
 
-	// promptComposer monta o prompt em camadas.
+	// promptComposer builds layered prompts.
 	promptComposer *PromptComposer
 
-	// inputGuard valida inputs antes do processamento.
+	// inputGuard validates inputs before processing.
 	inputGuard *security.InputGuardrail
 
-	// outputGuard valida outputs antes do envio.
+	// outputGuard validates outputs before sending.
 	outputGuard *security.OutputGuardrail
 
-	// logger para logs estruturados.
 	logger *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// New cria um novo Assistant com as dependências fornecidas.
-// Se cfg for nil, usa a configuração padrão.
+// New creates a new Assistant with all dependencies.
 func New(cfg *Config, logger *slog.Logger) *Assistant {
 	if cfg == nil {
 		cfg = DefaultConfig()
@@ -62,6 +67,8 @@ func New(cfg *Config, logger *slog.Logger) *Assistant {
 	return &Assistant{
 		config:         cfg,
 		channelMgr:     channels.NewManager(logger.With("component", "channels")),
+		accessMgr:      NewAccessManager(cfg.Access, logger),
+		workspaceMgr:   NewWorkspaceManager(cfg, cfg.Workspaces, logger),
 		skillRegistry:  skills.NewRegistry(logger.With("component", "skills")),
 		sessionStore:   NewSessionStore(logger.With("component", "sessions")),
 		promptComposer: NewPromptComposer(cfg),
@@ -71,76 +78,88 @@ func New(cfg *Config, logger *slog.Logger) *Assistant {
 	}
 }
 
-// Start inicializa e inicia todos os subsistemas do assistente.
+// Start initializes and starts all subsystems.
 func (a *Assistant) Start(ctx context.Context) error {
 	a.ctx, a.cancel = context.WithCancel(ctx)
 
-	a.logger.Info("iniciando AgentGo Copilot",
+	a.logger.Info("starting GoClaw Copilot",
 		"name", a.config.Name,
 		"model", a.config.Model,
+		"access_policy", a.config.Access.DefaultPolicy,
+		"workspaces", a.workspaceMgr.Count(),
 	)
 
-	// 1. Carrega skills de todos os loaders.
+	// 1. Load skills.
 	if err := a.skillRegistry.LoadAll(a.ctx); err != nil {
-		a.logger.Error("falha ao carregar skills", "error", err)
+		a.logger.Error("failed to load skills", "error", err)
 	}
 
-	// 2. Inicia o gerenciador de canais (permite 0 canais no modo CLI).
+	// 2. Start channel manager (allows 0 channels for CLI mode).
 	if err := a.channelMgr.Start(a.ctx); err != nil {
-		return fmt.Errorf("falha ao iniciar canais: %w", err)
+		return fmt.Errorf("failed to start channels: %w", err)
 	}
 
-	// 2.1. Inicia pruner de sessões inativas.
-	a.sessionStore.StartPruner(a.ctx)
+	// 3. Start session pruners for all workspaces.
+	a.workspaceMgr.StartPruners(a.ctx)
 
-	// 3. Inicia o scheduler, se habilitado.
+	// 4. Start scheduler if enabled.
 	if a.scheduler != nil {
 		if err := a.scheduler.Start(a.ctx); err != nil {
-			a.logger.Error("falha ao iniciar scheduler", "error", err)
+			a.logger.Error("failed to start scheduler", "error", err)
 		}
 	}
 
-	// 4. Inicia o loop principal de processamento de mensagens.
+	// 5. Start main message processing loop.
 	go a.messageLoop()
 
-	a.logger.Info("AgentGo Copilot iniciado com sucesso")
+	a.logger.Info("GoClaw Copilot started successfully")
 	return nil
 }
 
-// Stop encerra todos os subsistemas de forma graciosa.
+// Stop gracefully shuts down all subsystems.
 func (a *Assistant) Stop() {
-	a.logger.Info("encerrando AgentGo Copilot...")
+	a.logger.Info("stopping GoClaw Copilot...")
 
 	if a.cancel != nil {
 		a.cancel()
 	}
 
-	// Encerra em ordem reversa de inicialização.
+	// Shut down in reverse initialization order.
 	if a.scheduler != nil {
 		a.scheduler.Stop()
 	}
 	a.channelMgr.Stop()
 	a.skillRegistry.ShutdownAll()
 
-	a.logger.Info("AgentGo Copilot encerrado")
+	a.logger.Info("GoClaw Copilot stopped")
 }
 
-// ChannelManager retorna o gerenciador de canais para registro externo.
+// ChannelManager returns the channel manager for external registration.
 func (a *Assistant) ChannelManager() *channels.Manager {
 	return a.channelMgr
 }
 
-// SkillRegistry retorna o registro de skills.
+// AccessManager returns the access manager.
+func (a *Assistant) AccessManager() *AccessManager {
+	return a.accessMgr
+}
+
+// WorkspaceManager returns the workspace manager.
+func (a *Assistant) WorkspaceManager() *WorkspaceManager {
+	return a.workspaceMgr
+}
+
+// SkillRegistry returns the skills registry.
 func (a *Assistant) SkillRegistry() *skills.Registry {
 	return a.skillRegistry
 }
 
-// SetScheduler configura o scheduler do assistente.
+// SetScheduler configures the assistant's scheduler.
 func (a *Assistant) SetScheduler(s *scheduler.Scheduler) {
 	a.scheduler = s
 }
 
-// messageLoop é o loop principal que processa mensagens de todos os canais.
+// messageLoop is the main loop that processes messages from all channels.
 func (a *Assistant) messageLoop() {
 	for {
 		select {
@@ -156,8 +175,8 @@ func (a *Assistant) messageLoop() {
 	}
 }
 
-// handleMessage processa uma mensagem individual seguindo o fluxo completo:
-// trigger check → input validation → context build → agent execution → output validation → send.
+// handleMessage processes an individual message following the full flow:
+// access check → command → trigger → workspace → validate → build → execute → validate → send.
 func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 	start := time.Now()
 	logger := a.logger.With(
@@ -167,65 +186,136 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 		"msg_id", msg.ID,
 	)
 
-	// 1. Verifica trigger (ex: @copilot).
-	if !a.matchesTrigger(msg.Content) {
+	// ── Step 0: Access control ──
+	// Check if the sender is authorized BEFORE anything else.
+	// This is the OpenClaw-style behavior: unknown contacts are silently ignored.
+	accessResult := a.accessMgr.Check(msg)
+
+	if !accessResult.Allowed {
+		// If policy is "ask", send a one-time message.
+		if accessResult.ShouldAsk {
+			a.sendReply(msg, a.accessMgr.PendingMessage())
+			a.accessMgr.MarkAsked(msg.From)
+			logger.Info("access pending, sent request message",
+				"from", msg.From)
+		} else {
+			logger.Debug("message ignored (access denied)",
+				"reason", accessResult.Reason)
+		}
 		return
 	}
 
-	logger.Info("mensagem recebida, processando...")
+	// ── Step 1: Admin commands ──
+	// Check for /commands BEFORE trigger check (commands always work).
+	if IsCommand(msg.Content) {
+		result := a.HandleCommand(msg)
+		if result.Handled {
+			if result.Response != "" {
+				a.sendReply(msg, result.Response)
+			}
+			logger.Info("admin command processed",
+				"duration_ms", time.Since(start).Milliseconds())
+			return
+		}
+	}
 
-	// 2. Valida input (injection, rate limit, tamanho).
+	// ── Step 2: Resolve workspace ──
+	// Determine which workspace this message belongs to.
+	resolved := a.workspaceMgr.Resolve(
+		msg.Channel, msg.ChatID, msg.From, msg.IsGroup)
+
+	workspace := resolved.Workspace
+	session := resolved.Session
+
+	logger = logger.With("workspace", workspace.ID)
+
+	// ── Step 3: Check trigger ──
+	// Use workspace trigger if set, otherwise global.
+	trigger := a.config.Trigger
+	if workspace.Trigger != "" {
+		trigger = workspace.Trigger
+	}
+	if !a.matchesTrigger(msg.Content, trigger, msg.IsGroup) {
+		return
+	}
+
+	logger.Info("message received, processing...",
+		"access_level", accessResult.Level)
+
+	// ── Step 4: Validate input ──
 	if err := a.inputGuard.Validate(msg.From, msg.Content); err != nil {
-		logger.Warn("input rejeitado", "error", err)
-		a.sendReply(msg, fmt.Sprintf("Desculpe, não posso processar: %v", err))
+		logger.Warn("input rejected", "error", err)
+		a.sendReply(msg, fmt.Sprintf("Sorry, I can't process that: %v", err))
 		return
 	}
 
-	// 3. Carrega/cria sessão para este chat.
-	session := a.sessionStore.GetOrCreate(msg.Channel, msg.ChatID)
+	// ── Step 5: Build prompt with workspace context ──
+	prompt := a.composeWorkspacePrompt(workspace, session, msg.Content)
 
-	// 4. Monta o prompt com todas as camadas.
-	prompt := a.promptComposer.Compose(session, msg.Content)
-
-	// 5. Executa o agente com LLM.
-	// TODO: Integrar com o agent executor real.
+	// ── Step 6: Execute agent ──
+	// TODO: Integrate with the real agent executor.
 	response := a.executeAgent(a.ctx, prompt, session)
 
-	// 6. Valida output (URLs, PII, fatos).
+	// ── Step 7: Validate output ──
 	if err := a.outputGuard.Validate(response); err != nil {
-		logger.Warn("output rejeitado, aplicando fallback", "error", err)
-		response = "Desculpe, encontrei um problema ao gerar a resposta. Pode reformular?"
+		logger.Warn("output rejected, applying fallback", "error", err)
+		response = "Sorry, I encountered an issue generating the response. Could you rephrase?"
 	}
 
-	// 7. Atualiza sessão com a conversa.
+	// ── Step 8: Update session ──
 	session.AddMessage(msg.Content, response)
 
-	// 8. Envia resposta.
+	// ── Step 9: Send reply ──
 	a.sendReply(msg, response)
 
-	logger.Info("mensagem processada",
+	logger.Info("message processed",
 		"duration_ms", time.Since(start).Milliseconds(),
+		"workspace", workspace.ID,
 	)
 }
 
-// matchesTrigger verifica se a mensagem contém a palavra-chave de ativação.
-func (a *Assistant) matchesTrigger(content string) bool {
-	// TODO: Implementar matching mais sofisticado (regex, menção, DM direto).
-	trigger := a.config.Trigger
+// matchesTrigger checks if a message matches the activation keyword.
+// In DMs, the trigger is optional (always responds).
+// In groups, the trigger is required unless the group has its own trigger.
+func (a *Assistant) matchesTrigger(content, trigger string, isGroup bool) bool {
+	// No trigger configured = always respond.
 	if trigger == "" {
-		return true // Sem trigger = sempre responde (modo DM).
+		return true
 	}
-	return len(content) >= len(trigger) && content[:len(trigger)] == trigger
+
+	// In DMs, respond even without trigger.
+	if !isGroup {
+		return true
+	}
+
+	// In groups, require the trigger.
+	content = strings.TrimSpace(content)
+	return len(content) >= len(trigger) &&
+		strings.EqualFold(content[:len(trigger)], trigger)
 }
 
-// executeAgent executa o agente LLM com o prompt montado.
+// composeWorkspacePrompt builds the prompt using workspace overrides.
+func (a *Assistant) composeWorkspacePrompt(ws *Workspace, session *Session, input string) string {
+	// If workspace has custom instructions, inject them as business context.
+	if ws.Instructions != "" {
+		cfg := session.GetConfig()
+		if cfg.BusinessContext != ws.Instructions {
+			cfg.BusinessContext = ws.Instructions
+			session.SetConfig(cfg)
+		}
+	}
+
+	return a.promptComposer.Compose(session, input)
+}
+
+// executeAgent runs the LLM agent with the composed prompt.
 func (a *Assistant) executeAgent(_ context.Context, prompt string, _ *Session) string {
-	// TODO: Integrar com o SDK AgentGo (agent.Run, tools, etc).
+	// TODO: Integrate with AgentGo SDK (agent.Run, tools, etc).
 	_ = prompt
-	return "AgentGo Copilot está em desenvolvimento. Em breve estarei funcional!"
+	return "GoClaw Copilot is under development. I'll be fully functional soon!"
 }
 
-// sendReply envia uma resposta para o canal de origem da mensagem.
+// sendReply sends a response to the original message's channel.
 func (a *Assistant) sendReply(original *channels.IncomingMessage, content string) {
 	outMsg := &channels.OutgoingMessage{
 		Content: content,
@@ -233,10 +323,11 @@ func (a *Assistant) sendReply(original *channels.IncomingMessage, content string
 	}
 
 	if err := a.channelMgr.Send(a.ctx, original.Channel, original.ChatID, outMsg); err != nil {
-		a.logger.Error("falha ao enviar resposta",
+		a.logger.Error("failed to send reply",
 			"channel", original.Channel,
 			"chat_id", original.ChatID,
 			"error", err,
 		)
 	}
 }
+
