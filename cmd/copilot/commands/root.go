@@ -31,6 +31,7 @@ Exemplos:
 		newConfigCmd(),
 		newRememberCmd(),
 		newHealthCmd(),
+		newChangelogCmd(version),
 	)
 
 	// Flags globais.

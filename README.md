@@ -58,7 +58,7 @@ goclaw/
 │   ├── sandbox/              Script sandbox (namespaces / Docker)
 │   ├── scheduler/            Cron scheduler with file persistence
 │   └── skills/               Skill system, ClawHub client, builtin adapter
-├── skills/                   Submodule → goclaw-skills repository
+├── skills/                   User-managed skills directory (git-ignored)
 ├── configs/
 │   ├── bootstrap/            Template bootstrap files (SOUL.md, AGENTS.md, etc.)
 │   └── copilot.example.yaml  Full config reference
@@ -423,6 +423,30 @@ access:
 
 Roles: **owner** > **admin** > **user** > **blocked**. Managed via chat commands (`/allow`, `/block`, `/admin`, `/users`).
 
+### Skills
+
+Skills extend the agent's capabilities. The `skills/` directory at the project root is **user-managed** and git-ignored — your custom skills are never overwritten during updates.
+
+```bash
+copilot skill install brave-search    # Install from ClawHub
+copilot skill install github.com/user/my-skill  # Install from GitHub
+copilot skill list                    # List installed skills
+```
+
+Each skill is a folder inside `skills/` containing a `SKILL.md` (instructions for the agent) and optional scripts. You can also create skills via chat:
+
+> "Crie uma skill de clima que usa a API do OpenWeatherMap"
+
+The built-in skill engine (`pkg/goclaw/skills/`) handles loading, validation, and ClawHub integration. The `skills/` directory is exclusively for user-installed content.
+
+| Source | Example |
+|--------|---------|
+| ClawHub | `copilot skill install brave-search` |
+| GitHub | `copilot skill install github.com/user/repo` |
+| URL | `copilot skill install https://example.com/skill.tar.gz` |
+| Local | `copilot skill install ./my-local-skill` |
+| Chat | Ask the agent to create one |
+
 ### Script Sandbox
 
 Community scripts (Python, Node.js, Shell) execute in isolated environments:
@@ -567,6 +591,8 @@ workspaces:
 | `copilot schedule list` | List scheduled tasks |
 | `copilot schedule add <cron> <cmd>` | Add a scheduled task |
 | `copilot health` | Check service health |
+| `copilot changelog` | Show changelog for current version |
+| `copilot changelog --all` | Show full changelog |
 
 ### Chat Commands (via messaging or CLI REPL)
 
