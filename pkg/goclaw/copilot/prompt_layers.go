@@ -5,9 +5,13 @@ package copilot
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jholhewres/goclaw/pkg/goclaw/copilot/memory"
 )
 
 // PromptLayer define a prioridade de uma camada de prompt.
@@ -38,6 +42,9 @@ const (
 
 	// LayerConversation contém o histórico recente da conversa.
 	LayerConversation PromptLayer = 70
+
+	// LayerBootstrap contains AGENTS.md, SOUL.md, etc. bootstrap files.
+	LayerBootstrap PromptLayer = 15
 )
 
 // layerEntry representa uma entrada no compositor de prompts.
@@ -49,12 +56,24 @@ type layerEntry struct {
 // PromptComposer monta o prompt final combinando múltiplas camadas
 // com otimização de tokens e priorização.
 type PromptComposer struct {
-	config *Config
+	config      *Config
+	memoryStore *memory.FileStore
+	skillGetter func(name string) (interface{ SystemPrompt() string }, bool)
 }
 
 // NewPromptComposer cria um novo compositor de prompts.
 func NewPromptComposer(config *Config) *PromptComposer {
 	return &PromptComposer{config: config}
+}
+
+// SetMemoryStore configures the memory store for the prompt composer.
+func (p *PromptComposer) SetMemoryStore(store *memory.FileStore) {
+	p.memoryStore = store
+}
+
+// SetSkillGetter sets the function used to retrieve skill system prompts.
+func (p *PromptComposer) SetSkillGetter(getter func(name string) (interface{ SystemPrompt() string }, bool)) {
+	p.skillGetter = getter
 }
 
 // Compose monta o prompt final para uma sessão e input específicos.
@@ -73,6 +92,14 @@ func (p *PromptComposer) Compose(session *Session, input string) string {
 		layers = append(layers, layerEntry{
 			layer:   LayerIdentity,
 			content: p.config.Instructions,
+		})
+	}
+
+	// Layer 15: Bootstrap - AGENTS.md, SOUL.md, etc.
+	if bootstrapPrompt := p.buildBootstrapLayer(); bootstrapPrompt != "" {
+		layers = append(layers, layerEntry{
+			layer:   LayerBootstrap,
+			content: bootstrapPrompt,
 		})
 	}
 
@@ -131,7 +158,7 @@ func (p *PromptComposer) buildCoreLayer() string {
 }
 
 // buildSkillsLayer monta as instruções das skills ativas da sessão.
-// Usa getter thread-safe para evitar race conditions.
+// Injeta o SystemPrompt() de cada skill ativa para dar contexto ao LLM.
 func (p *PromptComposer) buildSkillsLayer(session *Session) string {
 	activeSkills := session.GetActiveSkills()
 	if len(activeSkills) == 0 {
@@ -143,7 +170,18 @@ func (p *PromptComposer) buildSkillsLayer(session *Session) string {
 
 	for _, skillName := range activeSkills {
 		b.WriteString(fmt.Sprintf("### %s\n", skillName))
-		// TODO: Injetar SystemPrompt() de cada skill ativa.
+
+		// Inject the skill's SystemPrompt if we can fetch it.
+		if p.skillGetter != nil {
+			if skill, ok := p.skillGetter(skillName); ok {
+				sp := skill.SystemPrompt()
+				if sp != "" {
+					b.WriteString(sp)
+					b.WriteString("\n")
+				}
+			}
+		}
+
 		b.WriteString("\n")
 	}
 
@@ -151,21 +189,30 @@ func (p *PromptComposer) buildSkillsLayer(session *Session) string {
 }
 
 // buildMemoryLayer monta os fatos relevantes da memória de longo prazo.
-// Usa getter thread-safe para evitar race conditions.
-func (p *PromptComposer) buildMemoryLayer(session *Session, _ string) string {
-	facts := session.GetFacts()
-	if len(facts) == 0 {
-		return ""
+// Pulls from persistent memory store if available, falls back to session facts.
+func (p *PromptComposer) buildMemoryLayer(session *Session, input string) string {
+	var parts []string
+
+	// Pull from persistent memory store if available.
+	if p.memoryStore != nil {
+		facts := p.memoryStore.RecentFacts(15, input)
+		if facts != "" {
+			parts = append(parts, "## Long-Term Memory\n\n"+facts)
+		}
 	}
 
-	var b strings.Builder
-	b.WriteString("## Remembered Facts\n")
-
-	for _, fact := range facts {
-		b.WriteString(fmt.Sprintf("- %s\n", fact))
+	// Also include session-level facts (backward compat).
+	sessionFacts := session.GetFacts()
+	if len(sessionFacts) > 0 {
+		var b strings.Builder
+		b.WriteString("## Session Facts\n\n")
+		for _, fact := range sessionFacts {
+			b.WriteString(fmt.Sprintf("- %s\n", fact))
+		}
+		parts = append(parts, b.String())
 	}
 
-	return b.String()
+	return strings.Join(parts, "\n")
 }
 
 // buildTemporalLayer adiciona contexto temporal ao prompt.
@@ -199,6 +246,56 @@ func (p *PromptComposer) buildConversationLayer(session *Session) string {
 	}
 
 	return b.String()
+}
+
+// buildBootstrapLayer loads optional bootstrap files (AGENTS.md, SOUL.md, IDENTITY.md, USER.md)
+// from the workspace root if they exist. These provide persona, rules, and user context.
+// Also loads HEARTBEAT.md and TOOLS.md for additional context.
+func (p *PromptComposer) buildBootstrapLayer() string {
+	bootstrapFiles := []struct {
+		Path    string
+		Section string
+	}{
+		{"SOUL.md", "Persona & Boundaries"},
+		{"AGENTS.md", "Operational Instructions"},
+		{"IDENTITY.md", "Identity"},
+		{"USER.md", "User Profile"},
+		{"TOOLS.md", "Local Tool Notes"},
+	}
+
+	// Determine workspace directory from config or use sensible defaults.
+	searchDirs := []string{"."}
+	if p.config.Heartbeat.WorkspaceDir != "" && p.config.Heartbeat.WorkspaceDir != "." {
+		searchDirs = append([]string{p.config.Heartbeat.WorkspaceDir}, searchDirs...)
+	}
+	searchDirs = append(searchDirs, "configs")
+
+	var parts []string
+	for _, bf := range bootstrapFiles {
+		var content []byte
+		var err error
+
+		for _, dir := range searchDirs {
+			content, err = os.ReadFile(filepath.Join(dir, bf.Path))
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			continue
+		}
+
+		text := strings.TrimSpace(string(content))
+		if text != "" {
+			parts = append(parts, fmt.Sprintf("## %s\n\n%s", bf.Section, text))
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return strings.Join(parts, "\n\n")
 }
 
 // assembleLayers combina todas as camadas em ordem de prioridade.

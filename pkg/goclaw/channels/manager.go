@@ -159,6 +159,38 @@ func (m *Manager) SendMedia(ctx context.Context, channelName, to string, media *
 	return mc.SendMedia(ctx, to, media)
 }
 
+// SendTyping sends a typing indicator on the specified channel.
+// Silently does nothing if the channel doesn't support presence.
+func (m *Manager) SendTyping(ctx context.Context, channelName, to string) {
+	m.mu.RLock()
+	ch, exists := m.channels[channelName]
+	m.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	if pc, ok := ch.(PresenceChannel); ok {
+		_ = pc.SendTyping(ctx, to)
+	}
+}
+
+// MarkRead marks messages as read on the specified channel.
+// Silently does nothing if the channel doesn't support presence.
+func (m *Manager) MarkRead(ctx context.Context, channelName, chatID string, messageIDs []string) {
+	m.mu.RLock()
+	ch, exists := m.channels[channelName]
+	m.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	if pc, ok := ch.(PresenceChannel); ok {
+		_ = pc.MarkRead(ctx, chatID, messageIDs)
+	}
+}
+
 // Channel returns a specific channel by name.
 func (m *Manager) Channel(name string) (Channel, bool) {
 	m.mu.RLock()

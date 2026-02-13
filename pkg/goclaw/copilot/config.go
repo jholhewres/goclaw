@@ -61,6 +61,9 @@ type Config struct {
 	// Scheduler configures the task scheduler.
 	Scheduler SchedulerConfig `yaml:"scheduler"`
 
+	// Heartbeat configures the proactive heartbeat system.
+	Heartbeat HeartbeatConfig `yaml:"heartbeat"`
+
 	// Logging configures log output.
 	Logging LoggingConfig `yaml:"logging"`
 }
@@ -211,12 +214,13 @@ func DefaultConfig() *Config {
 		},
 		Sandbox: sandbox.DefaultConfig(),
 		Skills: SkillsConfig{
-			Builtin: []string{"weather", "calculator", "web-search", "web-fetch"},
+			Builtin: []string{"calculator", "web-fetch", "datetime"},
 		},
 		Scheduler: SchedulerConfig{
 			Enabled: true,
 			Storage: "./data/scheduler.db",
 		},
+		Heartbeat: DefaultHeartbeatConfig(),
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "json",

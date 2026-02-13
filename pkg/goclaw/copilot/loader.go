@@ -104,7 +104,7 @@ func FindConfigFile() string {
 // AuditSecrets checks for hardcoded secrets and logs warnings.
 // Should be called on startup to alert the user.
 func AuditSecrets(cfg *Config, logger *slog.Logger) {
-	if cfg.API.APIKey != "" && !isEnvReference(cfg.API.APIKey) {
+	if cfg.API.APIKey != "" && !IsEnvReference(cfg.API.APIKey) {
 		if looksLikeRealKey(cfg.API.APIKey) {
 			logger.Warn("API key appears to be hardcoded in config. "+
 				"Use environment variable GOCLAW_API_KEY instead.",
@@ -153,7 +153,7 @@ func expandEnvVars(input string) string {
 // when the config value is empty or a placeholder.
 func resolveSecrets(cfg *Config) {
 	// API key: GOCLAW_API_KEY or OPENAI_API_KEY.
-	if cfg.API.APIKey == "" || isEnvReference(cfg.API.APIKey) {
+	if cfg.API.APIKey == "" || IsEnvReference(cfg.API.APIKey) {
 		if key := os.Getenv("GOCLAW_API_KEY"); key != "" {
 			cfg.API.APIKey = key
 		} else if key := os.Getenv("OPENAI_API_KEY"); key != "" {
@@ -167,7 +167,7 @@ func resolveSecrets(cfg *Config) {
 // sanitizeSecret replaces a real secret with an env var reference
 // for safe storage in config files.
 func sanitizeSecret(value, envVar string) string {
-	if value == "" || isEnvReference(value) {
+	if value == "" || IsEnvReference(value) {
 		return value
 	}
 	// If the env var is already set with this value, use the reference.
@@ -178,15 +178,15 @@ func sanitizeSecret(value, envVar string) string {
 	return value
 }
 
-// isEnvReference checks if a string is an environment variable reference.
-func isEnvReference(s string) bool {
+// IsEnvReference checks if a string is an environment variable reference.
+func IsEnvReference(s string) bool {
 	return strings.HasPrefix(s, "${") || strings.HasPrefix(s, "$")
 }
 
 // looksLikeRealKey heuristically checks if a string looks like a real API key
 // (not a placeholder or env var reference).
 func looksLikeRealKey(s string) bool {
-	if isEnvReference(s) {
+	if IsEnvReference(s) {
 		return false
 	}
 	// OpenAI keys start with "sk-"

@@ -17,6 +17,7 @@ func newSetupCmd() *cobra.Command {
 		Short: "Interactive setup wizard",
 		Long: `Starts an interactive wizard to create your initial config.yaml.
 Asks for assistant name, owner phone number, model, language, and other essentials.
+API keys are stored in an encrypted vault (AES-256-GCM) — never in plaintext.
 
 Examples:
   copilot setup`,
@@ -29,12 +30,20 @@ func runSetup(_ *cobra.Command, _ []string) error {
 	return runInteractiveSetup()
 }
 
+// storageMethod tracks where the API key was stored during setup.
+type storageMethod int
+
+const (
+	storageNone    storageMethod = iota
+	storageVault                 // encrypted vault (.goclaw.vault)
+	storageKeyring               // OS keyring
+)
+
 // runInteractiveSetup guides the user through config creation step by step.
 func runInteractiveSetup() error {
 	reader := bufio.NewReader(os.Stdin)
 	cfg := copilot.DefaultConfig()
-	var apiKeyForEnv string
-	var apiKeyForKeyring bool
+	keyStorage := storageNone
 
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════╗")
@@ -67,7 +76,6 @@ func runInteractiveSetup() error {
 			fmt.Println("   [!] Phone number is required. The bot needs at least one owner.")
 			continue
 		}
-		// Normalize: remove +, spaces, dashes.
 		owner = normalizePhone(owner)
 		if len(owner) < 10 {
 			fmt.Println("   [!] Number seems too short. Include the country code (e.g. 5511999998888).")
@@ -103,41 +111,34 @@ func runInteractiveSetup() error {
 		cfg.API.BaseURL = url
 	}
 
+	// ── Step 6: API key + encrypted vault ──
 	fmt.Println()
-	hasKeyring := copilot.KeyringAvailable()
-	if hasKeyring {
-		fmt.Println("   API key — choose where to store it:")
-		fmt.Println("     a) OS keyring (most secure — encrypted by the OS)")
-		fmt.Println("     b) .env file (good — plaintext but gitignored)")
-		fmt.Println("     c) Skip (set GOCLAW_API_KEY env var later)")
-	} else {
-		fmt.Println("   API key — choose how to provide it:")
-		fmt.Println("     a) .env file (good — plaintext but gitignored)")
-		fmt.Println("     b) Skip (set GOCLAW_API_KEY env var later)")
-	}
+	fmt.Println("   Your API key will be encrypted with AES-256-GCM and stored in a")
+	fmt.Println("   password-protected vault. Even with filesystem access, nobody can")
+	fmt.Println("   read it without your master password.")
 	fmt.Println()
-	fmt.Print("   API key (or press Enter to skip): ")
-	if key := readLine(reader); key != "" {
-		if hasKeyring {
-			fmt.Print("   Store in OS keyring? (y/n) [y]: ")
-			if ans := readLine(reader); ans == "" || strings.ToLower(ans) == "y" {
-				if err := copilot.StoreKeyring("api_key", key); err != nil {
-					fmt.Printf("   [!] Keyring failed: %v. Falling back to .env\n", err)
-					apiKeyForEnv = key
-				} else {
-					fmt.Println("   API key stored in OS keyring (encrypted).")
-					apiKeyForKeyring = true
-				}
-			} else {
-				apiKeyForEnv = key
-			}
-		} else {
-			apiKeyForEnv = key
-		}
-		cfg.API.APIKey = "${GOCLAW_API_KEY}"
+
+	apiKey, err := copilot.ReadPassword("6. API key (hidden input): ")
+	if err != nil {
+		// Fallback to visible input if terminal password reading fails.
+		fmt.Print("6. API key (or press Enter to skip): ")
+		apiKey = readLine(reader)
 	}
 
-	// ── Step 6: Model (interactive numbered list) ──
+	if apiKey != "" {
+		keyStorage = setupVault(apiKey)
+		if keyStorage == storageNone {
+			fmt.Println("   [!] Could not store the API key securely.")
+			fmt.Println("   You can set it later with: copilot config vault-init && copilot config vault-set")
+		}
+	} else {
+		fmt.Println("   Skipped. Set it later with: copilot config vault-init && copilot config vault-set")
+	}
+
+	// config.yaml never contains the real key.
+	cfg.API.APIKey = "${GOCLAW_API_KEY}"
+
+	// ── Step 7: Model (interactive numbered list) ──
 	type modelOption struct {
 		id   string
 		name string
@@ -162,7 +163,6 @@ func runInteractiveSetup() error {
 		{"glm-4.7-flashx", "GLM-4.7 FlashX", "fast with extended context"},
 	}
 
-	// Find default index.
 	defaultIdx := 0
 	for i, m := range models {
 		if m.id == cfg.Model {
@@ -172,7 +172,7 @@ func runInteractiveSetup() error {
 	}
 
 	fmt.Println()
-	fmt.Println("6. Select LLM model:")
+	fmt.Println("7. Select LLM model:")
 	fmt.Println()
 	fmt.Println("   OpenAI:")
 	for i := 0; i < 5; i++ {
@@ -204,7 +204,6 @@ func runInteractiveSetup() error {
 	fmt.Printf("   Choose [1-%d] or type model name [%s]: ", len(models), cfg.Model)
 
 	if input := readLine(reader); input != "" {
-		// Check if it's a number.
 		if idx, err := fmt.Sscanf(input, "%d", new(int)); idx == 1 && err == nil {
 			var num int
 			fmt.Sscanf(input, "%d", &num)
@@ -214,7 +213,6 @@ func runInteractiveSetup() error {
 				fmt.Printf("   [!] Invalid number, keeping '%s'.\n", cfg.Model)
 			}
 		} else {
-			// Treat as raw model name.
 			cfg.Model = input
 		}
 	}
@@ -228,29 +226,29 @@ func runInteractiveSetup() error {
 		fmt.Printf("   API URL auto-set to %s for Anthropic models.\n", cfg.API.BaseURL)
 	}
 
-	// ── Step 7: Language ──
-	fmt.Printf("7. Response language [%s]: ", cfg.Language)
+	// ── Step 8: Language ──
+	fmt.Printf("8. Response language [%s]: ", cfg.Language)
 	if lang := readLine(reader); lang != "" {
 		cfg.Language = lang
 	}
 
-	// ── Step 8: Timezone ──
-	fmt.Printf("8. Timezone [%s]: ", cfg.Timezone)
+	// ── Step 9: Timezone ──
+	fmt.Printf("9. Timezone [%s]: ", cfg.Timezone)
 	if tz := readLine(reader); tz != "" {
 		cfg.Timezone = tz
 	}
 
-	// ── Step 9: System instructions ──
+	// ── Step 10: System instructions ──
 	fmt.Println()
 	fmt.Println("   Base system instructions (system prompt).")
 	fmt.Println("   Press Enter to keep the default.")
 	fmt.Println()
-	fmt.Printf("9. Instructions [default]: ")
+	fmt.Printf("10. Instructions [default]: ")
 	if instr := readLine(reader); instr != "" {
 		cfg.Instructions = instr
 	}
 
-	// ── Step 10: WhatsApp settings ──
+	// ── Step 11: WhatsApp settings ──
 	fmt.Println()
 	fmt.Println("   WhatsApp settings:")
 	fmt.Println()
@@ -275,12 +273,13 @@ func runInteractiveSetup() error {
 	fmt.Printf("  Owner:     %s\n", cfg.Access.Owners[0])
 	fmt.Printf("  Policy:    %s\n", cfg.Access.DefaultPolicy)
 	fmt.Printf("  API URL:   %s\n", cfg.API.BaseURL)
-	if apiKeyForKeyring {
-		fmt.Printf("  API key:   **** (→ OS keyring)\n")
-	} else if apiKeyForEnv != "" {
-		fmt.Printf("  API key:   ****%s (→ .env)\n", apiKeyForEnv[max(0, len(apiKeyForEnv)-4):])
-	} else {
-		fmt.Printf("  API key:   (set GOCLAW_API_KEY later)\n")
+	switch keyStorage {
+	case storageVault:
+		fmt.Println("  API key:   **** (encrypted vault)")
+	case storageKeyring:
+		fmt.Println("  API key:   **** (OS keyring)")
+	default:
+		fmt.Println("  API key:   (not set — configure later)")
 	}
 	fmt.Printf("  Model:     %s\n", cfg.Model)
 	fmt.Printf("  Language:  %s\n", cfg.Language)
@@ -311,36 +310,92 @@ func runInteractiveSetup() error {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
-	// Save API key to .env file (never in config.yaml).
-	if apiKeyForEnv != "" {
-		envContent := fmt.Sprintf("# GoClaw secrets — DO NOT commit this file.\n# It is already in .gitignore.\nGOCLAW_API_KEY=%s\n", apiKeyForEnv)
-		if err := os.WriteFile(".env", []byte(envContent), 0o600); err != nil {
-			fmt.Printf("   [!] Failed to write .env: %v\n", err)
-			fmt.Printf("   Set manually: export GOCLAW_API_KEY=%s\n", apiKeyForEnv)
-		} else {
-			fmt.Println(".env created with your API key (permissions: 600).")
-		}
-	}
-
 	fmt.Printf("\nconfig.yaml created successfully!\n\n")
 
-	fmt.Println("Security notes:")
-	fmt.Println("  - config.yaml and .env are in .gitignore (never committed)")
-	if apiKeyForKeyring {
-		fmt.Println("  - API key is encrypted in the OS keyring (most secure)")
-	} else if apiKeyForEnv != "" {
-		fmt.Println("  - API key is stored in .env, not in config.yaml")
-		fmt.Println("  - For maximum security, run: copilot config set-key")
+	fmt.Println("Security:")
+	switch keyStorage {
+	case storageVault:
+		fmt.Println("  - API key encrypted in vault (AES-256-GCM + Argon2id)")
+		fmt.Println("  - Even with filesystem access, it cannot be read without your password")
+		fmt.Println("  - No plaintext secrets anywhere on disk")
+	case storageKeyring:
+		fmt.Println("  - API key encrypted in OS keyring")
+	default:
+		fmt.Println("  - No API key configured yet")
+		fmt.Println("  - Run: copilot config vault-init && copilot config vault-set")
 	}
-	fmt.Println("  - config.yaml permissions: 600 (owner only)")
+	fmt.Println("  - config.yaml has no secrets (permissions: 600)")
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  1. Review config.yaml and adjust as needed")
-	fmt.Println("  2. Run: copilot serve")
+	fmt.Println("  1. Run: copilot serve")
+	fmt.Println("  2. Enter your vault password when prompted")
 	fmt.Println("  3. Scan the QR code with your WhatsApp")
 	fmt.Println()
 
 	return nil
+}
+
+// setupVault creates the encrypted vault and stores the API key in it.
+// Returns the storage method used.
+func setupVault(apiKey string) storageMethod {
+	fmt.Println()
+	fmt.Println("   Creating encrypted vault...")
+	fmt.Println("   Choose a master password (minimum 8 characters).")
+	fmt.Println("   This password is NEVER stored — only you know it.")
+	fmt.Println()
+
+	password, err := copilot.ReadPassword("   Master password: ")
+	if err != nil {
+		fmt.Printf("   [!] Failed to read password: %v\n", err)
+		return tryKeyringFallback(apiKey)
+	}
+	if len(password) < 8 {
+		fmt.Println("   [!] Password too short (minimum 8 characters).")
+		return tryKeyringFallback(apiKey)
+	}
+
+	confirm, err := copilot.ReadPassword("   Confirm password: ")
+	if err != nil || password != confirm {
+		fmt.Println("   [!] Passwords don't match.")
+		return tryKeyringFallback(apiKey)
+	}
+
+	vault := copilot.NewVault(copilot.VaultFile)
+
+	// Remove existing vault if present (fresh setup).
+	if vault.Exists() {
+		_ = os.Remove(copilot.VaultFile)
+		vault = copilot.NewVault(copilot.VaultFile)
+	}
+
+	if err := vault.Create(password); err != nil {
+		fmt.Printf("   [!] Vault creation failed: %v\n", err)
+		return tryKeyringFallback(apiKey)
+	}
+
+	if err := vault.Set("api_key", apiKey); err != nil {
+		fmt.Printf("   [!] Failed to store key in vault: %v\n", err)
+		vault.Lock()
+		return tryKeyringFallback(apiKey)
+	}
+
+	vault.Lock()
+	fmt.Println()
+	fmt.Println("   API key encrypted and stored in vault.")
+	return storageVault
+}
+
+// tryKeyringFallback attempts to store the API key in the OS keyring
+// as a fallback when vault creation fails.
+func tryKeyringFallback(apiKey string) storageMethod {
+	if copilot.KeyringAvailable() {
+		fmt.Println("   Trying OS keyring as fallback...")
+		if err := copilot.StoreKeyring("api_key", apiKey); err == nil {
+			fmt.Println("   API key stored in OS keyring.")
+			return storageKeyring
+		}
+	}
+	return storageNone
 }
 
 // readLine reads a single line from the reader, trimming whitespace.

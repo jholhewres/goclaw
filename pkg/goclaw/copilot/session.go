@@ -175,6 +175,42 @@ func (s *Session) ClearHistory() {
 	s.history = nil
 }
 
+// HistoryLen returns the number of entries in the session history.
+func (s *Session) HistoryLen() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.history)
+}
+
+// CompactHistory replaces the full history with a summary entry,
+// keeping only the most recent entries. Returns the old entries for
+// memory extraction.
+func (s *Session) CompactHistory(summary string, keepRecent int) []ConversationEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.history) <= keepRecent {
+		return nil // Nothing to compact.
+	}
+
+	// Save old entries for memory extraction.
+	cutoff := len(s.history) - keepRecent
+	old := make([]ConversationEntry, cutoff)
+	copy(old, s.history[:cutoff])
+
+	// Replace old entries with a summary.
+	recent := make([]ConversationEntry, keepRecent+1)
+	recent[0] = ConversationEntry{
+		UserMessage:       "[session compacted]",
+		AssistantResponse: summary,
+		Timestamp:         time.Now(),
+	}
+	copy(recent[1:], s.history[cutoff:])
+
+	s.history = recent
+	return old
+}
+
 // SessionStore gerencia sessões ativas, criando e recuperando por canal e chatID.
 // Implementa pruning automático de sessões inativas.
 type SessionStore struct {

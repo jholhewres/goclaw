@@ -59,8 +59,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger := slog.New(handler)
 
 	// ── Resolve secrets ──
-	copilot.ResolveAPIKey(cfg, logger)
+	// Audit BEFORE resolving — checks the raw config values for hardcoded keys.
 	copilot.AuditSecrets(cfg, logger)
+	// Resolve from vault → keyring → env → config.
+	copilot.ResolveAPIKey(cfg, logger)
 
 	// ── Create assistant ──
 	assistant := copilot.New(cfg, logger)

@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -391,9 +392,9 @@ func (l *ClawdHubLoader) checkOS(allowed []string) bool {
 	return false
 }
 
-// goosToOpenClaw maps Go's GOOS to OpenClaw's OS identifiers.
+// goosToOpenClaw maps Go's runtime.GOOS to OpenClaw's OS identifiers.
 func goosToOpenClaw() string {
-	switch os := strings.ToLower(os.Getenv("GOOS")); os {
+	switch runtime.GOOS {
 	case "darwin":
 		return "darwin"
 	case "windows":

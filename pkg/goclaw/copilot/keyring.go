@@ -3,10 +3,11 @@
 // macOS: Keychain, Windows: Credential Manager).
 //
 // Priority for resolving secrets:
-//  1. OS keyring (most secure — encrypted by the OS)
-//  2. Environment variable (GOCLAW_API_KEY, OPENAI_API_KEY, etc.)
-//  3. .env file (loaded by godotenv)
-//  4. config.yaml value (least secure — plaintext on disk)
+//  1. Encrypted vault (.goclaw.vault — AES-256-GCM + Argon2, requires master password)
+//  2. OS keyring (encrypted by the OS, requires user session)
+//  3. Environment variable (GOCLAW_API_KEY, OPENAI_API_KEY, etc.)
+//  4. .env file (loaded by godotenv)
+//  5. config.yaml value (least secure — plaintext on disk)
 package copilot
 
 import (
@@ -56,23 +57,47 @@ func KeyringAvailable() bool {
 }
 
 // ResolveAPIKey resolves the API key using the priority chain:
-// keyring → env var → config value.
+// vault → keyring → env var → config value.
 // Also updates the config in-place with the resolved value.
+// If a vault exists but is locked, it prompts for the master password.
 func ResolveAPIKey(cfg *Config, logger *slog.Logger) {
-	// 1. Try OS keyring first (most secure).
+	// 1. Try encrypted vault first (most secure — password-protected).
+	vault := NewVault(VaultFile)
+	if vault.Exists() {
+		if !vault.IsUnlocked() {
+			password, err := ReadPassword("Vault password: ")
+			if err != nil {
+				logger.Warn("failed to read vault password", "error", err)
+			} else if err := vault.Unlock(password); err != nil {
+				logger.Warn("failed to unlock vault", "error", err)
+			}
+		}
+
+		if vault.IsUnlocked() {
+			if val, err := vault.Get(keyringAPIKey); err == nil && val != "" {
+				cfg.API.APIKey = val
+				logger.Debug("API key loaded from encrypted vault")
+				vault.Lock()
+				return
+			}
+			vault.Lock()
+		}
+	}
+
+	// 2. Try OS keyring (encrypted by the OS).
 	if val := GetKeyring(keyringAPIKey); val != "" {
 		cfg.API.APIKey = val
 		logger.Debug("API key loaded from OS keyring")
 		return
 	}
 
-	// 2. If config already has a resolved value (from env expansion), keep it.
-	if cfg.API.APIKey != "" && !isEnvReference(cfg.API.APIKey) {
+	// 3. If config already has a resolved value (from env expansion), keep it.
+	if cfg.API.APIKey != "" && !IsEnvReference(cfg.API.APIKey) {
 		logger.Debug("API key loaded from config/env")
 		return
 	}
 
-	logger.Warn("no API key found. Set one with: copilot config set-key")
+	logger.Warn("no API key found. Set one with: copilot config set-key or copilot config vault-set")
 }
 
 // MigrateKeyToKeyring moves an API key from config/env to the OS keyring

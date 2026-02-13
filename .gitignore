@@ -38,6 +38,7 @@ config.local.yaml
 .env
 .env.*
 !.env.example
+.goclaw.vault
 
 # Build
 /build/
