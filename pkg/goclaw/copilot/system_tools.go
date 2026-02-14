@@ -1349,26 +1349,17 @@ func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler) {
 				jobType = "cron"
 			}
 
-			// Auto-fill channel/chatID from the context-propagated session ID.
-			// This is goroutine-safe: each agent run carries its own context,
-			// avoiding the race condition of reading shared ToolExecutor state.
+			// Auto-fill channel/chatID from the context-propagated delivery target.
+			// This is goroutine-safe: each agent run carries its own context
+			// with the delivery target (channel + chatID) set separately from
+			// the opaque session ID.
 			if channel == "" || chatID == "" {
-				sessionCtx := SessionIDFromContext(ctx)
-				// Fallback to executor's shared state (for CLI usage where
-				// context may not carry session info).
-				if sessionCtx == "" {
-					sessionCtx = executor.SessionContext()
+				dt := DeliveryTargetFromContext(ctx)
+				if dt.Channel != "" && channel == "" {
+					channel = dt.Channel
 				}
-				if sessionCtx != "" {
-					parts := strings.SplitN(sessionCtx, ":", 2)
-					if len(parts) == 2 {
-						if channel == "" {
-							channel = parts[0]
-						}
-						if chatID == "" {
-							chatID = parts[1]
-						}
-					}
+				if dt.ChatID != "" && chatID == "" {
+					chatID = dt.ChatID
 				}
 			}
 

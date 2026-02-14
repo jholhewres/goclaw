@@ -19,15 +19,32 @@ import (
 // toolNameSanitizer replaces any character not in [a-zA-Z0-9_-] with "_".
 var toolNameSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
-// ctxKeySessionID is the context key for passing session ID (channel:chatID)
-// through the context chain, ensuring goroutine-safe isolation.
+// ctxKeySessionID is the context key for passing session ID through
+// the context chain, ensuring goroutine-safe isolation.
 type ctxKeySessionID struct{}
 
+// ctxKeyDeliveryTarget is the context key for passing the delivery target
+// (channel + chatID) separately from the opaque session ID.
+type ctxKeyDeliveryTarget struct{}
+
+// DeliveryTarget holds the channel and chatID for message delivery.
+type DeliveryTarget struct {
+	Channel string
+	ChatID  string
+}
+
 // ContextWithSession returns a new context carrying the given session ID.
-// Use this to propagate session context through the agent execution chain,
-// avoiding shared mutable state in ToolExecutor.
 func ContextWithSession(ctx context.Context, sessionID string) context.Context {
 	return context.WithValue(ctx, ctxKeySessionID{}, sessionID)
+}
+
+// ContextWithDelivery returns a new context carrying the delivery target.
+// This is used by tools like cron_add to know where to deliver scheduled messages.
+func ContextWithDelivery(ctx context.Context, channel, chatID string) context.Context {
+	return context.WithValue(ctx, ctxKeyDeliveryTarget{}, DeliveryTarget{
+		Channel: channel,
+		ChatID:  chatID,
+	})
 }
 
 // SessionIDFromContext extracts the session ID from a context.
@@ -37,6 +54,15 @@ func SessionIDFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+// DeliveryTargetFromContext extracts the delivery target from a context.
+// Returns empty DeliveryTarget if not set.
+func DeliveryTargetFromContext(ctx context.Context) DeliveryTarget {
+	if v, ok := ctx.Value(ctxKeyDeliveryTarget{}).(DeliveryTarget); ok {
+		return v
+	}
+	return DeliveryTarget{}
 }
 
 const (
@@ -110,6 +136,13 @@ func (e *ToolExecutor) SetGuard(guard *ToolGuard) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.guard = guard
+}
+
+// Guard returns the configured ToolGuard (may be nil).
+func (e *ToolExecutor) Guard() *ToolGuard {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.guard
 }
 
 // UpdateGuardConfig updates the tool guard config (for hot-reload).

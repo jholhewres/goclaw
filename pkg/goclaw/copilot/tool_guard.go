@@ -135,6 +135,9 @@ type ToolGuard struct {
 	logger    *slog.Logger
 	auditFile *os.File
 
+	// SQLite audit logger (optional; when set, replaces the file-based audit).
+	sqliteAudit *SQLiteAuditLogger
+
 	// Compiled patterns.
 	dangerousPatterns   []*regexp.Regexp
 	defaultPatternCount []bool // tracks which indices are default patterns
@@ -260,14 +263,18 @@ func (g *ToolGuard) Check(toolName string, callerLevel AccessLevel, args map[str
 	return ToolCheckResult{Allowed: true, RequiresConfirmation: requiresConfirmation}
 }
 
+// SetSQLiteAudit configures a SQLite-backed audit logger. When set, audit
+// records go to the database instead of the text file.
+func (g *ToolGuard) SetSQLiteAudit(a *SQLiteAuditLogger) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.sqliteAudit = a
+}
+
 // AuditLog records a tool execution to the audit log.
 func (g *ToolGuard) AuditLog(toolName string, callerJID string, callerLevel AccessLevel, args map[string]any, allowed bool, result string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-
-	entry := fmt.Sprintf("[%s] tool=%s caller=%s level=%s allowed=%v",
-		time.Now().Format("2006-01-02 15:04:05"),
-		toolName, callerJID, callerLevel, allowed)
 
 	// Sanitize args for logging (remove large content).
 	sanitizedArgs := make(map[string]any)
@@ -279,19 +286,24 @@ func (g *ToolGuard) AuditLog(toolName string, callerJID string, callerLevel Acce
 		}
 	}
 
-	entry += fmt.Sprintf(" args=%v", sanitizedArgs)
-
+	argsSummary := fmt.Sprintf("%v", sanitizedArgs)
+	resultSummary := result
 	if !allowed {
-		entry += fmt.Sprintf(" result=BLOCKED:%s", result)
-	} else if len(result) > 100 {
-		entry += fmt.Sprintf(" result=%s...", result[:100])
-	} else {
-		entry += fmt.Sprintf(" result=%s", result)
+		resultSummary = "BLOCKED:" + result
+	} else if len(resultSummary) > 200 {
+		resultSummary = resultSummary[:200] + "...[truncated]"
 	}
+
+	entry := fmt.Sprintf("[%s] tool=%s caller=%s level=%s allowed=%v args=%s result=%s",
+		time.Now().Format("2006-01-02 15:04:05"),
+		toolName, callerJID, callerLevel, allowed, argsSummary, resultSummary)
 
 	g.logger.Info("tool execution", "entry", entry)
 
-	if g.auditFile != nil {
+	// Write to SQLite if configured, otherwise fall back to text file.
+	if g.sqliteAudit != nil {
+		g.sqliteAudit.Log(toolName, callerJID, string(callerLevel), allowed, argsSummary, resultSummary)
+	} else if g.auditFile != nil {
 		_, _ = g.auditFile.WriteString(entry + "\n")
 	}
 }

@@ -5,7 +5,8 @@ package copilot
 
 import (
 	"context"
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"sync"
 	"time"
@@ -54,9 +55,21 @@ type Session struct {
 	// lastActiveAt é o timestamp da última atividade.
 	lastActiveAt time.Time
 
-	persistence *SessionPersistence
+	persistence SessionPersister
 
 	mu sync.RWMutex
+}
+
+// SessionPersister is the interface for session persistence backends (JSONL or SQLite).
+type SessionPersister interface {
+	SaveEntry(sessionID string, entry ConversationEntry) error
+	LoadSession(sessionID string) ([]ConversationEntry, []string, error)
+	SaveFacts(sessionID string, facts []string) error
+	SaveMeta(sessionID, channel, chatID string, config SessionConfig, activeSkills []string) error
+	DeleteSession(sessionID string) error
+	Rotate(sessionID string, maxLines int) error
+	LoadAll() (map[string]*SessionData, error)
+	Close() error
 }
 
 // SessionConfig contém configurações específicas de uma sessão.
@@ -293,7 +306,7 @@ type SessionStore struct {
 	sessionTTL  time.Duration
 	logger      *slog.Logger
 	mu          sync.RWMutex
-	persistence *SessionPersistence
+	persistence SessionPersister
 }
 
 // NewSessionStore cria um novo store de sessões.
@@ -310,7 +323,7 @@ func NewSessionStore(logger *slog.Logger) *SessionStore {
 }
 
 // SetPersistence configures disk persistence for sessions.
-func (ss *SessionStore) SetPersistence(p *SessionPersistence) {
+func (ss *SessionStore) SetPersistence(p SessionPersister) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	ss.persistence = p
@@ -491,6 +504,14 @@ func (ss *SessionStore) Delete(channel, chatID string) bool {
 }
 
 // sessionKey gera a chave única para uma sessão.
+// MakeSessionID generates a deterministic, opaque session ID from channel and chatID.
+// The ID is a truncated SHA-256 hash, so no PII (phone numbers, etc.) leaks into
+// file names, logs, or persisted job data.
+func MakeSessionID(channel, chatID string) string {
+	h := sha256.Sum256([]byte(channel + ":" + chatID))
+	return hex.EncodeToString(h[:8]) // 16 hex chars = 64 bits of entropy
+}
+
 func sessionKey(channel, chatID string) string {
-	return fmt.Sprintf("%s:%s", channel, chatID)
+	return MakeSessionID(channel, chatID)
 }

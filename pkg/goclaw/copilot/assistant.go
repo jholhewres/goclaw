@@ -5,6 +5,7 @@ package copilot
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -95,6 +96,10 @@ type Assistant struct {
 
 	// vault provides encrypted secret storage (nil if unavailable/locked).
 	vault *Vault
+
+	// goclawDB is the central SQLite database (goclaw.db) shared by the
+	// scheduler, session persistence, and audit logger.
+	goclawDB *sql.DB
 
 	// configMu protects hot-reloadable config fields.
 	configMu sync.RWMutex
@@ -256,17 +261,50 @@ func (a *Assistant) Start(ctx context.Context) error {
 		return skill, true
 	})
 
-	// 0c. Wire session persistence (JSONL on disk).
-	sessDir := filepath.Join(filepath.Dir(a.config.Memory.Path), "sessions")
-	if sessDir == "" {
-		sessDir = "./data/sessions"
+	// 0c. Open the central goclaw.db and wire all SQLite-backed storage.
+	dbPath := a.config.Database.Path
+	if dbPath == "" {
+		dbPath = "./data/goclaw.db"
 	}
-	sessPersist, err := NewSessionPersistence(sessDir, a.logger.With("component", "session-persist"))
-	if err != nil {
-		a.logger.Warn("session persistence not available", "error", err)
+	goclawDB, dbErr := OpenDatabase(dbPath)
+	if dbErr != nil {
+		a.logger.Error("failed to open central database, falling back to file-based storage",
+			"path", dbPath, "error", dbErr)
 	} else {
+		a.goclawDB = goclawDB
+		a.logger.Info("central database opened", "path", dbPath)
+
+		// Migrate legacy JSON/JSONL data to SQLite (one-time, idempotent).
+		dataDir := filepath.Dir(dbPath)
+		MigrateToSQLite(goclawDB, dataDir, a.logger.With("component", "migrate"))
+	}
+
+	// 0c-1. Session persistence: prefer SQLite, fall back to JSONL.
+	if a.goclawDB != nil {
+		sessPersist := NewSQLiteSessionPersistence(a.goclawDB, a.logger.With("component", "session-persist"))
 		a.sessionStore.SetPersistence(sessPersist)
-		a.logger.Info("session persistence enabled", "dir", sessDir)
+		a.logger.Info("session persistence enabled (SQLite)")
+	} else {
+		sessDir := filepath.Join(filepath.Dir(a.config.Memory.Path), "sessions")
+		if sessDir == "" {
+			sessDir = "./data/sessions"
+		}
+		sessPersist, err := NewSessionPersistence(sessDir, a.logger.With("component", "session-persist"))
+		if err != nil {
+			a.logger.Warn("session persistence not available", "error", err)
+		} else {
+			a.sessionStore.SetPersistence(sessPersist)
+			a.logger.Info("session persistence enabled (JSONL)", "dir", sessDir)
+		}
+	}
+
+	// 0c-2. Audit logger: prefer SQLite, fall back to file-based.
+	if a.goclawDB != nil {
+		if guard := a.toolExecutor.Guard(); guard != nil {
+			auditLogger := NewSQLiteAuditLogger(a.goclawDB, a.logger.With("component", "audit"))
+			guard.SetSQLiteAudit(auditLogger)
+			a.logger.Info("audit logging enabled (SQLite)")
+		}
 	}
 
 	// 1. Register skill loaders and load all skills.
@@ -387,6 +425,13 @@ func (a *Assistant) Stop() {
 	if a.sqliteMemory != nil {
 		if err := a.sqliteMemory.Close(); err != nil {
 			a.logger.Warn("error closing SQLite memory", "error", err)
+		}
+	}
+
+	// Close central goclaw.db.
+	if a.goclawDB != nil {
+		if err := a.goclawDB.Close(); err != nil {
+			a.logger.Warn("error closing goclaw.db", "error", err)
 		}
 	}
 
@@ -576,7 +621,7 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 	// ── Step 1a: Natural language approval ──
 	// If there are pending approvals for this session and the user sends
 	// a short affirmative/negative message, treat it as an approval/denial.
-	sessionID := msg.Channel + ":" + msg.ChatID
+	sessionID := MakeSessionID(msg.Channel, msg.ChatID)
 	if a.approvalMgr.PendingCountForSession(sessionID) > 0 {
 		action := matchNaturalApproval(msg.Content)
 		if action != "" {
@@ -687,9 +732,10 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 	prompt := a.composeWorkspacePrompt(workspace, session, userContent)
 
 	// ── Step 8: Execute agent (with optional block streaming) ──
-	// Propagate session ID through context so tools (e.g. cron_add)
-	// can read it without relying on shared mutable ToolExecutor state.
+	// Propagate opaque session ID and delivery target through context so
+	// tools (e.g. cron_add) can read them without shared mutable state.
 	agentCtx := ContextWithSession(a.ctx, sessionID)
+	agentCtx = ContextWithDelivery(agentCtx, msg.Channel, msg.ChatID)
 
 	bsCfg := a.config.BlockStream.Effective()
 	var blockStreamer *BlockStreamer
@@ -1006,17 +1052,26 @@ func (a *Assistant) StopActiveRun(workspaceID, sessionID string) bool {
 	return false
 }
 
-// initScheduler creates and configures the scheduler with file-based storage.
+// initScheduler creates and configures the scheduler.
+// Uses SQLite storage from goclawDB when available, falls back to JSON file.
 func (a *Assistant) initScheduler() {
-	storagePath := a.config.Scheduler.Storage
-	if storagePath == "" {
-		storagePath = "./data/scheduler.json"
-	}
+	var storage scheduler.JobStorage
 
-	storage, err := scheduler.NewFileJobStorage(storagePath)
-	if err != nil {
-		a.logger.Error("failed to create scheduler storage", "error", err)
-		return
+	if a.goclawDB != nil {
+		storage = scheduler.NewSQLiteJobStorage(a.goclawDB)
+		a.logger.Info("scheduler storage: SQLite (goclaw.db)")
+	} else {
+		storagePath := a.config.Scheduler.Storage
+		if storagePath == "" {
+			storagePath = "./data/scheduler.json"
+		}
+		fileStorage, err := scheduler.NewFileJobStorage(storagePath)
+		if err != nil {
+			a.logger.Error("failed to create scheduler storage", "error", err)
+			return
+		}
+		storage = fileStorage
+		a.logger.Info("scheduler storage: JSON file", "path", storagePath)
 	}
 
 	// Job handler: runs the command as an agent turn.
@@ -1041,18 +1096,35 @@ func (a *Assistant) initScheduler() {
 		a.toolExecutor.SetCallerContext(AccessOwner, "scheduler")
 		a.toolExecutor.SetSessionContext(schedulerSessionID)
 
-		// Propagate the job's target channel:chatID through context so any
-		// tools called during the scheduled run (e.g. cron_add creating sub-jobs)
-		// correctly know the delivery target.
+		// Propagate the job's delivery target through context so any tools
+		// called during the scheduled run (e.g. cron_add creating sub-jobs)
+		// correctly know where to deliver messages.
 		jobCtx := ctx
 		if job.Channel != "" && job.ChatID != "" {
-			jobCtx = ContextWithSession(ctx, job.Channel+":"+job.ChatID)
+			jobCtx = ContextWithDelivery(ctx, job.Channel, job.ChatID)
 		}
 
-		prompt := a.promptComposer.Compose(session, job.Command)
+		// Build a delivery-focused prompt so the agent knows it is delivering
+		// a scheduled reminder, not receiving a new user message. This prevents
+		// the LLM from treating the reminder text as a conversation and generating
+		// confused follow-up questions.
+		deliveryPrompt := fmt.Sprintf(
+			"[SCHEDULED REMINDER — deliver this to the user]\n"+
+				"You are delivering a previously scheduled reminder/task. "+
+				"The user set this themselves. Deliver the message below concisely.\n"+
+				"Do NOT ask follow-up questions. Do NOT treat this as a conversation.\n"+
+				"Just deliver the reminder clearly.\n\n"+
+				"Reminder: %s", job.Command)
 
-		agent := NewAgentRunWithConfig(a.llmClient, a.toolExecutor, a.config.Agent, a.logger)
-		result, err := agent.Run(jobCtx, prompt, session.RecentHistory(10), job.Command)
+		prompt := a.promptComposer.Compose(session, deliveryPrompt)
+
+		// Use a tighter agent config for scheduled jobs: fewer turns, no
+		// long loops. The agent just needs to deliver or run a simple task.
+		jobAgentCfg := a.config.Agent
+		jobAgentCfg.MaxTurns = 3
+
+		agent := NewAgentRunWithConfig(a.llmClient, a.toolExecutor, jobAgentCfg, a.logger)
+		result, err := agent.Run(jobCtx, prompt, session.RecentHistory(0), deliveryPrompt)
 		if err != nil {
 			return "", err
 		}
@@ -1074,7 +1146,7 @@ func (a *Assistant) initScheduler() {
 	}
 
 	a.scheduler = scheduler.New(storage, handler, a.logger)
-	a.logger.Info("scheduler initialized", "storage", storagePath)
+	a.logger.Info("scheduler initialized")
 }
 
 // registerSkillLoaders registers the builtin and clawdhub skill loaders

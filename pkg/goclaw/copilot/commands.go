@@ -257,7 +257,7 @@ func (a *Assistant) usageCommand(args []string, msg *channels.IncomingMessage) s
 }
 
 func (a *Assistant) approveCommand(args []string, msg *channels.IncomingMessage) string {
-	sessionID := msg.Channel + ":" + msg.ChatID
+	sessionID := MakeSessionID(msg.Channel, msg.ChatID)
 
 	// If no ID provided, approve the most recent pending request for this session.
 	var targetID string
@@ -277,7 +277,7 @@ func (a *Assistant) approveCommand(args []string, msg *channels.IncomingMessage)
 }
 
 func (a *Assistant) denyCommand(args []string, msg *channels.IncomingMessage) string {
-	sessionID := msg.Channel + ":" + msg.ChatID
+	sessionID := MakeSessionID(msg.Channel, msg.ChatID)
 
 	// If no ID provided, deny the most recent pending request.
 	var targetID string
@@ -361,7 +361,7 @@ func (a *Assistant) newCommand(msg *channels.IncomingMessage) string {
 	session.ClearHistory()
 
 	// Clear session-scoped tool trust (user must re-approve tools in new session).
-	sessionID := msg.Channel + ":" + msg.ChatID
+	sessionID := MakeSessionID(msg.Channel, msg.ChatID)
 	a.approvalMgr.ClearSessionTrust(sessionID)
 
 	return "New session started. Facts and config preserved."
@@ -383,7 +383,7 @@ func (a *Assistant) resetCommand(msg *channels.IncomingMessage) string {
 	}
 
 	// Clear session-scoped tool trust.
-	sessionID := msg.Channel + ":" + msg.ChatID
+	sessionID := MakeSessionID(msg.Channel, msg.ChatID)
 	a.approvalMgr.ClearSessionTrust(sessionID)
 
 	return "Session reset completely."

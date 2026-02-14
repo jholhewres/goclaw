@@ -84,12 +84,21 @@ type Config struct {
 	// Queue configures message debouncing for bursts.
 	Queue QueueConfig `yaml:"queue"`
 
+	// Database configures the central SQLite database (goclaw.db).
+	Database DatabaseConfig `yaml:"database"`
+
 	// Gateway configures the HTTP API gateway.
 	Gateway GatewayConfig `yaml:"gateway"`
 
 	// BlockStream configures progressive message delivery (stream text to channel
 	// in chunks instead of waiting for the complete response).
 	BlockStream BlockStreamConfig `yaml:"block_stream"`
+}
+
+// DatabaseConfig configures the central goclaw.db SQLite database.
+type DatabaseConfig struct {
+	// Path is the database file path (default: "./data/goclaw.db").
+	Path string `yaml:"path"`
 }
 
 // GatewayConfig configures the HTTP API gateway.
@@ -463,6 +472,9 @@ func DefaultConfig() *Config {
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "json",
+		},
+		Database: DatabaseConfig{
+			Path: "./data/goclaw.db",
 		},
 		Gateway: GatewayConfig{
 			Enabled: false,
