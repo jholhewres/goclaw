@@ -46,11 +46,17 @@ type layerEntry struct {
 	content string
 }
 
-// bootstrapCacheEntry holds a cached bootstrap file.
+// bootstrapCacheEntry holds a cached bootstrap file with a TTL to avoid
+// re-reading from disk on every prompt compose.
 type bootstrapCacheEntry struct {
-	content string
-	hash    [32]byte // SHA-256 of the on-disk content.
+	content   string
+	hash      [32]byte  // SHA-256 of the on-disk content.
+	cachedAt  time.Time // When the entry was last validated.
 }
+
+// bootstrapCacheTTL is how long a cached bootstrap entry is considered fresh.
+// During this window, no disk I/O is performed.
+const bootstrapCacheTTL = 30 * time.Second
 
 // PromptComposer assembles the final system prompt from multiple layers.
 type PromptComposer struct {
@@ -95,46 +101,26 @@ func (p *PromptComposer) SetSkillGetter(getter func(name string) (interface{ Sys
 }
 
 // Compose builds the complete system prompt for a session and user input.
+// Heavy layers (bootstrap, memory, skills, conversation) are built concurrently
+// to minimize prompt composition latency.
 func (p *PromptComposer) Compose(session *Session, input string) string {
+	// ── Fast layers (in-memory, no I/O) ──
 	layers := make([]layerEntry, 0, 10)
 
-	// Layer 0: Core — base identity and tooling guidance.
-	layers = append(layers, layerEntry{
-		layer:   LayerCore,
-		content: p.buildCoreLayer(),
-	})
+	layers = append(layers, layerEntry{layer: LayerCore, content: p.buildCoreLayer()})
+	layers = append(layers, layerEntry{layer: LayerSafety, content: p.buildSafetyLayer()})
+	layers = append(layers, layerEntry{layer: LayerTemporal, content: p.buildTemporalLayer()})
+	layers = append(layers, layerEntry{layer: LayerRuntime, content: p.buildRuntimeLayer()})
 
-	// Layer 5: Safety — guardrails.
-	layers = append(layers, layerEntry{
-		layer:   LayerSafety,
-		content: p.buildSafetyLayer(),
-	})
-
-	// Layer 10: Identity — custom instructions from config.
 	if p.config.Instructions != "" {
 		layers = append(layers, layerEntry{
 			layer:   LayerIdentity,
 			content: "## Custom Instructions\n\n" + p.config.Instructions,
 		})
 	}
-
-	// Layer 12: Thinking — extended thinking level hint from session.
 	if thinkingPrompt := p.buildThinkingLayer(session); thinkingPrompt != "" {
-		layers = append(layers, layerEntry{
-			layer:   LayerThinking,
-			content: thinkingPrompt,
-		})
+		layers = append(layers, layerEntry{layer: LayerThinking, content: thinkingPrompt})
 	}
-
-	// Layer 15: Bootstrap — SOUL.md, AGENTS.md, etc.
-	if bootstrapPrompt := p.buildBootstrapLayer(); bootstrapPrompt != "" {
-		layers = append(layers, layerEntry{
-			layer:   LayerBootstrap,
-			content: bootstrapPrompt,
-		})
-	}
-
-	// Layer 20: Business — workspace/user context.
 	cfg := session.GetConfig()
 	if cfg.BusinessContext != "" {
 		layers = append(layers, layerEntry{
@@ -143,41 +129,56 @@ func (p *PromptComposer) Compose(session *Session, input string) string {
 		})
 	}
 
-	// Layer 40: Skills — active skill instructions.
-	if skillPrompt := p.buildSkillsLayer(session); skillPrompt != "" {
-		layers = append(layers, layerEntry{
-			layer:   LayerSkills,
-			content: skillPrompt,
-		})
+	// ── Heavy layers (I/O, search) — run concurrently ──
+	var (
+		wg           sync.WaitGroup
+		bootstrap    string
+		skills       string
+		memoryPrompt string
+		history      string
+	)
+
+	wg.Add(4)
+	go func() { defer wg.Done(); bootstrap = p.buildBootstrapLayer() }()
+	go func() { defer wg.Done(); skills = p.buildSkillsLayer(session) }()
+	go func() { defer wg.Done(); memoryPrompt = p.buildMemoryLayer(session, input) }()
+	go func() { defer wg.Done(); history = p.buildConversationLayer(session) }()
+	wg.Wait()
+
+	if bootstrap != "" {
+		layers = append(layers, layerEntry{layer: LayerBootstrap, content: bootstrap})
+	}
+	if skills != "" {
+		layers = append(layers, layerEntry{layer: LayerSkills, content: skills})
+	}
+	if memoryPrompt != "" {
+		layers = append(layers, layerEntry{layer: LayerMemory, content: memoryPrompt})
+	}
+	if history != "" {
+		layers = append(layers, layerEntry{layer: LayerConversation, content: history})
 	}
 
-	// Layer 50: Memory — relevant long-term facts.
-	if memoryPrompt := p.buildMemoryLayer(session, input); memoryPrompt != "" {
-		layers = append(layers, layerEntry{
-			layer:   LayerMemory,
-			content: memoryPrompt,
-		})
+	return p.assembleLayers(layers)
+}
+
+// ComposeMinimal builds a lightweight system prompt for scheduled jobs and
+// other fast-path scenarios. It includes only: Core identity, Safety,
+// Temporal (date/time), and the user's custom instructions. It deliberately
+// skips bootstrap files, memory search, skill instructions, and conversation
+// history to minimize token count and latency.
+func (p *PromptComposer) ComposeMinimal() string {
+	layers := []layerEntry{
+		{layer: LayerCore, content: p.buildCoreLayer()},
+		{layer: LayerSafety, content: p.buildSafetyLayer()},
+		{layer: LayerTemporal, content: p.buildTemporalLayer()},
 	}
 
-	// Layer 60: Temporal — current date/time.
-	layers = append(layers, layerEntry{
-		layer:   LayerTemporal,
-		content: p.buildTemporalLayer(),
-	})
-
-	// Layer 70: Conversation — recent history summary.
-	if historyPrompt := p.buildConversationLayer(session); historyPrompt != "" {
+	if p.config.Instructions != "" {
 		layers = append(layers, layerEntry{
-			layer:   LayerConversation,
-			content: historyPrompt,
+			layer:   LayerIdentity,
+			content: "## Custom Instructions\n\n" + p.config.Instructions,
 		})
 	}
-
-	// Layer 80: Runtime — final line with system info.
-	layers = append(layers, layerEntry{
-		layer:   LayerRuntime,
-		content: p.buildRuntimeLayer(),
-	})
 
 	return p.assembleLayers(layers)
 }
@@ -203,6 +204,12 @@ func (p *PromptComposer) buildCoreLayer() string {
 	b.WriteString("Narrate only when it helps: multi-step work, complex problems, sensitive actions (deletions, deployments), or when the user explicitly asks.\n")
 	b.WriteString("Keep narration brief and value-dense. Avoid repeating obvious steps.\n")
 	b.WriteString("Use plain human language unless in a technical context.\n")
+
+	b.WriteString("\n## Efficiency\n\n")
+	b.WriteString("The Project Context section below already contains SOUL.md, AGENTS.md, IDENTITY.md, USER.md, TOOLS.md, and MEMORY.md contents. ")
+	b.WriteString("Do NOT read these files with read_file \u2014 they are already in your system prompt.\n")
+	b.WriteString("For simple questions or greetings, respond directly without using any tools.\n")
+	b.WriteString("Minimize tool calls: only use tools when you actually need external data or to perform an action.\n")
 
 	return b.String()
 }
@@ -332,57 +339,65 @@ func (p *PromptComposer) buildBootstrapLayer() string {
 	return result
 }
 
-// loadBootstrapFileCached loads a bootstrap file with in-memory caching.
+// loadBootstrapFileCached loads a bootstrap file with TTL-based caching.
 // Returns the trimmed content, or "" if the file doesn't exist or is empty.
-// Cache is invalidated when the file content hash changes.
+// Within the TTL window (30s), returns cached content with zero disk I/O.
+// After TTL expires, re-reads the file and invalidates if content changed.
 func (p *PromptComposer) loadBootstrapFileCached(filename string, searchDirs []string) string {
-	// Try to find the file in search directories.
-	var fullPath string
+	// Fast path: check if cache is still fresh (no disk I/O).
+	p.bootstrapCacheMu.RLock()
+	cached, ok := p.bootstrapCache[filename]
+	p.bootstrapCacheMu.RUnlock()
+
+	if ok && time.Since(cached.cachedAt) < bootstrapCacheTTL {
+		return cached.content
+	}
+
+	// TTL expired or cache miss: read from disk.
 	var content []byte
 	var err error
 	for _, dir := range searchDirs {
 		candidate := filepath.Join(dir, filename)
 		content, err = os.ReadFile(candidate)
 		if err == nil {
-			fullPath = candidate
 			break
 		}
 	}
 	if err != nil || len(strings.TrimSpace(string(content))) == 0 {
-		// File not found or empty: remove from cache.
+		// File not found or empty: cache empty result to avoid repeated lookups.
 		p.bootstrapCacheMu.Lock()
-		delete(p.bootstrapCache, filename)
+		p.bootstrapCache[filename] = &bootstrapCacheEntry{
+			content:  "",
+			cachedAt: time.Now(),
+		}
 		p.bootstrapCacheMu.Unlock()
 		return ""
 	}
 
 	hash := sha256.Sum256(content)
 
-	// Check cache.
-	p.bootstrapCacheMu.RLock()
-	cached, ok := p.bootstrapCache[filename]
-	p.bootstrapCacheMu.RUnlock()
-
+	// If hash hasn't changed, refresh TTL and return cached content.
 	if ok && cached.hash == hash {
+		p.bootstrapCacheMu.Lock()
+		cached.cachedAt = time.Now()
+		p.bootstrapCacheMu.Unlock()
 		return cached.content
 	}
 
-	// Cache miss or hash changed: parse and cache.
+	// Content changed or new file: parse and cache.
 	text := strings.TrimSpace(string(content))
-
-	// Per-file size limit: 20KB.
 	if len(text) > 20000 {
 		text = text[:20000] + "\n\n... [truncated at 20KB]"
 	}
 
 	p.bootstrapCacheMu.Lock()
 	p.bootstrapCache[filename] = &bootstrapCacheEntry{
-		content: text,
-		hash:    hash,
+		content:  text,
+		hash:     hash,
+		cachedAt: time.Now(),
 	}
 	p.bootstrapCacheMu.Unlock()
 
-	_ = fullPath // used for identification; could log on change in the future
 	return text
 }
 
@@ -422,8 +437,10 @@ func (p *PromptComposer) buildMemoryLayer(session *Session, input string) string
 	var parts []string
 
 	// Try hybrid search first (SQLite with FTS5 + vector).
+	// Use a tight timeout to avoid blocking prompt composition.
+	// 500ms is enough for local SQLite FTS5; the old 2s was too generous.
 	if p.sqliteMemory != nil && input != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
 		searchCfg := p.config.Memory.Search
@@ -496,10 +513,13 @@ func (p *PromptComposer) buildConversationLayer(session *Session) string {
 	if maxEntries <= 0 {
 		maxEntries = 100
 	}
-	// Only include the most recent portion for the prompt.
+	// Only include the most recent portion for the prompt. The conversation
+	// layer is a summary that goes into the system prompt; the actual recent
+	// exchanges are passed separately as conversation history to the LLM.
+	// Keeping this small reduces prompt tokens and speeds up composition.
 	fetchEntries := maxEntries
-	if fetchEntries > 50 {
-		fetchEntries = 50
+	if fetchEntries > 15 {
+		fetchEntries = 15
 	}
 
 	history := session.RecentHistory(fetchEntries)

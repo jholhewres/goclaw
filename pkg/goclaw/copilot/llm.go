@@ -56,7 +56,17 @@ func NewLLMClient(cfg *Config, logger *slog.Logger) *LLMClient {
 		model:    cfg.Model,
 		fallback: cfg.Fallback.Effective(),
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
+			// No global timeout here — each call uses context.WithTimeout
+			// for precise per-call control. A global timeout would race with
+			// streaming responses that can take several minutes.
+			Transport: &http.Transport{
+				MaxIdleConns:        10,
+				MaxIdleConnsPerHost: 5,
+				IdleConnTimeout:     120 * time.Second,
+			// TLS handshake and response header timeouts prevent hung connections.
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 60 * time.Second,
+			},
 		},
 		logger: logger.With("component", "llm", "provider", provider),
 	}

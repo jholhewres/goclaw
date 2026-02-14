@@ -102,6 +102,11 @@ type ToolExecutor struct {
 	guard   *ToolGuard
 	mu      sync.RWMutex
 
+	// toolDefsCache caches the slice of ToolDefinitions so we don't rebuild
+	// it on every Tools() call. Invalidated when a new tool is registered.
+	toolDefsCache []ToolDefinition
+	toolDefsDirty bool
+
 	// parallel enables concurrent execution of independent tools.
 	parallel    bool
 	maxParallel int
@@ -209,6 +214,7 @@ func (e *ToolExecutor) Register(def ToolDefinition, handler ToolHandlerFunc) {
 		Definition: def,
 		Handler:    handler,
 	}
+	e.toolDefsDirty = true // Invalidate cache.
 
 	e.logger.Debug("tool registered", "name", name)
 }
@@ -245,14 +251,31 @@ func sanitizeToolName(name string) string {
 }
 
 // Tools returns all registered tool definitions for the LLM.
+// Uses a cached slice that is rebuilt only when tools are added/removed.
 func (e *ToolExecutor) Tools() []ToolDefinition {
 	e.mu.RLock()
-	defer e.mu.RUnlock()
+	if !e.toolDefsDirty && e.toolDefsCache != nil {
+		result := e.toolDefsCache
+		e.mu.RUnlock()
+		return result
+	}
+	e.mu.RUnlock()
+
+	// Upgrade to write lock to rebuild cache.
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if !e.toolDefsDirty && e.toolDefsCache != nil {
+		return e.toolDefsCache
+	}
 
 	defs := make([]ToolDefinition, 0, len(e.tools))
 	for _, t := range e.tools {
 		defs = append(defs, t.Definition)
 	}
+	e.toolDefsCache = defs
+	e.toolDefsDirty = false
 	return defs
 }
 

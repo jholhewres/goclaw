@@ -24,9 +24,10 @@ const (
 	DefaultMaxTurns = 25
 
 	// DefaultTurnTimeout is the timeout for a single LLM call within the loop.
-	// Set high (300s) to accommodate slow models (e.g. GLM-5 cold starts ~30-60s)
-	// and complex multi-tool turns. OpenClaw uses 600s; 300s is a good middle ground.
-	DefaultTurnTimeout = 300 * time.Second
+	// 60s covers cold starts and complex responses while cutting wait time on
+	// hung requests. Most LLM calls complete in 5-30s. Individual tools (bash,
+	// ssh) have their own longer timeouts.
+	DefaultTurnTimeout = 60 * time.Second
 
 	// DefaultMaxContinuations is how many times the agent can auto-continue
 	// after exhausting its turn budget. 0 = no auto-continue.
@@ -62,11 +63,11 @@ type AgentConfig struct {
 // DefaultAgentConfig returns sensible defaults for agent autonomy.
 func DefaultAgentConfig() AgentConfig {
 	return AgentConfig{
-		MaxTurns:                DefaultMaxTurns,
-		TurnTimeoutSeconds:      300,
-		MaxContinuations:        DefaultMaxContinuations,
-		ReflectionEnabled:       true,
-		MaxCompactionAttempts:   DefaultMaxCompactionAttempts,
+		MaxTurns:              DefaultMaxTurns,
+		TurnTimeoutSeconds:    int(DefaultTurnTimeout / time.Second),
+		MaxContinuations:      DefaultMaxContinuations,
+		ReflectionEnabled:     true,
+		MaxCompactionAttempts: DefaultMaxCompactionAttempts,
 	}
 }
 
@@ -198,8 +199,9 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 
 		for turn := 1; turn <= a.maxTurns; turn++ {
 			totalTurns++
+			turnStart := time.Now()
 
-			a.logger.Debug("agent turn",
+			a.logger.Debug("agent turn start",
 				"turn", totalTurns,
 				"continuation", continuations,
 				"messages", len(messages),
@@ -207,8 +209,6 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 
 			// ── Interrupt injection ──
 			// Check for follow-up user messages sent while the agent was working.
-			// These are injected as user messages so the LLM sees them before the
-			// next call and can adjust its behavior (Claude Code-style).
 			if turn > 1 {
 				if interrupts := a.drainInterrupts(); len(interrupts) > 0 {
 					for _, interrupt := range interrupts {
@@ -236,11 +236,22 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 			}
 
 			// Call LLM (with overflow retry and per-turn timeout inside).
+			llmStart := time.Now()
 			resp, err := a.doLLMCallWithOverflowRetry(ctx, messages, tools)
+			llmDuration := time.Since(llmStart)
 			if err != nil {
-				return "", nil, fmt.Errorf("LLM call failed (turn %d): %w", totalTurns, err)
+				return "", nil, fmt.Errorf("LLM call failed (turn %d, llm_ms=%d): %w",
+					totalTurns, llmDuration.Milliseconds(), err)
 			}
 			a.accumulateUsage(&totalUsage, resp)
+
+			a.logger.Info("LLM call complete",
+				"turn", totalTurns,
+				"llm_ms", llmDuration.Milliseconds(),
+				"tool_calls", len(resp.ToolCalls),
+				"prompt_tokens", resp.Usage.PromptTokens,
+				"completion_tokens", resp.Usage.CompletionTokens,
+			)
 
 			// No tool calls → final response.
 			if len(resp.ToolCalls) == 0 {
@@ -248,6 +259,7 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 					"total_turns", totalTurns,
 					"continuations", continuations,
 					"response_len", len(resp.Content),
+					"turn_ms", time.Since(turnStart).Milliseconds(),
 				)
 				return resp.Content, &totalUsage, nil
 			}
@@ -260,12 +272,24 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 			})
 
 			// Execute all requested tool calls.
+			toolStart := time.Now()
+			toolNames := make([]string, len(resp.ToolCalls))
+			for i, tc := range resp.ToolCalls {
+				toolNames[i] = tc.Function.Name
+			}
 			a.logger.Info("executing tool calls",
 				"count", len(resp.ToolCalls),
+				"tools", strings.Join(toolNames, ","),
 				"turn", totalTurns,
 			)
 
 			results := a.executor.Execute(ctx, resp.ToolCalls)
+
+			a.logger.Info("tool calls complete",
+				"count", len(results),
+				"tools_ms", time.Since(toolStart).Milliseconds(),
+				"turn_ms", time.Since(turnStart).Milliseconds(),
+			)
 
 			// Append each tool result as a message.
 			for _, result := range results {

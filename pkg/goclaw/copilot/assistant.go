@@ -729,7 +729,12 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 	a.toolExecutor.SetSessionContext(sessionID)
 
 	// ── Step 7: Build prompt with workspace context ──
+	promptStart := time.Now()
 	prompt := a.composeWorkspacePrompt(workspace, session, userContent)
+	logger.Info("prompt composed",
+		"duration_ms", time.Since(promptStart).Milliseconds(),
+		"prompt_chars", len(prompt),
+	)
 
 	// ── Step 8: Execute agent (with optional block streaming) ──
 	// Propagate opaque session ID and delivery target through context so
@@ -760,7 +765,12 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 		}
 	}()
 
+	agentStart := time.Now()
 	response := a.executeAgentWithStream(agentCtx, workspace.ID, session, sessionID, prompt, userContent, blockStreamer)
+	logger.Info("agent execution complete",
+		"agent_duration_ms", time.Since(agentStart).Milliseconds(),
+		"response_len", len(response),
+	)
 
 	// Stop the typing heartbeat.
 	close(typingDone)
@@ -898,7 +908,9 @@ func (a *Assistant) executeAgentWithStream(ctx context.Context, workspaceID stri
 	a.activeRuns[runKey] = cancel
 	a.activeRunsMu.Unlock()
 
-	history := session.RecentHistory(20)
+	// 10 recent entries ≈ 2-3K tokens: enough context without bloating the
+	// prompt. Older history is summarized by session memory if enabled.
+	history := session.RecentHistory(10)
 
 	modelOverride := session.GetConfig().Model
 	agent := NewAgentRunWithConfig(a.llmClient, a.toolExecutor, a.config.Agent, a.logger)
@@ -951,7 +963,7 @@ func (a *Assistant) executeAgent(ctx context.Context, workspaceID string, sessio
 	a.activeRuns[runKey] = cancel
 	a.activeRunsMu.Unlock()
 
-	history := session.RecentHistory(20)
+	history := session.RecentHistory(10)
 
 	modelOverride := session.GetConfig().Model
 	agent := NewAgentRunWithConfig(a.llmClient, a.toolExecutor, a.config.Agent, a.logger)
@@ -1104,27 +1116,31 @@ func (a *Assistant) initScheduler() {
 			jobCtx = ContextWithDelivery(ctx, job.Channel, job.ChatID)
 		}
 
-		// Build a delivery-focused prompt so the agent knows it is delivering
-		// a scheduled reminder, not receiving a new user message. This prevents
-		// the LLM from treating the reminder text as a conversation and generating
-		// confused follow-up questions.
+		// Build a delivery-focused prompt. Use ComposeMinimal() to skip
+		// bootstrap files, memory search, and conversation history — this
+		// cuts the prompt from ~7600 tokens to ~500, dramatically reducing
+		// latency and preventing the LLM from wasting turns reading files.
 		deliveryPrompt := fmt.Sprintf(
 			"[SCHEDULED REMINDER — deliver this to the user]\n"+
 				"You are delivering a previously scheduled reminder/task. "+
 				"The user set this themselves. Deliver the message below concisely.\n"+
-				"Do NOT ask follow-up questions. Do NOT treat this as a conversation.\n"+
-				"Just deliver the reminder clearly.\n\n"+
+				"Do NOT use any tools. Do NOT ask follow-up questions.\n"+
+				"Do NOT treat this as a conversation. Just deliver the reminder clearly.\n\n"+
 				"Reminder: %s", job.Command)
 
-		prompt := a.promptComposer.Compose(session, deliveryPrompt)
+		prompt := a.promptComposer.ComposeMinimal()
 
-		// Use a tighter agent config for scheduled jobs: fewer turns, no
-		// long loops. The agent just needs to deliver or run a simple task.
-		jobAgentCfg := a.config.Agent
-		jobAgentCfg.MaxTurns = 3
+		// Use a minimal agent config: 1 turn, short timeout, no continuations.
+		// The agent just needs to generate a single delivery response.
+		jobAgentCfg := AgentConfig{
+			MaxTurns:           1,
+			TurnTimeoutSeconds: 30,
+			MaxContinuations:   0,
+			ReflectionEnabled:  false,
+		}
 
 		agent := NewAgentRunWithConfig(a.llmClient, a.toolExecutor, jobAgentCfg, a.logger)
-		result, err := agent.Run(jobCtx, prompt, session.RecentHistory(0), deliveryPrompt)
+		result, err := agent.Run(jobCtx, prompt, nil, deliveryPrompt)
 		if err != nil {
 			return "", err
 		}
