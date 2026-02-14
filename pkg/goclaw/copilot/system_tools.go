@@ -1349,6 +1349,22 @@ func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler) {
 				jobType = "cron"
 			}
 
+			// Auto-fill channel/chatID from the current session context
+			// so scheduled job responses are delivered to the right chat.
+			if channel == "" || chatID == "" {
+				if sessionCtx := executor.SessionContext(); sessionCtx != "" {
+					parts := strings.SplitN(sessionCtx, ":", 2)
+					if len(parts) == 2 {
+						if channel == "" {
+							channel = parts[0]
+						}
+						if chatID == "" {
+							chatID = parts[1]
+						}
+					}
+				}
+			}
+
 			job := &scheduler.Job{
 				ID:       id,
 				Schedule: schedule,
@@ -1363,7 +1379,7 @@ func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler) {
 				return nil, err
 			}
 
-			return fmt.Sprintf("Job '%s' scheduled: %s (%s)", id, schedule, jobType), nil
+			return fmt.Sprintf("Job '%s' scheduled: %s (%s) → %s:%s", id, schedule, jobType, channel, chatID), nil
 		},
 	)
 

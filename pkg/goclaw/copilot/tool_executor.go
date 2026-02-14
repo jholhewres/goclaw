@@ -119,6 +119,13 @@ func (e *ToolExecutor) SetSessionContext(sessionID string) {
 	e.sessionID = sessionID
 }
 
+// SessionContext returns the current session ID (format: "channel:chatID").
+func (e *ToolExecutor) SessionContext() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.sessionID
+}
+
 // SetConfirmationRequester sets the callback for tools requiring user approval.
 // When a tool is in RequireConfirmation list, this callback is invoked.
 func (e *ToolExecutor) SetConfirmationRequester(fn func(sessionID, callerJID, toolName string, args map[string]any) (bool, error)) {
