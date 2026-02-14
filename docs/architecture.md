@@ -1,10 +1,10 @@
-# GoClaw — Arquitetura Técnica
+# GoClaw — Technical Architecture
 
-Documentação técnica da arquitetura interna do GoClaw, cobrindo componentes, fluxos de dados e decisões de design.
+Technical documentation of GoClaw's internal architecture, covering components, data flows, and design decisions.
 
-## Visão Geral
+## Overview
 
-GoClaw é um framework de assistente AI escrito em Go. Binário único, sem dependências de runtime. Suporta CLI interativo e canais de mensageria (WhatsApp, com Discord/Telegram planejados).
+GoClaw is an AI assistant framework written in Go. Single binary, zero runtime dependencies. Supports interactive CLI and messaging channels (WhatsApp, with Discord/Telegram planned).
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -52,43 +52,43 @@ GoClaw é um framework de assistente AI escrito em Go. Binário único, sem depe
 └───────────────────┘
 ```
 
-## Componentes Principais
+## Core Components
 
 ### 1. Assistant (`assistant.go`)
 
-Ponto de entrada para processamento de mensagens. Responsável por:
+Entry point for message processing. Responsible for:
 
-- **Roteamento de mensagens**: recebe mensagens dos canais, resolve sessão, despacha para o agent loop.
-- **Enriquecimento de mídia**: imagens são descritas via LLM vision; áudios transcritos via Whisper antes de chegar ao agente.
-- **Compactação de contexto**: quando o contexto excede o limite, aplica uma das três estratégias (`summarize`, `truncate`, `sliding`).
-- **Despacho de subagents**: cria agentes filhos para tarefas paralelas.
+- **Message routing**: receives messages from channels, resolves session, dispatches to the agent loop.
+- **Media enrichment**: images are described via LLM vision; audio is transcribed via Whisper before reaching the agent.
+- **Context compaction**: when the context exceeds the limit, applies one of three strategies (`summarize`, `truncate`, `sliding`).
+- **Subagent dispatch**: creates child agents for parallel tasks.
 
 ### 2. Agent Loop (`agent.go`)
 
-Loop agentic que orquestra chamadas LLM com execução de tools:
+Agentic loop that orchestrates LLM calls with tool execution:
 
 ```
 LLM Call → tool_calls? → Execute Tools → Append Results → LLM Call (repeat)
 ```
 
-| Parâmetro | Default | Descrição |
-|-----------|---------|-----------|
-| `max_turns` | 25 | Máximo de round-trips LLM por execução |
-| `turn_timeout_seconds` | 300 | Timeout por chamada LLM |
-| `max_continuations` | 2 | Auto-continuações quando o budget se esgota |
-| `reflection_enabled` | true | Nudges periódicos de budget (a cada 8 turnos) |
-| `max_compaction_attempts` | 3 | Retentativas após overflow de contexto |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_turns` | 25 | Maximum LLM round-trips per execution |
+| `turn_timeout_seconds` | 300 | Timeout per LLM call |
+| `max_continuations` | 2 | Auto-continuations when the budget is exhausted |
+| `reflection_enabled` | true | Periodic budget nudges (every 8 turns) |
+| `max_compaction_attempts` | 3 | Retries after context overflow |
 
-**Fluxo de auto-continue**: quando o agente esgota o budget de turnos enquanto ainda chama tools, automaticamente inicia uma continuação (até `max_continuations` vezes).
+**Auto-continue flow**: when the agent exhausts its turn budget while still calling tools, it automatically starts a continuation (up to `max_continuations` times).
 
-**Context overflow**: se o LLM retorna `context_length_exceeded`, o agent compacta mensagens (mantém system + histórico recente), trunca resultados de tools para 2000 chars, e retenta.
+**Context overflow**: if the LLM returns `context_length_exceeded`, the agent compacts messages (keeps system + recent history), truncates tool results to 2000 chars, and retries.
 
 ### 3. LLM Client (`llm.go`)
 
-Cliente HTTP para APIs compatíveis com OpenAI. Suporta múltiplos providers:
+HTTP client for OpenAI-compatible APIs. Supports multiple providers:
 
-| Provider | Base URL | Chave |
-|----------|----------|-------|
+| Provider | Base URL | Key |
+|----------|----------|-----|
 | OpenAI | `api.openai.com/v1` | `openai` |
 | Z.AI (API) | `api.z.ai/api/paas/v4` | `zai` |
 | Z.AI (Coding) | `api.z.ai/api/coding/paas/v4` | `zai-coding` |
@@ -97,133 +97,133 @@ Cliente HTTP para APIs compatíveis com OpenAI. Suporta múltiplos providers:
 
 **Features**:
 - Streaming via SSE (`CompleteWithToolsStream`)
-- Prompt caching para Anthropic (`cache_control: {"type": "ephemeral"}`)
-- Fallback chain com backoff exponencial
-- Detecção automática de provider pela URL
-- Defaults por modelo (temperatura, max tokens, suporte a tools)
+- Prompt caching for Anthropic (`cache_control: {"type": "ephemeral"}`)
+- Fallback chain with exponential backoff
+- Automatic provider detection from URL
+- Per-model defaults (temperature, max tokens, tool support)
 
 ### 4. Prompt Composer (`prompt_layers.go`)
 
-Sistema de prompt de 8 camadas com trimming baseado em prioridade e budget de tokens:
+8-layer system prompt with priority-based token budget trimming:
 
-| Camada | Prioridade | Conteúdo |
-|--------|-----------|----------|
-| Core | 0 | Identidade base, guia de tooling |
-| Safety | 5 | Guardrails, limites |
-| Identity | 10 | Instruções customizadas |
-| Thinking | 12 | Hints de extended thinking |
+| Layer | Priority | Content |
+|-------|----------|---------|
+| Core | 0 | Base identity, tooling guidance |
+| Safety | 5 | Guardrails, boundaries |
+| Identity | 10 | Custom instructions |
+| Thinking | 12 | Extended thinking hints |
 | Bootstrap | 15 | SOUL.md, AGENTS.md, etc. |
-| Business | 20 | Contexto de workspace |
-| Skills | 40 | Instruções de skills ativas |
-| Memory | 50 | Fatos de longo prazo |
-| Temporal | 60 | Data/hora/timezone |
-| Conversation | 70 | Histórico (sliding window) |
-| Runtime | 80 | Info do sistema |
+| Business | 20 | Workspace context |
+| Skills | 40 | Active skill instructions |
+| Memory | 50 | Long-term facts |
+| Temporal | 60 | Date/time/timezone |
+| Conversation | 70 | History (sliding window) |
+| Runtime | 80 | System info |
 
-**Regras de trimming**:
-- System prompt usa no máximo 40% do budget total de tokens.
-- Camadas com prioridade < 20 (Core, Safety, Identity, Thinking) nunca são cortadas.
-- Camadas com prioridade >= 50 podem ser descartadas completamente se over budget.
+**Trimming rules**:
+- System prompt uses at most 40% of the total token budget.
+- Layers with priority < 20 (Core, Safety, Identity, Thinking) are never trimmed.
+- Layers with priority >= 50 can be dropped entirely if over budget.
 
 ### 5. Tool Executor (`tool_executor.go`)
 
-Registry e dispatcher de tools com execução paralela:
+Tool registry and dispatcher with parallel execution:
 
-- **Registro dinâmico**: tools de system, skills e plugins são registrados no mesmo registry.
-- **Sanitização de nomes**: caracteres inválidos são substituídos por `_` via regex.
-- **Execução paralela**: tools independentes rodam concorrentemente (semáforo configurável, default 5).
-- **Tools sequenciais**: `bash`, `write_file`, `edit_file`, `ssh`, `scp`, `exec`, `set_env` sempre rodam sequencialmente.
-- **Timeout**: 30s por execução de tool (configurável).
-- **Contexto de sessão**: session ID propagado via `context.Value` para isolamento goroutine-safe.
+- **Dynamic registration**: system, skill, and plugin tools are registered in the same registry.
+- **Name sanitization**: invalid characters are replaced with `_` via regex.
+- **Parallel execution**: independent tools run concurrently (configurable semaphore, default 5).
+- **Sequential tools**: `bash`, `write_file`, `edit_file`, `ssh`, `scp`, `exec`, `set_env` always run sequentially.
+- **Timeout**: 30s per tool execution (configurable).
+- **Session context**: session ID propagated via `context.Value` for goroutine-safe isolation.
 
 ### 6. Session Manager (`session.go`, `session_persistence.go`)
 
-Isolamento por chat/grupo com persistência em disco:
+Per-chat/group isolation with disk persistence:
 
 ```
 data/sessions/
 ├── whatsapp_5511999999999/
-│   ├── history.jsonl     # Entradas de conversação (JSONL)
-│   ├── facts.json        # Fatos extraídos
-│   └── meta.json         # Metadados da sessão
+│   ├── history.jsonl     # Conversation entries (JSONL)
+│   ├── facts.json        # Extracted facts
+│   └── meta.json         # Session metadata
 ```
 
-- **Thread-safety**: `sync.RWMutex` por sessão.
-- **File locks**: locks de arquivo para persistência.
-- **Compactação preventiva**: dispara a 80% do threshold (não 100%).
+- **Thread-safety**: `sync.RWMutex` per session.
+- **File locks**: file-level locks for persistence.
+- **Preventive compaction**: triggers at 80% of the threshold (not 100%).
 
 ### 7. Subagent System (`subagent.go`)
 
-Agentes filhos para trabalho paralelo:
+Child agents for parallel work:
 
 ```
 Main Agent ──spawn_subagent──▶ SubagentManager ──goroutine──▶ Child AgentRun
                                     │                              │
                                     ▼                              ▼
-                             SubagentRegistry           (sessão isolada,
-                             tracks runs + results       tools filtradas,
-                                                         prompt separado)
+                             SubagentRegistry           (isolated session,
+                             tracks runs + results       filtered tools,
+                                                         separate prompt)
 ```
 
-- **Sem recursão**: subagents não podem spawnar subagents.
-- **Semáforo**: máximo 4 subagents concorrentes (default).
-- **Timeout**: 300s por subagent.
-- **Tools filtradas**: deny list remove `spawn_subagent`, `list_subagent`, `wait_subagent`.
+- **No recursion**: subagents cannot spawn subagents.
+- **Semaphore**: maximum 4 concurrent subagents (default).
+- **Timeout**: 300s per subagent.
+- **Filtered tools**: deny list removes `spawn_subagent`, `list_subagent`, `wait_subagent`.
 
-## Canais e Gateway
+## Channels and Gateway
 
 ### Channels (`channels/`)
 
-Interface abstrata que cada canal implementa:
+Abstract interface that each channel implements:
 
-- **WhatsApp** (`channels/whatsapp/`): implementação nativa em Go via whatsmeow. Suporta texto, imagens, áudio, vídeo, documentos, stickers, localizações, contatos, reações, typing indicators, read receipts.
-- **Discord** e **Telegram**: planejados.
+- **WhatsApp** (`channels/whatsapp/`): native Go implementation via whatsmeow. Supports text, images, audio, video, documents, stickers, locations, contacts, reactions, typing indicators, read receipts.
+- **Discord** and **Telegram**: planned.
 
 ### HTTP Gateway (`gateway/`)
 
-API REST compatível com OpenAI:
+OpenAI-compatible REST API:
 
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| POST | `/v1/chat/completions` | Chat (suporta streaming SSE) |
-| GET | `/api/sessions` | Listar sessões |
-| GET/DELETE | `/api/sessions/:id` | Sessão específica |
-| GET | `/api/usage` | Estatísticas de uso |
-| GET | `/api/status` | Status do sistema |
-| POST | `/api/webhooks` | Registrar webhook |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/chat/completions` | Chat (supports SSE streaming) |
+| GET | `/api/sessions` | List sessions |
+| GET/DELETE | `/api/sessions/:id` | Specific session |
+| GET | `/api/usage` | Usage statistics |
+| GET | `/api/status` | System status |
+| POST | `/api/webhooks` | Register webhook |
 | GET | `/health` | Health check |
 
-## Fluxo de uma Mensagem
+## Message Flow
 
 ```
-1. Canal recebe mensagem (WhatsApp / Gateway / CLI)
-2. Channel Manager roteia para Assistant
-3. Message Queue aplica debounce (1s) e dedup (5s window)
-4. Assistant resolve sessão (cria ou reutiliza)
-5. Mídia é enriquecida (vision/whisper se aplicável)
-6. Prompt Composer monta system prompt (8 camadas + trimming)
-7. Agent Loop inicia:
-   a. Chama LLM com contexto
-   b. Se tool_calls: ToolExecutor despacha (paralelo/sequencial)
-   c. ToolGuard valida permissões e bloqueia comandos perigosos
-   d. Resultados são appendados ao contexto
-   e. Repete até resposta final ou max_turns
-8. Resposta é formatada (markdown WhatsApp se necessário)
-9. Message Splitter divide em chunks compatíveis com o canal
-10. Block Streamer entrega progressivamente (se habilitado)
-11. Sessão é persistida em disco
+1. Channel receives message (WhatsApp / Gateway / CLI)
+2. Channel Manager routes to Assistant
+3. Message Queue applies debounce (1s) and dedup (5s window)
+4. Assistant resolves session (creates or reuses)
+5. Media is enriched (vision/whisper if applicable)
+6. Prompt Composer builds system prompt (8 layers + trimming)
+7. Agent Loop starts:
+   a. Calls LLM with context
+   b. If tool_calls: ToolExecutor dispatches (parallel/sequential)
+   c. ToolGuard validates permissions and blocks dangerous commands
+   d. Results are appended to context
+   e. Repeats until final response or max_turns
+8. Response is formatted (WhatsApp markdown if needed)
+9. Message Splitter divides into channel-compatible chunks
+10. Block Streamer delivers progressively (if enabled)
+11. Session is persisted to disk
 ```
 
-## Stack Tecnológica
+## Technology Stack
 
-| Componente | Tecnologia |
+| Component | Technology |
 |-----------|-----------|
-| Linguagem | Go 1.22+ |
+| Language | Go 1.22+ |
 | CLI | Cobra + readline |
 | Setup | charmbracelet/huh (TUI forms) |
-| WhatsApp | whatsmeow (nativo Go) |
-| Database | SQLite (go-sqlite3) com FTS5 |
-| Criptografia | AES-256-GCM + Argon2id (stdlib + x/crypto) |
+| WhatsApp | whatsmeow (native Go) |
+| Database | SQLite (go-sqlite3) with FTS5 |
+| Encryption | AES-256-GCM + Argon2id (stdlib + x/crypto) |
 | Scheduler | robfig/cron v3 |
 | Config | YAML (gopkg.in/yaml.v3) |
 | Keyring | go-keyring (GNOME/macOS/Windows) |
