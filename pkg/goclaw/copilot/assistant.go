@@ -664,8 +664,8 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 		"access_level", accessResult.Level)
 
 	// ── Step 3b: React, send typing indicator, and mark as read ──
-	// React with 👀 to acknowledge receipt (like OpenClaw).
-	a.channelMgr.SendReaction(a.ctx, msg.Channel, msg.ChatID, msg.ID, "👀")
+	// React with ⏳ to acknowledge processing.
+	a.channelMgr.SendReaction(a.ctx, msg.Channel, msg.ChatID, msg.ID, "⏳")
 	a.channelMgr.SendTyping(a.ctx, msg.Channel, msg.ChatID)
 	a.channelMgr.MarkRead(a.ctx, msg.Channel, msg.ChatID, []string{msg.ID})
 
@@ -697,7 +697,27 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 		blockStreamer = NewBlockStreamer(bsCfg, a.channelMgr, msg.Channel, msg.ChatID, msg.ID)
 	}
 
+	// Start a typing heartbeat goroutine that re-sends typing indicators
+	// every 8 seconds while the agent is processing. WhatsApp's typing
+	// indicator expires after ~10s, so refreshing keeps it alive.
+	typingDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(8 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-typingDone:
+				return
+			case <-ticker.C:
+				a.channelMgr.SendTyping(a.ctx, msg.Channel, msg.ChatID)
+			}
+		}
+	}()
+
 	response := a.executeAgentWithStream(agentCtx, workspace.ID, session, sessionID, prompt, userContent, blockStreamer)
+
+	// Stop the typing heartbeat.
+	close(typingDone)
 
 	// Finalize the block streamer (flush remaining text).
 	if blockStreamer != nil {
