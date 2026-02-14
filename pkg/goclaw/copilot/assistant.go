@@ -687,13 +687,17 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 	prompt := a.composeWorkspacePrompt(workspace, session, userContent)
 
 	// ── Step 8: Execute agent (with optional block streaming) ──
+	// Propagate session ID through context so tools (e.g. cron_add)
+	// can read it without relying on shared mutable ToolExecutor state.
+	agentCtx := ContextWithSession(a.ctx, sessionID)
+
 	bsCfg := a.config.BlockStream.Effective()
 	var blockStreamer *BlockStreamer
 	if bsCfg.Enabled {
 		blockStreamer = NewBlockStreamer(bsCfg, a.channelMgr, msg.Channel, msg.ChatID, msg.ID)
 	}
 
-	response := a.executeAgentWithStream(a.ctx, workspace.ID, session, sessionID, prompt, userContent, blockStreamer)
+	response := a.executeAgentWithStream(agentCtx, workspace.ID, session, sessionID, prompt, userContent, blockStreamer)
 
 	// Finalize the block streamer (flush remaining text).
 	if blockStreamer != nil {
@@ -999,7 +1003,8 @@ func (a *Assistant) initScheduler() {
 	// Scheduled jobs run with full trust (no approval prompts) because they
 	// were explicitly created by the user and execute autonomously.
 	handler := func(ctx context.Context, job *scheduler.Job) (string, error) {
-		a.logger.Info("scheduler executing job", "id", job.ID, "command", job.Command)
+		a.logger.Info("scheduler executing job", "id", job.ID, "command", job.Command,
+			"channel", job.Channel, "chat_id", job.ChatID)
 
 		// Get or create a session for this scheduled job.
 		session := a.sessionStore.GetOrCreate("scheduler", job.ID)
@@ -1010,14 +1015,24 @@ func (a *Assistant) initScheduler() {
 		for _, toolName := range a.config.Security.ToolGuard.RequireConfirmation {
 			a.approvalMgr.GrantTrust(schedulerSessionID, toolName)
 		}
-		// Also set the tool executor context for the scheduler session.
+		// Set the tool executor context for the scheduler session.
+		// Note: this is shared state and may be overwritten by concurrent requests,
+		// but we also propagate via context.WithValue below for goroutine safety.
 		a.toolExecutor.SetCallerContext(AccessOwner, "scheduler")
 		a.toolExecutor.SetSessionContext(schedulerSessionID)
+
+		// Propagate the job's target channel:chatID through context so any
+		// tools called during the scheduled run (e.g. cron_add creating sub-jobs)
+		// correctly know the delivery target.
+		jobCtx := ctx
+		if job.Channel != "" && job.ChatID != "" {
+			jobCtx = ContextWithSession(ctx, job.Channel+":"+job.ChatID)
+		}
 
 		prompt := a.promptComposer.Compose(session, job.Command)
 
 		agent := NewAgentRunWithConfig(a.llmClient, a.toolExecutor, a.config.Agent, a.logger)
-		result, err := agent.Run(ctx, prompt, session.RecentHistory(10), job.Command)
+		result, err := agent.Run(jobCtx, prompt, session.RecentHistory(10), job.Command)
 		if err != nil {
 			return "", err
 		}
@@ -1030,7 +1045,8 @@ func (a *Assistant) initScheduler() {
 			outMsg := &channels.OutgoingMessage{Content: result}
 			if sendErr := a.channelMgr.Send(ctx, job.Channel, job.ChatID, outMsg); sendErr != nil {
 				a.logger.Error("failed to deliver scheduled message",
-					"job_id", job.ID, "error", sendErr)
+					"job_id", job.ID, "error", sendErr,
+					"channel", job.Channel, "chat_id", job.ChatID)
 			}
 		}
 

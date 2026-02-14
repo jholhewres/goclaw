@@ -1334,7 +1334,7 @@ func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler) {
 			},
 			"required": []string{"id", "schedule", "command"},
 		}),
-		func(_ context.Context, args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
 			id, _ := args["id"].(string)
 			schedule, _ := args["schedule"].(string)
 			jobType, _ := args["type"].(string)
@@ -1349,10 +1349,17 @@ func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler) {
 				jobType = "cron"
 			}
 
-			// Auto-fill channel/chatID from the current session context
-			// so scheduled job responses are delivered to the right chat.
+			// Auto-fill channel/chatID from the context-propagated session ID.
+			// This is goroutine-safe: each agent run carries its own context,
+			// avoiding the race condition of reading shared ToolExecutor state.
 			if channel == "" || chatID == "" {
-				if sessionCtx := executor.SessionContext(); sessionCtx != "" {
+				sessionCtx := SessionIDFromContext(ctx)
+				// Fallback to executor's shared state (for CLI usage where
+				// context may not carry session info).
+				if sessionCtx == "" {
+					sessionCtx = executor.SessionContext()
+				}
+				if sessionCtx != "" {
 					parts := strings.SplitN(sessionCtx, ":", 2)
 					if len(parts) == 2 {
 						if channel == "" {

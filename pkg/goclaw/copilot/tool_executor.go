@@ -19,6 +19,26 @@ import (
 // toolNameSanitizer replaces any character not in [a-zA-Z0-9_-] with "_".
 var toolNameSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
+// ctxKeySessionID is the context key for passing session ID (channel:chatID)
+// through the context chain, ensuring goroutine-safe isolation.
+type ctxKeySessionID struct{}
+
+// ContextWithSession returns a new context carrying the given session ID.
+// Use this to propagate session context through the agent execution chain,
+// avoiding shared mutable state in ToolExecutor.
+func ContextWithSession(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, ctxKeySessionID{}, sessionID)
+}
+
+// SessionIDFromContext extracts the session ID from a context.
+// Returns empty string if not set.
+func SessionIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxKeySessionID{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 const (
 	// DefaultToolTimeout is the maximum time a single tool execution can take.
 	DefaultToolTimeout = 30 * time.Second
