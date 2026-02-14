@@ -21,6 +21,7 @@ import (
 	"github.com/jholhewres/goclaw/pkg/goclaw/sandbox"
 	"github.com/jholhewres/goclaw/pkg/goclaw/scheduler"
 	"github.com/jholhewres/goclaw/pkg/goclaw/skills"
+	"github.com/jholhewres/goclaw/pkg/goclaw/tts"
 )
 
 // Assistant is the main orchestrator for GoClaw.
@@ -97,9 +98,15 @@ type Assistant struct {
 	// vault provides encrypted secret storage (nil if unavailable/locked).
 	vault *Vault
 
+	// projectMgr manages registered development projects.
+	projectMgr *ProjectManager
+
 	// goclawDB is the central SQLite database (goclaw.db) shared by the
 	// scheduler, session persistence, and audit logger.
 	goclawDB *sql.DB
+
+	// ttsProvider handles text-to-speech synthesis (nil if TTS is disabled).
+	ttsProvider tts.Provider
 
 	// configMu protects hot-reloadable config fields.
 	configMu sync.RWMutex
@@ -129,6 +136,13 @@ func New(cfg *Config, logger *slog.Logger) *Assistant {
 	// Initialize approval manager for RequireConfirmation tools.
 	approvalMgr := NewApprovalManager(logger)
 
+	// Initialize project manager for coding skills.
+	dataDir := filepath.Dir(cfg.Memory.Path)
+	if dataDir == "" || dataDir == "." {
+		dataDir = "./data"
+	}
+	projectMgr := NewProjectManager(dataDir)
+
 	// Create assistant first (needed for onDrain closure).
 	a := &Assistant{
 		config:         cfg,
@@ -144,6 +158,7 @@ func New(cfg *Config, logger *slog.Logger) *Assistant {
 		inputGuard:     security.NewInputGuardrail(cfg.Security.MaxInputLength, cfg.Security.RateLimit),
 		outputGuard:    security.NewOutputGuardrail(),
 		subagentMgr:    NewSubagentManager(cfg.Subagents, logger),
+		projectMgr:      projectMgr,
 		activeRuns:       make(map[string]context.CancelFunc),
 		interruptInboxes: make(map[string]chan string),
 		usageTracker:     NewUsageTracker(logger.With("component", "usage")),
@@ -355,6 +370,14 @@ func (a *Assistant) Start(ctx context.Context) error {
 	// Executes after all channels are connected, with a short delay for stabilization.
 	go a.runBootOnce()
 
+	// 8. Initialize TTS provider if enabled.
+	if a.config.TTS.Enabled {
+		a.ttsProvider = a.buildTTSProvider()
+		if a.ttsProvider != nil {
+			a.logger.Info("TTS enabled", "provider", a.config.TTS.Provider, "voice", a.config.TTS.Voice, "mode", a.config.TTS.AutoMode)
+		}
+	}
+
 	a.logger.Info("GoClaw Copilot started successfully")
 	return nil
 }
@@ -528,6 +551,11 @@ func (a *Assistant) WorkspaceManager() *WorkspaceManager {
 // SkillRegistry returns the skills registry.
 func (a *Assistant) SkillRegistry() *skills.Registry {
 	return a.skillRegistry
+}
+
+// ProjectManager returns the project manager.
+func (a *Assistant) ProjectManager() *ProjectManager {
+	return a.projectMgr
 }
 
 // SetScheduler configures the assistant's scheduler.
@@ -797,6 +825,9 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 		a.sendReply(msg, response)
 	}
 
+	// ── Step 11b: TTS — synthesize and send audio if enabled ──
+	a.maybeSendTTS(msg, response)
+
 	// React with ✅ to signal processing is complete.
 	a.channelMgr.SendReaction(a.ctx, msg.Channel, msg.ChatID, msg.ID, "✅")
 
@@ -1035,6 +1066,11 @@ func (a *Assistant) SessionStore() *SessionStore {
 	return a.sessionStore
 }
 
+// Scheduler returns the task scheduler (may be nil if not initialized).
+func (a *Assistant) Scheduler() *scheduler.Scheduler {
+	return a.scheduler
+}
+
 // ComposePrompt builds a system prompt for the given session and input.
 // Convenience method for CLI and external callers.
 func (a *Assistant) ComposePrompt(session *Session, input string) string {
@@ -1171,6 +1207,12 @@ func (a *Assistant) registerSkillLoaders() {
 	// Builtin skills loader.
 	if len(a.config.Skills.Builtin) > 0 {
 		builtinLoader := skills.NewBuiltinLoader(a.config.Skills.Builtin, a.logger)
+
+		// Inject project provider for coding skills (claude-code, project-manager).
+		if a.projectMgr != nil {
+			builtinLoader.SetProjectProvider(NewProjectProviderAdapter(a.projectMgr))
+		}
+
 		a.skillRegistry.AddLoader(builtinLoader)
 	}
 
@@ -1270,7 +1312,7 @@ func (a *Assistant) registerSystemTools() {
 	dataDir = filepath.Dir(dataDir)
 
 	ssrfGuard := security.NewSSRFGuard(a.config.Security.SSRF, a.logger)
-	RegisterSystemTools(a.toolExecutor, sandboxRunner, a.memoryStore, a.sqliteMemory, a.config.Memory, a.scheduler, dataDir, ssrfGuard, a.vault)
+	RegisterSystemTools(a.toolExecutor, sandboxRunner, a.memoryStore, a.sqliteMemory, a.config.Memory, a.scheduler, dataDir, ssrfGuard, a.vault, a.config.WebSearch)
 
 	// Register skill creator tools (including install_skill, search_skills, remove_skill).
 	skillsDir := "./skills"
@@ -1511,7 +1553,7 @@ func (a *Assistant) enrichMessageContent(ctx context.Context, msg *channels.Inco
 		if filename == "" {
 			filename = "audio.ogg"
 		}
-		transcript, err := a.llmClient.TranscribeAudio(ctx, data, filename, media.TranscriptionModel)
+		transcript, err := a.llmClient.TranscribeAudio(ctx, data, filename, media.TranscriptionModel, media)
 		if err != nil {
 			logger.Warn("audio transcription failed", "error", err)
 			return msg.Content
@@ -1626,6 +1668,94 @@ func generateSlug(text string, maxWords int) string {
 
 // sendReply sends a response to the original message's channel.
 // Long messages are split into chunks respecting the channel limit (default 4000 chars).
+// buildTTSProvider creates the appropriate TTS provider based on config.
+func (a *Assistant) buildTTSProvider() tts.Provider {
+	switch a.config.TTS.Provider {
+	case "openai":
+		apiKey := a.config.API.APIKey
+		baseURL := a.config.API.BaseURL
+		if baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
+		}
+		return tts.NewOpenAIProvider(apiKey, baseURL, a.config.TTS.Model)
+
+	case "edge":
+		return tts.NewEdgeProvider(a.logger)
+
+	case "auto":
+		// Try OpenAI first, fall back to Edge TTS.
+		apiKey := a.config.API.APIKey
+		baseURL := a.config.API.BaseURL
+		if baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
+		}
+		primary := tts.NewOpenAIProvider(apiKey, baseURL, a.config.TTS.Model)
+		secondary := tts.NewEdgeProvider(a.logger)
+		edgeVoice := a.config.TTS.EdgeVoice
+		if edgeVoice == "" {
+			edgeVoice = "pt-BR-FranciscaNeural"
+		}
+		return tts.NewFallbackProvider(primary, secondary, a.config.TTS.Voice, edgeVoice, a.logger)
+
+	default:
+		a.logger.Warn("unknown TTS provider, using edge as fallback", "provider", a.config.TTS.Provider)
+		return tts.NewEdgeProvider(a.logger)
+	}
+}
+
+// maybeSendTTS synthesizes audio from the response text and sends it as a
+// voice message, depending on the TTS auto-mode configuration.
+func (a *Assistant) maybeSendTTS(msg *channels.IncomingMessage, response string) {
+	if a.ttsProvider == nil || response == "" {
+		return
+	}
+
+	// Read TTS config under lock to avoid data race with /tts command.
+	a.configMu.RLock()
+	mode := a.config.TTS.AutoMode
+	voice := a.config.TTS.Voice
+	a.configMu.RUnlock()
+
+	switch mode {
+	case "always":
+		// Always send audio.
+	case "inbound":
+		// Only send audio if the user sent a voice note.
+		if msg.Type != channels.MessageAudio {
+			return
+		}
+	default:
+		// "off" or unknown: skip.
+		return
+	}
+
+	// Truncate for TTS (avoid synthesizing huge responses).
+	text := response
+	if len(text) > 4096 {
+		text = text[:4093] + "..."
+	}
+
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+
+	audio, mimeType, err := a.ttsProvider.Synthesize(ctx, text, voice)
+	if err != nil {
+		a.logger.Warn("TTS synthesis failed", "error", err)
+		return
+	}
+
+	media := &channels.MediaMessage{
+		Type:     channels.MessageAudio,
+		Data:     audio,
+		MimeType: mimeType,
+		Filename: "response.ogg",
+		ReplyTo:  msg.ID,
+	}
+	if err := a.channelMgr.SendMedia(a.ctx, msg.Channel, msg.ChatID, media); err != nil {
+		a.logger.Warn("failed to send TTS audio", "error", err)
+	}
+}
+
 func (a *Assistant) sendReply(original *channels.IncomingMessage, content string) {
 	content = FormatForChannel(content, original.Channel)
 

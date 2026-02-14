@@ -176,9 +176,162 @@ func FormatForChannel(text, channel string) string {
 	switch ch {
 	case "whatsapp":
 		return FormatForWhatsApp(text)
+	case "telegram":
+		return FormatForTelegram(text)
+	case "discord":
+		return text // Discord uses standard Markdown natively.
+	case "slack":
+		return FormatForSlack(text)
 	case "plain", "sms":
 		return FormatForPlainText(text)
 	default:
 		return text
 	}
+}
+
+// FormatForTelegram converts Markdown to Telegram HTML.
+// Telegram supports: <b>, <i>, <code>, <pre>, <a href="">, <s>, <u>.
+func FormatForTelegram(text string) string {
+	// Escape HTML entities first.
+	text = strings.ReplaceAll(text, "&", "&amp;")
+	text = strings.ReplaceAll(text, "<", "&lt;")
+	text = strings.ReplaceAll(text, ">", "&gt;")
+
+	// Bold: **text** -> <b>text</b>
+	for {
+		start := strings.Index(text, "**")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text[start+2:], "**")
+		if end == -1 {
+			break
+		}
+		end += start + 2
+		inner := text[start+2 : end]
+		text = text[:start] + "<b>" + inner + "</b>" + text[end+2:]
+	}
+
+	// Italic: *text* -> <i>text</i> (only single asterisks, not inside bold)
+	for {
+		start := strings.Index(text, "*")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text[start+1:], "*")
+		if end == -1 {
+			break
+		}
+		end += start + 1
+		inner := text[start+1 : end]
+		text = text[:start] + "<i>" + inner + "</i>" + text[end+1:]
+	}
+
+	// Inline code: `text` -> <code>text</code>
+	for {
+		start := strings.Index(text, "`")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text[start+1:], "`")
+		if end == -1 {
+			break
+		}
+		end += start + 1
+		inner := text[start+1 : end]
+		text = text[:start] + "<code>" + inner + "</code>" + text[end+1:]
+	}
+
+	// Code blocks: ```lang\ncode\n``` -> <pre>code</pre>
+	for {
+		start := strings.Index(text, "```")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text[start+3:], "```")
+		if end == -1 {
+			break
+		}
+		end += start + 3
+		inner := text[start+3 : end]
+		// Strip the optional language identifier on the first line.
+		if nl := strings.Index(inner, "\n"); nl != -1 {
+			inner = inner[nl+1:]
+		}
+		text = text[:start] + "<pre>" + strings.TrimSpace(inner) + "</pre>" + text[end+3:]
+	}
+
+	// Strikethrough: ~~text~~ -> <s>text</s>
+	for {
+		start := strings.Index(text, "~~")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text[start+2:], "~~")
+		if end == -1 {
+			break
+		}
+		end += start + 2
+		inner := text[start+2 : end]
+		text = text[:start] + "<s>" + inner + "</s>" + text[end+2:]
+	}
+
+	return text
+}
+
+// FormatForSlack converts Markdown to Slack's mrkdwn format.
+// Slack uses: *bold*, _italic_, ~strike~, `code`, ```preformatted```.
+func FormatForSlack(text string) string {
+	// Bold: **text** → *text*
+	for {
+		start := strings.Index(text, "**")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text[start+2:], "**")
+		if end == -1 {
+			break
+		}
+		end += start + 2
+		inner := text[start+2 : end]
+		text = text[:start] + "*" + inner + "*" + text[end+2:]
+	}
+
+	// Strikethrough: ~~text~~ → ~text~
+	for {
+		start := strings.Index(text, "~~")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text[start+2:], "~~")
+		if end == -1 {
+			break
+		}
+		end += start + 2
+		inner := text[start+2 : end]
+		text = text[:start] + "~" + inner + "~" + text[end+2:]
+	}
+
+	// Links: [text](url) → <url|text>
+	for {
+		start := strings.Index(text, "[")
+		if start == -1 {
+			break
+		}
+		mid := strings.Index(text[start:], "](")
+		if mid == -1 {
+			break
+		}
+		mid += start
+		end := strings.Index(text[mid:], ")")
+		if end == -1 {
+			break
+		}
+		end += mid
+		label := text[start+1 : mid]
+		url := text[mid+2 : end]
+		text = text[:start] + "<" + url + "|" + label + ">" + text[end+1:]
+	}
+
+	return text
 }

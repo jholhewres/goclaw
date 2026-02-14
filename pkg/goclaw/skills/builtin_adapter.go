@@ -7,12 +7,16 @@
 package skills
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,8 +24,9 @@ import (
 
 // BuiltinLoader creates and returns built-in skills based on the enabled list.
 type BuiltinLoader struct {
-	enabled []string
-	logger  *slog.Logger
+	enabled  []string
+	logger   *slog.Logger
+	projProv ProjectProvider // optional, for coding skills (claude-code, project-manager)
 }
 
 // NewBuiltinLoader creates a loader for built-in skills.
@@ -32,12 +37,21 @@ func NewBuiltinLoader(enabled []string, logger *slog.Logger) *BuiltinLoader {
 	return &BuiltinLoader{enabled: enabled, logger: logger}
 }
 
+// SetProjectProvider injects the project provider for coding skills.
+// Must be called before Load if "claude-code" or "project-manager" are enabled.
+func (l *BuiltinLoader) SetProjectProvider(p ProjectProvider) {
+	l.projProv = p
+}
+
 // Load returns built-in skills matching the enabled list.
 func (l *BuiltinLoader) Load(_ context.Context) ([]Skill, error) {
 	all := map[string]func() Skill{
-		"calculator": newCalculatorSkill,
-		"web-fetch":  newWebFetchSkill,
-		"datetime":   newDatetimeSkill,
+		"calculator":      newCalculatorSkill,
+		"web-fetch":       newWebFetchSkill,
+		"datetime":        newDatetimeSkill,
+		"image-gen":       newImageGenSkill,
+		"claude-code":     func() Skill { return NewClaudeCodeSkill(l.projProv) },
+		"project-manager": func() Skill { return NewProjectManagerSkill(l.projProv) },
 	}
 
 	var result []Skill
@@ -430,4 +444,215 @@ func (s *datetimeSkill) Execute(_ context.Context, input string) (string, error)
 }
 
 func (s *datetimeSkill) Shutdown() error { return nil }
+
+// ============================================================
+// Image Generation Skill (DALL-E 3 / gpt-image-1)
+// ============================================================
+
+type imageGenSkill struct {
+	client *http.Client
+	apiKey string
+	model  string
+}
+
+func newImageGenSkill() Skill {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("GOCLAW_API_KEY")
+	}
+	model := os.Getenv("GOCLAW_IMAGE_MODEL")
+	if model == "" {
+		model = "dall-e-3"
+	}
+	return &imageGenSkill{
+		client: &http.Client{Timeout: 120 * time.Second},
+		apiKey: apiKey,
+		model:  model,
+	}
+}
+
+func (s *imageGenSkill) Metadata() Metadata {
+	return Metadata{
+		Name:        "image-gen",
+		Version:     "1.0.0",
+		Author:      "goclaw",
+		Description: "Generate images from text descriptions using DALL-E or GPT-image models",
+		Category:    "creative",
+		Tags:        []string{"image", "generate", "dalle", "art", "picture"},
+	}
+}
+
+func (s *imageGenSkill) Tools() []Tool {
+	return []Tool{
+		{
+			Name:        "generate_image",
+			Description: "Generate an image from a text prompt using DALL-E 3 or gpt-image-1. Returns a base64-encoded PNG. Supported sizes: 1024x1024, 1024x1792, 1792x1024. Supported qualities: standard, hd.",
+			Parameters: []ToolParameter{
+				{Name: "prompt", Type: "string", Description: "A detailed description of the image to generate", Required: true},
+				{Name: "size", Type: "string", Description: "Image size: 1024x1024 (default), 1024x1792, 1792x1024", Default: "1024x1024"},
+				{Name: "quality", Type: "string", Description: "Image quality: standard (default) or hd", Default: "standard"},
+				{Name: "style", Type: "string", Description: "Image style: vivid (default) or natural", Default: "vivid"},
+			},
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				prompt, _ := args["prompt"].(string)
+				if prompt == "" {
+					return nil, fmt.Errorf("prompt is required")
+				}
+				size, _ := args["size"].(string)
+				if size == "" {
+					size = "1024x1024"
+				}
+				quality, _ := args["quality"].(string)
+				if quality == "" {
+					quality = "standard"
+				}
+				style, _ := args["style"].(string)
+				if style == "" {
+					style = "vivid"
+				}
+				return s.generateImage(ctx, prompt, size, quality, style)
+			},
+		},
+	}
+}
+
+func (s *imageGenSkill) SystemPrompt() string {
+	return `You can generate images using the generate_image tool. When the user asks for an image, picture, illustration, art, drawing, or photo:
+1. Create a detailed, descriptive prompt in English (even if the user speaks another language)
+2. Include style details (photorealistic, illustration, painting, etc.)
+3. Include lighting, mood, composition details for better results
+4. Use "hd" quality for important or detailed images
+5. Choose the appropriate size based on the image content`
+}
+
+func (s *imageGenSkill) Triggers() []string {
+	return []string{"image", "picture", "generate", "draw", "create image", "dalle", "art", "illustration", "photo"}
+}
+
+func (s *imageGenSkill) Init(_ context.Context, cfg map[string]any) error {
+	if key, ok := cfg["api_key"].(string); ok && key != "" {
+		s.apiKey = key
+	}
+	if model, ok := cfg["model"].(string); ok && model != "" {
+		s.model = model
+	}
+	return nil
+}
+
+func (s *imageGenSkill) Execute(ctx context.Context, input string) (string, error) {
+	result, err := s.generateImage(ctx, input, "1024x1024", "standard", "vivid")
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%v", result), nil
+}
+
+func (s *imageGenSkill) Shutdown() error { return nil }
+
+// imageGenResponse represents the OpenAI images API response.
+type imageGenResponse struct {
+	Data []struct {
+		B64JSON       string `json:"b64_json"`
+		URL           string `json:"url"`
+		RevisedPrompt string `json:"revised_prompt"`
+	} `json:"data"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
+
+func (s *imageGenSkill) generateImage(ctx context.Context, prompt, size, quality, style string) (any, error) {
+	if s.apiKey == "" {
+		return nil, fmt.Errorf("image generation requires OPENAI_API_KEY or GOCLAW_API_KEY to be set")
+	}
+
+	// Validate size.
+	validSizes := map[string]bool{
+		"1024x1024": true,
+		"1024x1792": true,
+		"1792x1024": true,
+	}
+	if !validSizes[size] {
+		size = "1024x1024"
+	}
+
+	// Validate quality.
+	if quality != "standard" && quality != "hd" {
+		quality = "standard"
+	}
+
+	// Build request body.
+	reqBody := map[string]any{
+		"model":           s.model,
+		"prompt":          prompt,
+		"n":               1,
+		"size":            size,
+		"quality":         quality,
+		"response_format": "b64_json",
+	}
+	// Style is only supported for dall-e-3.
+	if strings.HasPrefix(s.model, "dall-e") {
+		if style != "vivid" && style != "natural" {
+			style = "vivid"
+		}
+		reqBody["style"] = style
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.openai.com/v1/images/generations", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result imageGenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("OpenAI API error: %s", result.Error.Message)
+	}
+
+	if len(result.Data) == 0 {
+		return nil, fmt.Errorf("no image generated")
+	}
+
+	img := result.Data[0]
+
+	// Save the image to a temp file for media channels.
+	tmpDir := os.TempDir()
+	imgPath := fmt.Sprintf("%s/goclaw-img-%d.png", tmpDir, time.Now().UnixNano())
+	imgData, err := base64.StdEncoding.DecodeString(img.B64JSON)
+	if err != nil {
+		return nil, fmt.Errorf("decoding image data: %w", err)
+	}
+	if err := os.WriteFile(imgPath, imgData, 0o644); err != nil {
+		return nil, fmt.Errorf("saving image: %w", err)
+	}
+
+	response := map[string]any{
+		"image_path":     imgPath,
+		"revised_prompt": img.RevisedPrompt,
+		"size":           size,
+		"quality":        quality,
+		"model":          s.model,
+		"message":        fmt.Sprintf("Image generated and saved to %s", imgPath),
+	}
+
+	return response, nil
+}
 

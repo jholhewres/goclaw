@@ -1,0 +1,18 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold text-gray-900">Configuration</h1>
+
+  <div class="rounded-xl bg-white shadow p-6">
+    <div class="space-y-4">
+      {{range $key, $value := .Config}}
+      <div class="border-b border-gray-100 pb-3">
+        <dt class="text-sm font-medium text-gray-500">{{$key}}</dt>
+        <dd class="mt-1 text-sm text-gray-900 font-mono">{{$value}}</dd>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}

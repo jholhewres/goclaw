@@ -151,6 +151,9 @@ func (a *Assistant) HandleCommand(msg *channels.IncomingMessage) CommandResult {
 	case "/think":
 		return CommandResult{Response: a.thinkCommand(args, msg), Handled: true}
 
+	case "/tts":
+		return CommandResult{Response: a.ttsCommand(args, msg), Handled: true}
+
 	default:
 		return CommandResult{Handled: false}
 	}
@@ -203,6 +206,7 @@ func (a *Assistant) helpCommand(isAdmin bool) string {
 	b.WriteString("/reset - Full session reset\n")
 	b.WriteString("/usage [reset] - Show token usage\n")
 	b.WriteString("/think [off|low|medium|high] - Set thinking level\n")
+	b.WriteString("/tts [off|always|inbound] - Toggle text-to-speech\n")
 
 	b.WriteString("\n/help - Show this message")
 	return b.String()
@@ -408,6 +412,38 @@ func (a *Assistant) thinkCommand(args []string, msg *channels.IncomingMessage) s
 	}
 	session.SetThinkingLevel(level)
 	return fmt.Sprintf("Thinking level: %s", level)
+}
+
+func (a *Assistant) ttsCommand(args []string, msg *channels.IncomingMessage) string {
+	if len(args) == 0 {
+		mode := a.config.TTS.AutoMode
+		if !a.config.TTS.Enabled {
+			mode = "disabled"
+		}
+		return fmt.Sprintf("TTS mode: %s (voice: %s)", mode, a.config.TTS.Voice)
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(args[0]))
+	valid := map[string]bool{"off": true, "always": true, "inbound": true}
+	if !valid[mode] {
+		return "Usage: /tts [off|always|inbound]"
+	}
+
+	a.configMu.Lock()
+	if mode == "off" {
+		a.config.TTS.Enabled = false
+		a.config.TTS.AutoMode = "off"
+	} else {
+		a.config.TTS.Enabled = true
+		a.config.TTS.AutoMode = mode
+		// Initialize TTS provider if not yet done.
+		if a.ttsProvider == nil {
+			a.ttsProvider = a.buildTTSProvider()
+		}
+	}
+	a.configMu.Unlock()
+
+	return fmt.Sprintf("TTS mode set to: %s", mode)
 }
 
 func (a *Assistant) statusCommand() string {

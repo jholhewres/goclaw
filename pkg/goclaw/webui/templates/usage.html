@@ -1,0 +1,26 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold text-gray-900">Token Usage</h1>
+
+  <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="overflow-hidden rounded-xl bg-white px-4 py-5 shadow sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Input Tokens</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{.Usage.TotalInputTokens}}</dd>
+    </div>
+    <div class="overflow-hidden rounded-xl bg-white px-4 py-5 shadow sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Output Tokens</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{.Usage.TotalOutputTokens}}</dd>
+    </div>
+    <div class="overflow-hidden rounded-xl bg-white px-4 py-5 shadow sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Total Requests</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{.Usage.RequestCount}}</dd>
+    </div>
+    <div class="overflow-hidden rounded-xl bg-white px-4 py-5 shadow sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Estimated Cost</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-green-600">${{printf "%.4f" .Usage.TotalCost}}</dd>
+    </div>
+  </div>
+</div>
+{{end}}

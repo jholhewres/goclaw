@@ -349,7 +349,233 @@ func runInteractiveSetup() error {
 	}
 
 	// ═══════════════════════════════════════════════
-	// Group 7: Default skills installation
+	// Group 7: Channel Setup (Telegram, Discord, Slack)
+	// ═══════════════════════════════════════════════
+	var (
+		setupTelegram    bool
+		telegramToken    string
+		setupDiscord     bool
+		discordToken     string
+		setupSlack       bool
+		slackBotToken    string
+		slackAppToken    string
+	)
+
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Setup Telegram bot?").
+				Description("Connect to Telegram via Bot API. Get a token from @BotFather.").
+				Affirmative("Yes").
+				Negative("Skip").
+				Value(&setupTelegram),
+
+			huh.NewConfirm().
+				Title("Setup Discord bot?").
+				Description("Connect to Discord via Bot Gateway. Get a token from Discord Developer Portal.").
+				Affirmative("Yes").
+				Negative("Skip").
+				Value(&setupDiscord),
+
+			huh.NewConfirm().
+				Title("Setup Slack bot?").
+				Description("Connect to Slack via Socket Mode. Requires Bot Token + App Token.").
+				Affirmative("Yes").
+				Negative("Skip").
+				Value(&setupSlack),
+		).Title("Messaging Channels"),
+	).WithTheme(huh.ThemeDracula()).Run()
+	if err != nil {
+		return err
+	}
+
+	if setupTelegram {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Telegram Bot Token").
+					Description("From @BotFather: /newbot → copy token").
+					Placeholder("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11").
+					EchoMode(huh.EchoModePassword).
+					Value(&telegramToken),
+			).Title("Telegram Setup"),
+		).WithTheme(huh.ThemeDracula()).Run()
+		if err != nil {
+			return err
+		}
+		if telegramToken != "" {
+			cfg.Channels.Telegram.Token = telegramToken
+		}
+	}
+
+	if setupDiscord {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Discord Bot Token").
+					Description("From Discord Developer Portal → Bot → Token").
+					Placeholder("MTIzNDU2Nzg5MDEy...").
+					EchoMode(huh.EchoModePassword).
+					Value(&discordToken),
+			).Title("Discord Setup"),
+		).WithTheme(huh.ThemeDracula()).Run()
+		if err != nil {
+			return err
+		}
+		if discordToken != "" {
+			cfg.Channels.Discord.Token = discordToken
+		}
+	}
+
+	if setupSlack {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Slack Bot Token").
+					Description("Bot User OAuth Token (starts with xoxb-)").
+					Placeholder("xoxb-...").
+					EchoMode(huh.EchoModePassword).
+					Value(&slackBotToken),
+				huh.NewInput().
+					Title("Slack App Token").
+					Description("App-Level Token for Socket Mode (starts with xapp-)").
+					Placeholder("xapp-...").
+					EchoMode(huh.EchoModePassword).
+					Value(&slackAppToken),
+			).Title("Slack Setup"),
+		).WithTheme(huh.ThemeDracula()).Run()
+		if err != nil {
+			return err
+		}
+		if slackBotToken != "" {
+			cfg.Channels.Slack.BotToken = slackBotToken
+			cfg.Channels.Slack.AppToken = slackAppToken
+		}
+	}
+
+	// ═══════════════════════════════════════════════
+	// Group 8: TTS Configuration
+	// ═══════════════════════════════════════════════
+	var (
+		setupTTS    bool
+		ttsProvider = "auto"
+		ttsVoice    = "nova"
+		ttsMode     = "off"
+	)
+
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Setup Text-to-Speech (TTS)?").
+				Description("Generate audio responses as voice messages.").
+				Affirmative("Yes").
+				Negative("Skip").
+				Value(&setupTTS),
+		).Title("Text-to-Speech"),
+	).WithTheme(huh.ThemeDracula()).Run()
+	if err != nil {
+		return err
+	}
+
+	if setupTTS {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewSelect[string]().
+					Title("TTS Provider").
+					Options(
+						huh.NewOption("auto — OpenAI with Edge TTS fallback (recommended)", "auto"),
+						huh.NewOption("openai — high quality, paid", "openai"),
+						huh.NewOption("edge — free Microsoft voices, good quality", "edge"),
+					).
+					Value(&ttsProvider),
+
+				huh.NewSelect[string]().
+					Title("Voice").
+					Description("For OpenAI: alloy, echo, fable, onyx, nova, shimmer. For Edge: varies by language.").
+					Options(
+						huh.NewOption("nova — warm female (OpenAI)", "nova"),
+						huh.NewOption("alloy — neutral (OpenAI)", "alloy"),
+						huh.NewOption("echo — male (OpenAI)", "echo"),
+						huh.NewOption("shimmer — expressive female (OpenAI)", "shimmer"),
+						huh.NewOption("onyx — deep male (OpenAI)", "onyx"),
+						huh.NewOption("fable — storytelling (OpenAI)", "fable"),
+					).
+					Value(&ttsVoice),
+
+				huh.NewSelect[string]().
+					Title("Auto mode").
+					Description("When to auto-generate audio responses").
+					Options(
+						huh.NewOption("off — only when requested via /tts command", "off"),
+						huh.NewOption("always — always generate audio alongside text", "always"),
+						huh.NewOption("inbound — only when user sends a voice message", "inbound"),
+					).
+					Value(&ttsMode),
+			).Title("TTS Settings"),
+		).WithTheme(huh.ThemeDracula()).Run()
+		if err != nil {
+			return err
+		}
+
+		cfg.TTS.Enabled = true
+		cfg.TTS.Provider = ttsProvider
+		cfg.TTS.Voice = ttsVoice
+		cfg.TTS.AutoMode = ttsMode
+		if ttsProvider == "auto" || ttsProvider == "edge" {
+			cfg.TTS.EdgeVoice = "pt-BR-FranciscaNeural"
+		}
+	}
+
+	// ═══════════════════════════════════════════════
+	// Group 9: Web UI Configuration
+	// ═══════════════════════════════════════════════
+	var (
+		setupWebUI    bool
+		webUIAddress  = ":8090"
+		webUIAuthToken string
+	)
+
+	err = huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Enable Web Dashboard?").
+				Description("Browser-based UI to manage sessions, usage, skills, and config.").
+				Affirmative("Yes").
+				Negative("Skip").
+				Value(&setupWebUI),
+		).Title("Web Dashboard"),
+	).WithTheme(huh.ThemeDracula()).Run()
+	if err != nil {
+		return err
+	}
+
+	if setupWebUI {
+		err = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Web UI listen address").
+					Placeholder(":8090").
+					Value(&webUIAddress),
+				huh.NewInput().
+					Title("Auth token (recommended)").
+					Description("Bearer token for dashboard authentication. Leave empty for no auth.").
+					EchoMode(huh.EchoModePassword).
+					Value(&webUIAuthToken),
+			).Title("Web UI Settings"),
+		).WithTheme(huh.ThemeDracula()).Run()
+		if err != nil {
+			return err
+		}
+
+		cfg.WebUI.Enabled = true
+		if webUIAddress != "" {
+			cfg.WebUI.Address = webUIAddress
+		}
+		cfg.WebUI.AuthToken = webUIAuthToken
+	}
+
+	// ═══════════════════════════════════════════════
+	// Group 10: Default skills installation
 	// ═══════════════════════════════════════════════
 	defaults := skills.DefaultSkills()
 	skillOpts := make([]huh.Option[string], 0, len(defaults))
@@ -447,7 +673,13 @@ func runInteractiveSetup() error {
 	fmt.Println("  Next steps:")
 	fmt.Println("    1. copilot serve")
 	fmt.Println("    2. Enter your vault password when prompted")
-	fmt.Println("    3. Scan the QR code with WhatsApp")
+	fmt.Println("    3. Connect your messaging platform(s)")
+	fmt.Println()
+	fmt.Println("  Shell completion (optional):")
+	fmt.Println("    bash:       eval \"$(copilot completion bash)\"")
+	fmt.Println("    zsh:        copilot completion zsh > \"${fpath[1]}/_copilot\"")
+	fmt.Println("    fish:       copilot completion fish | source")
+	fmt.Println("    powershell: copilot completion powershell | Out-String | Invoke-Expression")
 	fmt.Println()
 
 	return nil
@@ -722,6 +954,30 @@ func printSummary(cfg *copilot.Config, keyStorage storageMethod, installedSkills
 	fmt.Printf("  Vision:     %v\n", cfg.Media.VisionEnabled)
 	fmt.Printf("  Audio:      %v\n", cfg.Media.TranscriptionEnabled)
 	fmt.Printf("  Log level:  %s\n", cfg.Logging.Level)
+
+	// Channels
+	var chans []string
+	chans = append(chans, "whatsapp")
+	if cfg.Channels.Telegram.Token != "" {
+		chans = append(chans, "telegram")
+	}
+	if cfg.Channels.Discord.Token != "" {
+		chans = append(chans, "discord")
+	}
+	if cfg.Channels.Slack.BotToken != "" {
+		chans = append(chans, "slack")
+	}
+	fmt.Printf("  Channels:   %s\n", strings.Join(chans, ", "))
+
+	// TTS
+	if cfg.TTS.Enabled {
+		fmt.Printf("  TTS:        %s (voice: %s, mode: %s)\n", cfg.TTS.Provider, cfg.TTS.Voice, cfg.TTS.AutoMode)
+	}
+	// Web UI
+	if cfg.WebUI.Enabled {
+		fmt.Printf("  Web UI:     %s (auth: %v)\n", cfg.WebUI.Address, cfg.WebUI.AuthToken != "")
+	}
+
 	if len(installedSkills) > 0 {
 		fmt.Printf("  Skills:     %s\n", strings.Join(installedSkills, ", "))
 	}

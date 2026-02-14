@@ -3,11 +3,15 @@
 package copilot
 
 import (
+	"github.com/jholhewres/goclaw/pkg/goclaw/channels/discord"
+	"github.com/jholhewres/goclaw/pkg/goclaw/channels/slack"
+	"github.com/jholhewres/goclaw/pkg/goclaw/channels/telegram"
 	"github.com/jholhewres/goclaw/pkg/goclaw/channels/whatsapp"
 	"github.com/jholhewres/goclaw/pkg/goclaw/copilot/memory"
 	"github.com/jholhewres/goclaw/pkg/goclaw/copilot/security"
 	"github.com/jholhewres/goclaw/pkg/goclaw/plugins"
 	"github.com/jholhewres/goclaw/pkg/goclaw/sandbox"
+	"github.com/jholhewres/goclaw/pkg/goclaw/webui"
 )
 
 // Config holds all assistant configuration.
@@ -93,6 +97,15 @@ type Config struct {
 	// BlockStream configures progressive message delivery (stream text to channel
 	// in chunks instead of waiting for the complete response).
 	BlockStream BlockStreamConfig `yaml:"block_stream"`
+
+	// WebSearch configures the web search tool provider.
+	WebSearch WebSearchConfig `yaml:"web_search"`
+
+	// TTS configures text-to-speech synthesis.
+	TTS TTSConfig `yaml:"tts"`
+
+	// WebUI configures the web dashboard.
+	WebUI webui.Config `yaml:"webui"`
 }
 
 // DatabaseConfig configures the central goclaw.db SQLite database.
@@ -138,6 +151,17 @@ type MediaConfig struct {
 
 	// TranscriptionModel is the model for audio transcription (default: "whisper-1").
 	TranscriptionModel string `yaml:"transcription_model"`
+
+	// TranscriptionBaseURL is the base URL for the Whisper-compatible transcription API.
+	// If empty, defaults to "https://api.openai.com/v1" when the main provider doesn't
+	// support audio transcription (e.g. Z.AI/GLM, Anthropic, xAI).
+	// Only OpenAI and compatible providers support the /audio/transcriptions endpoint.
+	TranscriptionBaseURL string `yaml:"transcription_base_url"`
+
+	// TranscriptionAPIKey is the API key for the transcription provider.
+	// If empty, falls back to the main API key. Useful when the main provider
+	// doesn't support Whisper and you need a separate OpenAI key for transcription.
+	TranscriptionAPIKey string `yaml:"transcription_api_key"`
 
 	// MaxImageSize is the max image size in bytes to process (default: 20MB).
 	MaxImageSize int64 `yaml:"max_image_size"`
@@ -246,12 +270,14 @@ type ChannelsConfig struct {
 	// WhatsApp is the WhatsApp channel config (core).
 	WhatsApp whatsapp.Config `yaml:"whatsapp"`
 
-	// Discord config is loaded via plugin; these are just YAML values
-	// passed to the plugin on init.
-	Discord map[string]any `yaml:"discord"`
+	// Telegram is the Telegram channel config (core).
+	Telegram telegram.Config `yaml:"telegram"`
 
-	// Telegram config passed to the plugin on init.
-	Telegram map[string]any `yaml:"telegram"`
+	// Discord is the Discord channel config (core).
+	Discord discord.Config `yaml:"discord"`
+
+	// Slack is the Slack channel config (core).
+	Slack slack.Config `yaml:"slack"`
 }
 
 // MemoryConfig configures the memory and persistence system.
@@ -481,5 +507,61 @@ func DefaultConfig() *Config {
 			Address: ":8080",
 		},
 		BlockStream: DefaultBlockStreamConfig(),
+		WebSearch: WebSearchConfig{
+			Provider:   "duckduckgo",
+			MaxResults: 8,
+		},
+		TTS: TTSConfig{
+			Provider: "openai",
+			Voice:    "nova",
+			Model:    "tts-1",
+			AutoMode: "off",
+		},
+		WebUI: webui.Config{
+			Enabled: false,
+			Address: ":8090",
+		},
 	}
+}
+
+// WebSearchConfig configures the web search tool.
+type WebSearchConfig struct {
+	// Provider is the search engine to use: "duckduckgo" (default) or "brave".
+	Provider string `yaml:"provider"`
+
+	// BraveAPIKey is the Brave Search API subscription token.
+	// Can also be set via BRAVE_API_KEY env var.
+	BraveAPIKey string `yaml:"brave_api_key"`
+
+	// MaxResults is the maximum number of results to return (default: 8).
+	MaxResults int `yaml:"max_results"`
+}
+
+// TTSConfig configures text-to-speech synthesis.
+type TTSConfig struct {
+	// Enabled activates TTS for assistant responses.
+	Enabled bool `yaml:"enabled"`
+
+	// Provider is the TTS provider to use: "openai" (default), "edge", "auto".
+	// "auto" tries OpenAI first, falls back to Edge TTS if OpenAI is unavailable.
+	Provider string `yaml:"provider"`
+
+	// Voice is the voice to use.
+	//   OpenAI: alloy, echo, fable, onyx, nova, shimmer
+	//   Edge: pt-BR-FranciscaNeural, en-US-JennyNeural, etc.
+	Voice string `yaml:"voice"`
+
+	// EdgeVoice is the voice to use specifically for Edge TTS (when provider is "auto").
+	// If empty, falls back to Voice.
+	EdgeVoice string `yaml:"edge_voice"`
+
+	// Model is the TTS model: "tts-1" (fast) or "tts-1-hd" (high quality).
+	// Only used for OpenAI provider.
+	Model string `yaml:"model"`
+
+	// AutoMode controls when TTS is used:
+	//   "off"     - disabled (default)
+	//   "always"  - always generate audio alongside text
+	//   "inbound" - generate audio only when the user sent a voice note
+	AutoMode string `yaml:"auto_mode"`
 }

@@ -144,7 +144,7 @@ func registerTranscribeAudioTool(executor *ToolExecutor, llm *LLMClient, media M
 				"filename", filename,
 			)
 
-			transcript, err := llm.TranscribeAudio(ctx, decoded, filename, media.TranscriptionModel)
+			transcript, err := llm.TranscribeAudio(ctx, decoded, filename, media.TranscriptionModel, media)
 			if err != nil {
 				logger.Error("transcription failed", "error", err)
 				return nil, fmt.Errorf("transcription: %w", err)

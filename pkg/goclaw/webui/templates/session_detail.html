@@ -1,0 +1,32 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="space-y-6">
+  <div class="flex items-center gap-4">
+    <a href="/sessions" class="text-blue-600 hover:text-blue-800">&larr; Back</a>
+    <h1 class="text-2xl font-bold text-gray-900">Session: {{truncate .SessionID 40}}</h1>
+  </div>
+
+  <div class="rounded-xl bg-white shadow p-6 space-y-4">
+    {{range .Messages}}
+    {{if eq .Role "user"}}
+    <div class="flex justify-end">
+      <div class="bg-blue-500 text-white rounded-lg py-2 px-4 max-w-[70%]">
+        <div class="text-xs opacity-75 mb-1">{{.Timestamp.Format "15:04"}}</div>
+        {{.Content}}
+      </div>
+    </div>
+    {{else}}
+    <div class="flex justify-start">
+      <div class="bg-gray-100 text-gray-800 rounded-lg py-2 px-4 max-w-[70%] prose prose-sm">
+        <div class="text-xs text-gray-400 mb-1">{{.Timestamp.Format "15:04"}}</div>
+        {{.Content}}
+      </div>
+    </div>
+    {{end}}
+    {{else}}
+    <div class="text-center text-gray-400 py-8">No messages in this session</div>
+    {{end}}
+  </div>
+</div>
+{{end}}

@@ -466,10 +466,11 @@ func (ss *SessionStore) StartPruner(ctx context.Context) {
 
 // SessionMeta holds read-only metadata for a session (for listing).
 type SessionMeta struct {
-	ID          string
-	Channel     string
-	ChatID      string
-	CreatedAt   time.Time
+	ID           string
+	Channel      string
+	ChatID       string
+	MessageCount int
+	CreatedAt    time.Time
 	LastActiveAt time.Time
 }
 
@@ -479,15 +480,26 @@ func (ss *SessionStore) ListSessions() []SessionMeta {
 	defer ss.mu.RUnlock()
 	out := make([]SessionMeta, 0, len(ss.sessions))
 	for _, s := range ss.sessions {
+		s.mu.RLock()
+		msgCount := len(s.history)
+		s.mu.RUnlock()
 		out = append(out, SessionMeta{
 			ID:           s.ID,
 			Channel:      s.Channel,
 			ChatID:       s.ChatID,
+			MessageCount: msgCount,
 			CreatedAt:    s.CreatedAt,
 			LastActiveAt: s.lastActiveAt,
 		})
 	}
 	return out
+}
+
+// GetByID returns a session by its raw store key. Returns nil if not found.
+func (ss *SessionStore) GetByID(id string) *Session {
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+	return ss.sessions[id]
 }
 
 // Delete removes a session by channel and chatID.

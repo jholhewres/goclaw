@@ -5,9 +5,11 @@ package copilot
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,8 +25,8 @@ import (
 // RegisterSystemTools registers all built-in system tools in the executor.
 // These are core tools available regardless of which skills are loaded.
 // If ssrfGuard is non-nil, web_fetch will validate URLs against SSRF rules.
-func RegisterSystemTools(executor *ToolExecutor, sandboxRunner *sandbox.Runner, memStore *memory.FileStore, sqliteStore *memory.SQLiteStore, memCfg MemoryConfig, sched *scheduler.Scheduler, dataDir string, ssrfGuard *security.SSRFGuard, vault *Vault) {
-	registerWebSearchTool(executor)
+func RegisterSystemTools(executor *ToolExecutor, sandboxRunner *sandbox.Runner, memStore *memory.FileStore, sqliteStore *memory.SQLiteStore, memCfg MemoryConfig, sched *scheduler.Scheduler, dataDir string, ssrfGuard *security.SSRFGuard, vault *Vault, webSearchCfg WebSearchConfig) {
+	registerWebSearchTool(executor, webSearchCfg)
 	registerWebFetchTool(executor, ssrfGuard)
 	registerFileTools(executor, dataDir)
 	registerBashTool(executor)
@@ -48,11 +50,33 @@ func RegisterSystemTools(executor *ToolExecutor, sandboxRunner *sandbox.Runner, 
 
 // ---------- Web Fetch Tool ----------
 
-func registerWebSearchTool(executor *ToolExecutor) {
+func registerWebSearchTool(executor *ToolExecutor, cfg WebSearchConfig) {
 	client := &http.Client{Timeout: 15 * time.Second}
 
+	// Resolve Brave API key: config > env var.
+	braveKey := cfg.BraveAPIKey
+	if braveKey == "" {
+		braveKey = os.Getenv("BRAVE_API_KEY")
+	}
+
+	// Auto-select provider: if brave key is available and configured, use Brave.
+	provider := cfg.Provider
+	if provider == "brave" && braveKey == "" {
+		provider = "duckduckgo" // fallback if no API key
+	}
+
+	maxResults := cfg.MaxResults
+	if maxResults <= 0 {
+		maxResults = 8
+	}
+
+	description := "Search the web and return results with titles, URLs, and snippets."
+	if provider == "brave" {
+		description = "Search the web using Brave Search. Returns results with titles, URLs, and descriptions."
+	}
+
 	executor.Register(
-		MakeToolDefinition("web_search", "Search the web using DuckDuckGo. Returns search results with titles, URLs, and snippets.", map[string]any{
+		MakeToolDefinition("web_search", description, map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
@@ -68,42 +92,105 @@ func registerWebSearchTool(executor *ToolExecutor) {
 				return nil, fmt.Errorf("query is required")
 			}
 
-			// Use DuckDuckGo HTML search.
-			searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s",
-				strings.ReplaceAll(query, " ", "+"))
-
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
-			if err != nil {
-				return nil, fmt.Errorf("creating request: %w", err)
-			}
-			req.Header.Set("User-Agent", "GoClaw/1.0")
-
-			resp, err := client.Do(req)
-			if err != nil {
-				return nil, fmt.Errorf("search failed: %w", err)
-			}
-			defer resp.Body.Close()
-
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 100*1024))
-			html := string(body)
-
-			// Extract results from DuckDuckGo HTML.
-			results := extractDDGResults(html)
-			if len(results) == 0 {
-				return fmt.Sprintf("No results found for: %s", query), nil
+			// Use Brave Search if configured and key is available.
+			if provider == "brave" && braveKey != "" {
+				return searchBrave(ctx, client, query, braveKey, maxResults)
 			}
 
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("Search results for: %s\n\n", query))
-			for i, r := range results {
-				if i >= 8 {
-					break
-				}
-				sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n   %s\n\n", i+1, r.title, r.url, r.snippet))
-			}
-			return sb.String(), nil
+			// Fallback to DuckDuckGo HTML search.
+			return searchDDG(ctx, client, query, maxResults)
 		},
 	)
+}
+
+// searchBrave queries the Brave Search API and returns formatted results.
+func searchBrave(ctx context.Context, client *http.Client, query, apiKey string, maxResults int) (any, error) {
+	searchURL := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=%d",
+		url.QueryEscape(query), maxResults)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("X-Subscription-Token", apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("brave search failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("brave search returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 200*1024))
+
+	var result struct {
+		Web struct {
+			Results []struct {
+				Title       string `json:"title"`
+				URL         string `json:"url"`
+				Description string `json:"description"`
+			} `json:"results"`
+		} `json:"web"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parsing brave results: %w", err)
+	}
+
+	if len(result.Web.Results) == 0 {
+		return fmt.Sprintf("No results found for: %s", query), nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Search results for: %s\n\n", query))
+	for i, r := range result.Web.Results {
+		if i >= maxResults {
+			break
+		}
+		sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description))
+	}
+	return sb.String(), nil
+}
+
+// searchDDG queries DuckDuckGo HTML and returns formatted results.
+func searchDDG(ctx context.Context, client *http.Client, query string, maxResults int) (any, error) {
+	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s",
+		url.QueryEscape(query))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("User-Agent", "GoClaw/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("search failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 100*1024))
+	html := string(body)
+
+	results := extractDDGResults(html)
+	if len(results) == 0 {
+		return fmt.Sprintf("No results found for: %s", query), nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Search results for: %s\n\n", query))
+	for i, r := range results {
+		if i >= maxResults {
+			break
+		}
+		sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n   %s\n\n", i+1, r.title, r.url, r.snippet))
+	}
+	return sb.String(), nil
 }
 
 // ddgResult holds a single DuckDuckGo search result.

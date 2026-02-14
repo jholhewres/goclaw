@@ -1,0 +1,45 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GoClaw Dashboard{{if .PageTitle}} - {{.PageTitle}}{{end}}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+    .htmx-request .htmx-indicator { opacity: 1; }
+  </style>
+</head>
+<body class="h-full">
+<div class="min-h-full">
+  <!-- Navigation -->
+  <nav class="bg-gray-900 shadow-lg">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div class="flex h-16 items-center justify-between">
+        <div class="flex items-center">
+          <span class="text-white text-xl font-bold tracking-tight">GoClaw</span>
+          <div class="ml-10 flex items-baseline space-x-4">
+            <a href="/" class="{{if eq .Page "dashboard"}}bg-gray-800 text-white{{else}}text-gray-300 hover:bg-gray-700 hover:text-white{{end}} rounded-md px-3 py-2 text-sm font-medium">Dashboard</a>
+            <a href="/chat" class="{{if eq .Page "chat"}}bg-gray-800 text-white{{else}}text-gray-300 hover:bg-gray-700 hover:text-white{{end}} rounded-md px-3 py-2 text-sm font-medium">Chat</a>
+            <a href="/sessions" class="{{if eq .Page "sessions"}}bg-gray-800 text-white{{else}}text-gray-300 hover:bg-gray-700 hover:text-white{{end}} rounded-md px-3 py-2 text-sm font-medium">Sessions</a>
+            <a href="/usage" class="{{if eq .Page "usage"}}bg-gray-800 text-white{{else}}text-gray-300 hover:bg-gray-700 hover:text-white{{end}} rounded-md px-3 py-2 text-sm font-medium">Usage</a>
+            <a href="/jobs" class="{{if eq .Page "jobs"}}bg-gray-800 text-white{{else}}text-gray-300 hover:bg-gray-700 hover:text-white{{end}} rounded-md px-3 py-2 text-sm font-medium">Jobs</a>
+            <a href="/skills" class="{{if eq .Page "skills"}}bg-gray-800 text-white{{else}}text-gray-300 hover:bg-gray-700 hover:text-white{{end}} rounded-md px-3 py-2 text-sm font-medium">Skills</a>
+            <a href="/config" class="{{if eq .Page "config"}}bg-gray-800 text-white{{else}}text-gray-300 hover:bg-gray-700 hover:text-white{{end}} rounded-md px-3 py-2 text-sm font-medium">Config</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+    {{template "content" .}}
+  </main>
+</div>
+</body>
+</html>
+{{end}}

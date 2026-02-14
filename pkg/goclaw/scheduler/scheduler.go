@@ -25,11 +25,19 @@ type Scheduler struct {
 	// cronIDs maps job IDs to their cron entry IDs for removal.
 	cronIDs map[string]cron.EntryID
 
+	// runningJobs tracks which jobs are currently executing to prevent
+	// duplicate runs when a cron fires while the previous run is still active.
+	runningJobs map[string]bool
+
 	// storage persists jobs to disk/database.
 	storage JobStorage
 
 	// handler is called when a job triggers.
 	handler JobHandler
+
+	// jobTimeout is the maximum time a single job execution can take.
+	// Defaults to 5 minutes. Jobs exceeding this are cancelled.
+	jobTimeout time.Duration
 
 	logger *slog.Logger
 	mu     sync.RWMutex
@@ -94,11 +102,13 @@ func New(storage JobStorage, handler JobHandler, logger *slog.Logger) *Scheduler
 	}
 
 	return &Scheduler{
-		jobs:    make(map[string]*Job),
-		cronIDs: make(map[string]cron.EntryID),
-		storage: storage,
-		handler: handler,
-		logger:  logger,
+		jobs:        make(map[string]*Job),
+		cronIDs:     make(map[string]cron.EntryID),
+		runningJobs: make(map[string]bool),
+		storage:     storage,
+		handler:     handler,
+		jobTimeout:  5 * time.Minute,
+		logger:      logger,
 	}
 }
 
@@ -290,43 +300,121 @@ func (s *Scheduler) scheduleCronJob(job *Job) error {
 }
 
 // runOneShotJob parses a time string and executes the job at that time.
+// Supports: "15:04", "2006-01-02 15:04", ISO 8601, and Unix epoch seconds.
 func (s *Scheduler) runOneShotJob(job *Job, timeStr string) {
-	target, err := time.Parse("2006-01-02 15:04", timeStr)
+	target, err := parseOneShotTime(timeStr)
 	if err != nil {
-		target, err = time.Parse("15:04", timeStr)
-		if err != nil {
-			s.logger.Warn("invalid one-shot time", "id", job.ID, "time", timeStr)
-			return
-		}
-		// Set to today's date.
-		now := time.Now()
-		target = time.Date(now.Year(), now.Month(), now.Day(),
-			target.Hour(), target.Minute(), 0, 0, now.Location())
-		if target.Before(now) {
-			target = target.Add(24 * time.Hour) // Tomorrow.
-		}
+		s.logger.Warn("invalid one-shot time", "id", job.ID, "time", timeStr, "error", err)
+		return
 	}
 
 	delay := time.Until(target)
 	if delay <= 0 {
-		s.logger.Warn("one-shot time is in the past", "id", job.ID)
+		s.logger.Warn("one-shot time is in the past, executing immediately", "id", job.ID)
+		if _, ok := s.Get(job.ID); ok {
+			s.executeJob(job)
+			s.Remove(job.ID)
+		}
 		return
 	}
 
-	s.logger.Info("one-shot job scheduled", "id", job.ID, "fires_in", delay.String())
+	s.logger.Info("one-shot job scheduled", "id", job.ID, "fires_at", target.Format(time.RFC3339), "fires_in", delay.String())
 
 	select {
 	case <-time.After(delay):
+		// Verify job still exists (may have been removed while waiting).
+		if _, ok := s.Get(job.ID); !ok {
+			s.logger.Info("one-shot job was removed before firing", "id", job.ID)
+			return
+		}
 		s.executeJob(job)
-		// Remove one-shot job after execution.
 		s.Remove(job.ID)
 	case <-s.ctx.Done():
 		return
 	}
 }
 
-// executeJob runs a job's command through the handler.
+// parseOneShotTime parses various time formats for one-shot scheduling.
+func parseOneShotTime(timeStr string) (time.Time, error) {
+	now := time.Now()
+
+	// Try Unix epoch (seconds).
+	if len(timeStr) >= 10 {
+		var allDigits bool = true
+		for _, c := range timeStr {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			var epoch int64
+			if _, err := fmt.Sscanf(timeStr, "%d", &epoch); err == nil {
+				return time.Unix(epoch, 0), nil
+			}
+		}
+	}
+
+	// Try ISO 8601 (RFC3339).
+	if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
+		return t, nil
+	}
+
+	// Try "2006-01-02T15:04:05".
+	if t, err := time.Parse("2006-01-02T15:04:05", timeStr); err == nil {
+		return t, nil
+	}
+
+	// Try "2006-01-02 15:04".
+	if t, err := time.Parse("2006-01-02 15:04", timeStr); err == nil {
+		return t, nil
+	}
+
+	// Try "15:04" (today or tomorrow).
+	if t, err := time.Parse("15:04", timeStr); err == nil {
+		target := time.Date(now.Year(), now.Month(), now.Day(),
+			t.Hour(), t.Minute(), 0, 0, now.Location())
+		if target.Before(now) {
+			target = target.Add(24 * time.Hour)
+		}
+		return target, nil
+	}
+
+	return time.Time{}, fmt.Errorf("unrecognized time format: %s", timeStr)
+}
+
+// executeJob runs a job's command through the handler with safety guards:
+// - Per-job mutex prevents duplicate concurrent runs
+// - Panic recovery isolates errors so one bad job doesn't crash others
+// - Configurable timeout prevents stalls
 func (s *Scheduler) executeJob(job *Job) {
+	// Check if this job is already running (skip duplicate fires).
+	s.mu.Lock()
+	if s.runningJobs[job.ID] {
+		s.mu.Unlock()
+		s.logger.Warn("skipping job (already running)", "id", job.ID)
+		return
+	}
+	s.runningJobs[job.ID] = true
+	s.mu.Unlock()
+
+	defer func() {
+		// Release the per-job lock.
+		s.mu.Lock()
+		delete(s.runningJobs, job.ID)
+		s.mu.Unlock()
+
+		// Recover from panics so one bad job doesn't crash all scheduling.
+		if r := recover(); r != nil {
+			job.LastError = fmt.Sprintf("panic: %v", r)
+			s.logger.Error("scheduled job panicked",
+				"id", job.ID, "panic", r)
+			if s.storage != nil {
+				s.storage.Save(job)
+			}
+		}
+	}()
+
 	s.logger.Info("executing scheduled job", "id", job.ID, "command", job.Command)
 
 	now := time.Now()
@@ -338,7 +426,11 @@ func (s *Scheduler) executeJob(job *Job) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
+	timeout := s.jobTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
 
 	result, err := s.handler(ctx, job)

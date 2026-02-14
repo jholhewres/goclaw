@@ -1,0 +1,26 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold text-gray-900">Skills</h1>
+
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    {{range .Skills}}
+    <div class="rounded-xl bg-white shadow p-5">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-lg font-semibold text-gray-900">{{.Name}}</h3>
+        {{if .Enabled}}
+        <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">Active</span>
+        {{else}}
+        <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">Disabled</span>
+        {{end}}
+      </div>
+      <p class="text-sm text-gray-500 mb-3">{{.Description}}</p>
+      <div class="text-xs text-gray-400">{{.ToolCount}} tools</div>
+    </div>
+    {{else}}
+    <div class="col-span-full text-center text-gray-400 py-8">No skills loaded</div>
+    {{end}}
+  </div>
+</div>
+{{end}}

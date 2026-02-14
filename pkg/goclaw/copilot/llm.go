@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -85,6 +86,14 @@ func detectProvider(baseURL string) string {
 		return "anthropic"
 	case strings.Contains(baseURL, "openai.com"):
 		return "openai"
+	case strings.Contains(baseURL, "openrouter.ai"):
+		return "openrouter"
+	case strings.Contains(baseURL, "api.x.ai"):
+		return "xai"
+	case strings.Contains(baseURL, "localhost:11434"),
+		strings.Contains(baseURL, "127.0.0.1:11434"),
+		strings.Contains(baseURL, "ollama"):
+		return "ollama"
 	default:
 		return "openai" // assume OpenAI-compatible
 	}
@@ -104,9 +113,43 @@ func (c *LLMClient) chatEndpoint() string {
 }
 
 // audioEndpoint returns the audio transcriptions URL.
-// Z.AI has audio at the same base path; OpenAI uses /audio/transcriptions.
-func (c *LLMClient) audioEndpoint() string {
-	return c.baseURL + "/audio/transcriptions"
+// Only OpenAI and compatible providers support the /audio/transcriptions endpoint.
+// For providers that don't support Whisper (Z.AI/GLM, Anthropic, xAI), we route
+// to OpenAI's endpoint or the configured TranscriptionBaseURL.
+func (c *LLMClient) audioEndpoint(media *MediaConfig) string {
+	// If a specific transcription base URL is configured, use it.
+	if media != nil && media.TranscriptionBaseURL != "" {
+		return strings.TrimRight(media.TranscriptionBaseURL, "/") + "/audio/transcriptions"
+	}
+
+	// For providers that support Whisper natively, use the main base URL.
+	if c.supportsWhisper() {
+		return c.baseURL + "/audio/transcriptions"
+	}
+
+	// Fallback to OpenAI's endpoint for providers that don't support Whisper.
+	return "https://api.openai.com/v1/audio/transcriptions"
+}
+
+// audioAPIKey returns the API key to use for audio transcription.
+// If a specific transcription API key is configured, use it.
+// Otherwise falls back to the main API key.
+func (c *LLMClient) audioAPIKey(media *MediaConfig) string {
+	if media != nil && media.TranscriptionAPIKey != "" {
+		return media.TranscriptionAPIKey
+	}
+	return c.apiKey
+}
+
+// supportsWhisper returns true if the provider natively supports
+// the OpenAI Whisper-compatible /audio/transcriptions endpoint.
+func (c *LLMClient) supportsWhisper() bool {
+	switch c.provider {
+	case "openai", "openrouter":
+		return true
+	default:
+		return false
+	}
 }
 
 // Provider returns the detected or configured provider name.
@@ -208,11 +251,35 @@ func getModelDefaults(model, provider string) modelDefaults {
 	case strings.HasPrefix(model, "glm-4"):
 		d.DefaultTemperature = 0.7
 		d.MaxOutputTokens = 4096
+
+	// ── xAI (Grok) models ──
+	case strings.HasPrefix(model, "grok"):
+		d.DefaultTemperature = 0.7
+		d.MaxOutputTokens = 16384
+
+	// ── Ollama / local models ──
+	case strings.HasPrefix(model, "llama"),
+		strings.HasPrefix(model, "mistral"),
+		strings.HasPrefix(model, "qwen"),
+		strings.HasPrefix(model, "gemma"),
+		strings.HasPrefix(model, "phi"),
+		strings.HasPrefix(model, "deepseek"),
+		strings.HasPrefix(model, "codellama"),
+		strings.HasPrefix(model, "command-r"):
+		d.DefaultTemperature = 0.7
+		d.MaxOutputTokens = 4096
 	}
 
-	// Provider-level overrides: Z.AI Anthropic proxy passes through to Anthropic.
-	if provider == "zai-anthropic" {
+	// Provider-level overrides.
+	switch provider {
+	case "zai-anthropic":
 		d.DefaultTemperature = 1.0
+	case "ollama":
+		// Ollama models generally support tools but have smaller context windows.
+		// Let the server decide max tokens unless model-specific above.
+		if d.MaxOutputTokens == 0 {
+			d.MaxOutputTokens = 4096
+		}
 	}
 
 	return d
@@ -248,6 +315,16 @@ func (c *LLMClient) supportsCacheControl() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// setProviderHeaders adds provider-specific HTTP headers to the request.
+// OpenRouter requires attribution headers; other providers may need custom auth.
+func (c *LLMClient) setProviderHeaders(req *http.Request) {
+	switch c.provider {
+	case "openrouter":
+		req.Header.Set("X-Title", "GoClaw")
+		req.Header.Set("HTTP-Referer", "https://github.com/goclaw/goclaw")
 	}
 }
 
@@ -768,15 +845,47 @@ func (c *LLMClient) CompleteWithVision(ctx context.Context, systemPrompt, imageB
 	return resp.Content, nil
 }
 
-// TranscribeAudio sends audio data to the Whisper API and returns the transcript.
+// TranscribeAudio sends audio data to a Whisper-compatible API and returns the transcript.
 // filename is used as the form field name (e.g. "audio.ogg", "voice.mp3").
 // model defaults to "whisper-1" if empty.
-func (c *LLMClient) TranscribeAudio(ctx context.Context, audioData []byte, filename, model string) (string, error) {
+// media is optional; if provided, it may override the transcription endpoint and API key
+// for providers that don't natively support Whisper (e.g. Z.AI/GLM, Anthropic).
+func (c *LLMClient) TranscribeAudio(ctx context.Context, audioData []byte, filename, model string, media ...MediaConfig) (string, error) {
 	if filename == "" {
 		filename = "audio.webm"
 	}
 	if model == "" {
 		model = "whisper-1"
+	}
+
+	// Resolve media config for transcription routing.
+	var mediaCfg *MediaConfig
+	if len(media) > 0 {
+		m := media[0]
+		mediaCfg = &m
+	}
+
+	endpoint := c.audioEndpoint(mediaCfg)
+	apiKey := c.audioAPIKey(mediaCfg)
+
+	// If the provider doesn't support Whisper and there's no separate API key,
+	// the main API key likely won't work at OpenAI's endpoint.
+	if !c.supportsWhisper() && (mediaCfg == nil || mediaCfg.TranscriptionAPIKey == "") && (mediaCfg == nil || mediaCfg.TranscriptionBaseURL == "") {
+		c.logger.Warn("current provider does not support Whisper audio transcription",
+			"provider", c.provider,
+			"hint", "set media.transcription_base_url and media.transcription_api_key in config, or use OPENAI_API_KEY env var",
+		)
+		// Try OPENAI_API_KEY from environment as last resort.
+		if envKey := envOrEmpty("OPENAI_API_KEY"); envKey != "" {
+			apiKey = envKey
+			c.logger.Info("using OPENAI_API_KEY from environment for transcription")
+		} else {
+			return "", fmt.Errorf(
+				"audio transcription not available: provider %q does not support Whisper. "+
+					"Configure media.transcription_api_key with an OpenAI API key, or set OPENAI_API_KEY env var",
+				c.provider,
+			)
+		}
 	}
 
 	var buf bytes.Buffer
@@ -800,19 +909,20 @@ func (c *LLMClient) TranscribeAudio(ctx context.Context, audioData []byte, filen
 		return "", fmt.Errorf("closing multipart writer: %w", err)
 	}
 
-	endpoint := c.audioEndpoint()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
 	if err != nil {
 		return "", fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	c.logger.Debug("sending audio transcription request",
 		"filename", filename,
 		"size_bytes", len(audioData),
 		"endpoint", endpoint,
+		"provider", c.provider,
+		"using_separate_key", apiKey != c.apiKey,
 	)
 
 	start := time.Now()
@@ -833,6 +943,7 @@ func (c *LLMClient) TranscribeAudio(ctx context.Context, audioData []byte, filen
 		c.logger.Error("transcription API error",
 			"status", resp.StatusCode,
 			"body", truncate(bodyStr, 500),
+			"endpoint", endpoint,
 		)
 		return "", fmt.Errorf("transcription API returned %d: %s", resp.StatusCode, truncate(bodyStr, 200))
 	}
@@ -854,6 +965,11 @@ func (c *LLMClient) TranscribeAudio(ctx context.Context, audioData []byte, filen
 	)
 
 	return strings.TrimSpace(text), nil
+}
+
+// envOrEmpty returns the environment variable value or empty string.
+func envOrEmpty(key string) string {
+	return os.Getenv(key)
 }
 
 // completeOnce performs a single chat completion request. Returns *apiError on HTTP errors
@@ -986,6 +1102,7 @@ func (c *LLMClient) completeOnceOpenAI(ctx context.Context, model string, messag
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	c.setProviderHeaders(req)
 
 	c.logger.Debug("sending chat completion",
 		"model", model,
@@ -1103,7 +1220,7 @@ func (c *LLMClient) CompleteWithToolsStream(ctx context.Context, messages []chat
 // when non-empty. Empty = use c.model. Includes retry for transient HTTP errors
 // before falling back to non-streaming.
 func (c *LLMClient) CompleteWithToolsStreamUsingModel(ctx context.Context, modelOverride string, messages []chatMessage, tools []ToolDefinition, onChunk StreamCallback) (*LLMResponse, error) {
-	if c.apiKey == "" {
+	if c.apiKey == "" && c.provider != "ollama" {
 		return nil, fmt.Errorf("API key not configured. Run 'copilot config set-key' or set GOCLAW_API_KEY")
 	}
 
@@ -1364,6 +1481,7 @@ func (c *LLMClient) completeOnceStreamOpenAI(ctx context.Context, model string, 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Accept", "text/event-stream")
+	c.setProviderHeaders(req)
 
 	c.logger.Debug("sending streaming chat completion",
 		"model", model,
@@ -1496,7 +1614,7 @@ func (c *LLMClient) CompleteWithFallback(ctx context.Context, messages []chatMes
 // CompleteWithFallbackUsingModel is like CompleteWithFallback but uses modelOverride
 // as the primary model when non-empty. Empty = use c.model.
 func (c *LLMClient) CompleteWithFallbackUsingModel(ctx context.Context, modelOverride string, messages []chatMessage, tools []ToolDefinition) (*LLMResponse, error) {
-	if c.apiKey == "" {
+	if c.apiKey == "" && c.provider != "ollama" {
 		return nil, fmt.Errorf("API key not configured. Run 'copilot config set-key' or set GOCLAW_API_KEY")
 	}
 

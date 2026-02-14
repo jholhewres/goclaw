@@ -1,0 +1,67 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="flex flex-col h-[calc(100vh-10rem)]">
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-bold text-gray-900">Chat</h1>
+    <span class="text-sm text-gray-500">Session: {{.SessionID}}</span>
+  </div>
+
+  <!-- Messages Area -->
+  <div id="chat-messages" class="flex-1 overflow-y-auto rounded-xl bg-white shadow p-4 space-y-4 mb-4">
+    {{range .Messages}}
+    {{if eq .Role "user"}}
+    <div class="flex justify-end">
+      <div class="bg-blue-500 text-white rounded-lg py-2 px-4 max-w-[70%]">{{.Content}}</div>
+    </div>
+    {{else}}
+    <div class="flex justify-start">
+      <div class="bg-gray-100 text-gray-800 rounded-lg py-2 px-4 max-w-[70%] prose prose-sm">{{.Content}}</div>
+    </div>
+    {{end}}
+    {{else}}
+    <div class="text-center text-gray-400 py-8">
+      <p class="text-lg">Start a conversation</p>
+      <p class="text-sm">Type a message below to begin chatting with GoClaw</p>
+    </div>
+    {{end}}
+  </div>
+
+  <!-- Input Form -->
+  <form hx-post="/api/chat/send"
+        hx-target="#chat-messages"
+        hx-swap="beforeend scroll:#chat-messages:bottom"
+        hx-indicator="#send-indicator"
+        class="flex gap-2">
+    <input type="hidden" name="session_id" value="{{.SessionID}}">
+    <input type="text"
+           name="message"
+           autocomplete="off"
+           placeholder="Type a message..."
+           class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-4 py-3 border"
+           required>
+    <button type="submit"
+            class="inline-flex items-center rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+      Send
+      <span id="send-indicator" class="htmx-indicator ml-2">
+        <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+      </span>
+    </button>
+  </form>
+</div>
+
+<script>
+  // Clear input after form submission.
+  document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.elt.tagName === 'FORM') {
+      evt.detail.elt.querySelector('input[name="message"]').value = '';
+    }
+  });
+  // Auto-scroll to bottom on load.
+  const chatBox = document.getElementById('chat-messages');
+  if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
+</script>
+{{end}}
