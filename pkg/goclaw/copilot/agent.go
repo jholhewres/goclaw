@@ -24,10 +24,10 @@ const (
 	DefaultMaxTurns = 25
 
 	// DefaultTurnTimeout is the timeout for a single LLM call within the loop.
-	// 60s covers cold starts and complex responses while cutting wait time on
-	// hung requests. Most LLM calls complete in 5-30s. Individual tools (bash,
-	// ssh) have their own longer timeouts.
-	DefaultTurnTimeout = 60 * time.Second
+	// 180s accommodates large contexts (turn 5+) where the LLM needs more time
+	// to process accumulated tool results. Most calls complete in 5-30s, but
+	// large contexts with streaming can take 60-120s on slower providers.
+	DefaultTurnTimeout = 180 * time.Second
 
 	// DefaultMaxContinuations is how many times the agent can auto-continue
 	// after exhausting its turn budget. 0 = no auto-continue.
@@ -252,8 +252,34 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 			resp, err := a.doLLMCallWithOverflowRetry(ctx, messages, tools)
 			llmDuration := time.Since(llmStart)
 			if err != nil {
-				return "", nil, fmt.Errorf("LLM call failed (turn %d, llm_ms=%d): %w",
-					totalTurns, llmDuration.Milliseconds(), err)
+				// If the parent context was cancelled (user abort), propagate immediately.
+				if ctx.Err() != nil {
+					return "", nil, fmt.Errorf("agent cancelled: %w", ctx.Err())
+				}
+
+				// Timeout or transient error on a later turn: try compacting
+				// the context and retrying once before giving up.
+				errStr := err.Error()
+				isTimeout := strings.Contains(errStr, "deadline exceeded") || strings.Contains(errStr, "context canceled")
+				if isTimeout && totalTurns > 2 && len(messages) > 10 {
+					a.logger.Warn("LLM call timed out, compacting context and retrying",
+						"turn", totalTurns,
+						"messages_before", len(messages),
+						"llm_ms", llmDuration.Milliseconds(),
+					)
+					messages = a.compactMessages(messages, 12)
+					messages = a.truncateToolResults(messages, 1500)
+
+					// Retry the LLM call with compacted context.
+					llmStart = time.Now()
+					resp, err = a.doLLMCallWithOverflowRetry(ctx, messages, tools)
+					llmDuration = time.Since(llmStart)
+				}
+
+				if err != nil {
+					return "", nil, fmt.Errorf("LLM call failed (turn %d, llm_ms=%d): %w",
+						totalTurns, llmDuration.Milliseconds(), err)
+				}
 			}
 			a.accumulateUsage(&totalUsage, resp)
 

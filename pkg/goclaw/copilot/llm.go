@@ -64,9 +64,12 @@ func NewLLMClient(cfg *Config, logger *slog.Logger) *LLMClient {
 				MaxIdleConns:        10,
 				MaxIdleConnsPerHost: 5,
 				IdleConnTimeout:     120 * time.Second,
-			// TLS handshake and response header timeouts prevent hung connections.
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 60 * time.Second,
+				// TLS handshake timeout prevents hung connections during setup.
+				TLSHandshakeTimeout: 10 * time.Second,
+				// ResponseHeaderTimeout is how long to wait for the server to
+				// start sending response headers. For large contexts (many tool
+				// results), providers can take 60-120s to begin streaming.
+				ResponseHeaderTimeout: 180 * time.Second,
 			},
 		},
 		logger: logger.With("component", "llm", "provider", provider),
