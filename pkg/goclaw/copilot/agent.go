@@ -292,10 +292,21 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 			)
 
 			// Append each tool result as a message.
+			// Classify recoverable errors: the model should retry silently without
+			// the user seeing transient failures (OpenClaw pattern).
 			for _, result := range results {
+				content := result.Content
+				if result.Error != nil && isRecoverableToolError(content) {
+					// Recoverable error — keep it in conversation for the model
+					// to see and retry, but don't surface to the user.
+					a.logger.Debug("recoverable tool error (model should retry)",
+						"tool", result.Name,
+						"error_preview", truncateStr(content, 80),
+					)
+				}
 				messages = append(messages, chatMessage{
 					Role:       "tool",
-					Content:    result.Content,
+					Content:    content,
 					ToolCallID: result.ToolCallID,
 				})
 			}
@@ -346,6 +357,40 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 		a.accumulateUsage(&totalUsage, resp)
 		return resp.Content, &totalUsage, nil
 	}
+}
+
+// isRecoverableToolError checks if a tool error is likely transient or due to
+// incorrect parameters, so the model should retry without surfacing it to the user.
+// Matches OpenClaw's recoverable error classification from payloads.ts.
+func isRecoverableToolError(errMsg string) bool {
+	lower := strings.ToLower(errMsg)
+	patterns := []string{
+		"required",       // "path is required", "prompt is required"
+		"missing",        // "missing parameter"
+		"not found",      // "file not found" (model can fix path)
+		"invalid",        // "invalid argument"
+		"parsing",        // "error parsing arguments"
+		"no such file",   // fs errors
+		"does not exist", // resource not found
+		"permission denied",
+		"timed out",      // transient timeout
+		"connection refused",
+		"empty",          // "command is empty"
+	}
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// truncateStr truncates a string to n characters for logging.
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // drainInterrupts reads all pending messages from the interrupt channel

@@ -425,7 +425,9 @@ func (e *ToolExecutor) executeSingle(ctx context.Context, call ToolCall) ToolRes
 		}
 	}
 
-	// Confirmation flow: if tool requires approval, request it before executing.
+	// Confirmation flow: if tool requires approval, return "approval-pending"
+	// immediately (non-blocking, OpenClaw-style) and run the tool in the
+	// background once approved. The result is sent to the user via ProgressSender.
 	if check.RequiresConfirmation {
 		e.mu.RLock()
 		req := e.confirmationRequester
@@ -439,20 +441,74 @@ func (e *ToolExecutor) executeSingle(ctx context.Context, call ToolCall) ToolRes
 			return result
 		}
 
-		approved, err := req(sessionID, callerJID, name, args)
-		if err != nil {
-			result.Content = fmt.Sprintf("Approval error: %v", err)
-			result.Error = err
-			return result
-		}
-		if !approved {
-			result.Content = "Denied by user."
-			e.logger.Info("tool denied by user", "name", name, "session", sessionID)
-			if guard != nil {
-				guard.AuditLog(name, callerJID, callerLevel, args, false, "DENIED_BY_USER")
+		desc := formatApprovalSummary(name, args)
+
+		// Return immediately — the agent loop continues without blocking.
+		result.Content = fmt.Sprintf(
+			"⚠️ Approval required: %s\nStatus: pending. Waiting for user to approve. "+
+				"The command will execute in the background once approved and the result will be sent to the user.",
+			desc,
+		)
+
+		// Fire-and-forget: handle approval + execution asynchronously.
+		progressSend := ProgressSenderFromContext(ctx)
+		go func() {
+			approved, err := req(sessionID, callerJID, name, args)
+			if err != nil {
+				e.logger.Warn("async approval error", "tool", name, "error", err)
+				if progressSend != nil {
+					progressSend(context.Background(),
+						fmt.Sprintf("⏱️ Approval for `%s` timed out. Command was not executed.", desc))
+				}
+				return
 			}
-			return result
-		}
+			if !approved {
+				e.logger.Info("async tool denied", "tool", name, "session", sessionID)
+				if guard != nil {
+					guard.AuditLog(name, callerJID, callerLevel, args, false, "DENIED_BY_USER")
+				}
+				if progressSend != nil {
+					progressSend(context.Background(),
+						fmt.Sprintf("❌ `%s` was denied by user.", desc))
+				}
+				return
+			}
+
+			// Approved — execute the tool now.
+			e.logger.Info("async approval granted, executing", "tool", name)
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+
+			output, execErr := tool.Handler(bgCtx, args)
+			if execErr != nil {
+				e.logger.Warn("async tool execution failed", "tool", name, "error", execErr)
+				if guard != nil {
+					guard.AuditLog(name, callerJID, callerLevel, args, true, "ERROR: "+execErr.Error())
+				}
+				if progressSend != nil {
+					progressSend(context.Background(),
+						fmt.Sprintf("⚠️ `%s` failed: %v", desc, execErr))
+				}
+				return
+			}
+
+			outputStr := formatToolOutput(output)
+			e.logger.Info("async tool executed", "tool", name, "output_len", len(outputStr))
+			if guard != nil {
+				guard.AuditLog(name, callerJID, callerLevel, args, true, outputStr)
+			}
+
+			// Send result to the user via their channel.
+			if progressSend != nil {
+				msg := fmt.Sprintf("✅ `%s` completed:\n\n%s", desc, outputStr)
+				if len(msg) > 4000 {
+					msg = msg[:4000] + "\n... (truncated)"
+				}
+				progressSend(context.Background(), msg)
+			}
+		}()
+
+		return result
 	}
 
 	// Execute with timeout.
@@ -632,6 +688,32 @@ func formatToolOutput(output any) string {
 		}
 		return string(b)
 	}
+}
+
+// formatApprovalSummary builds a short summary of the tool + args for approval messages.
+func formatApprovalSummary(toolName string, args map[string]any) string {
+	switch toolName {
+	case "bash", "exec":
+		if cmd, ok := args["command"].(string); ok && cmd != "" {
+			if len(cmd) > 80 {
+				return fmt.Sprintf("%s: %s...", toolName, cmd[:80])
+			}
+			return toolName + ": " + cmd
+		}
+	case "write_file", "edit_file":
+		if path, ok := args["path"].(string); ok && path != "" {
+			return toolName + " " + path
+		}
+	case "ssh":
+		if host, ok := args["host"].(string); ok {
+			return "ssh " + host
+		}
+	case "scp":
+		src, _ := args["source"].(string)
+		dst, _ := args["destination"].(string)
+		return fmt.Sprintf("scp %s → %s", src, dst)
+	}
+	return toolName
 }
 
 // mapKeys returns the keys of a map for logging.
