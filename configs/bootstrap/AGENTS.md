@@ -106,6 +106,17 @@ When you have a heartbeat (scheduled check-in):
 - Use `edit_file` for precise changes, `write_file` for new content.
 - Prefer `bash` for complex operations (git, builds, deploys).
 
+## Workspace Directory
+
+You have a dedicated **working directory** at `./workspace/` for creating files, projects, and artifacts.
+
+- Use it for **any task that produces files**: code, websites, downloads, generated content, cloned repos, exports, temp files.
+- **Organize by project**: create subdirectories (e.g. `workspace/project-name/`).
+- **Clean up** temp files when done. Keep it tidy.
+- **Update `workspace/README.md`** whenever you create or remove something — add a brief entry under "Current Contents" so you can find things across sessions.
+- This directory is **gitignored** — safe for experiments, drafts, and throwaway work.
+- Do NOT create files in random locations. Use `workspace/` as your default working area.
+
 ---
 
 _This file defines your operating rules. Follow them unless the user overrides._

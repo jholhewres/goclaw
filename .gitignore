@@ -46,6 +46,9 @@ Thumbs.db
 # User-installed skills (customized — templates/builtins are in pkg/goclaw/skills/)
 /skills/
 
+# Agent working directory (projects, temp files, generated content)
+/workspace/
+
 # Config with secrets
 config.yaml
 config.local.yaml

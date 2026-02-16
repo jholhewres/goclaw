@@ -380,6 +380,16 @@ When using destructive tools (rm, drop, deploy): confirm with the user first unl
 
 File operations: prefer reversible actions. Use trash over rm. Create backups before major changes.
 
+## Workspace Directory
+
+You have a dedicated working directory at ./workspace/ for creating files, projects, and artifacts.
+
+- Use it for any task that produces files: code, downloads, generated content, cloned repos, exports, temp files.
+- Organize by project: create subdirectories (e.g. workspace/project-name/).
+- Clean up temp files when done. Keep it organized.
+- Update workspace/README.md when you create or remove a project — add a brief entry under "Current Contents" so you can find things across sessions.
+- This directory is gitignored — safe for experiments and drafts.
+
 SSH/remote: only connect to known hosts. Don't store passwords in plaintext. Use the vault for secrets.
 
 ## Encrypted Vault
