@@ -2,9 +2,9 @@
 
 All notable changes to GoClaw are documented in this file.
 
-## [2.0.0] — 2026-02-16
+## [1.4.0] — 2026-02-16
 
-Major release with significant performance improvements, new concurrency architecture, advanced agent capabilities, comprehensive security hardening, and new tools.
+Performance improvements, new concurrency architecture, advanced agent capabilities, comprehensive security hardening, and new tools.
 
 ### Performance
 
