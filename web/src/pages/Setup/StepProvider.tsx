@@ -116,7 +116,7 @@ const PROVIDERS: ProviderDef[] = [
     description: 'Opus 4.6, Sonnet 4.5',
     keyPlaceholder: 'sk-ant-...',
     baseUrls: [
-      { value: '', label: 'Anthropic (padrão)' },
+      { value: '', label: 'Anthropic (default)' },
       { value: 'https://api.z.ai/api/anthropic', label: 'Z.Ai Anthropic Proxy', extraModels: ['glm-5', 'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx'] },
     ],
   },
@@ -134,7 +134,7 @@ const PROVIDERS: ProviderDef[] = [
     icon: ZAiIcon,
     models: ['glm-5', 'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx'],
     description: 'GLM-5, GLM-4.7',
-    keyPlaceholder: 'Sua Z.Ai API key',
+    keyPlaceholder: 'Your Z.Ai API key',
     baseUrls: [
       { value: 'https://api.z.ai/api/paas/v4', label: 'Global' },
       { value: 'https://open.bigmodel.cn/api/paas/v4', label: 'China' },
@@ -163,7 +163,7 @@ const PROVIDERS: ProviderDef[] = [
     label: 'OpenRouter',
     icon: OpenRouterIcon,
     models: [],
-    description: '400+ modelos',
+    description: '400+ models',
     keyPlaceholder: 'sk-or-...',
   },
   {
@@ -172,14 +172,14 @@ const PROVIDERS: ProviderDef[] = [
     icon: MiniMaxIcon,
     models: ['MiniMax-M2.5', 'MiniMax-M2.5-Lightning', 'MiniMax-M2.1', 'MiniMax-VL-01'],
     description: 'M2.5, M2.1',
-    keyPlaceholder: 'Sua MiniMax API key',
+    keyPlaceholder: 'Your MiniMax API key',
   },
   {
     value: 'ollama',
     label: 'Ollama',
     icon: OllamaIcon,
     models: [],
-    description: 'Modelos locais',
+    description: 'Local models',
     keyPlaceholder: '',
     noKey: true,
   },
@@ -189,22 +189,17 @@ const PROVIDERS: ProviderDef[] = [
     icon: CustomIcon,
     models: [],
     description: 'OpenAI-compatible',
-    keyPlaceholder: 'Sua API key',
+    keyPlaceholder: 'Your API key',
     customBaseUrl: true,
   },
 ]
 
-/**
- * Etapa 2: Escolha do provider AI, API key, modelo.
- * Inclui suporte a Z.Ai com seleção de endpoint e Anthropic via Z.Ai proxy.
- */
 export function StepProvider({ data, updateData }: Props) {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null)
 
   const provider = PROVIDERS.find((p) => p.value === data.provider)
 
-  // Modelos visíveis: base + extras do endpoint selecionado
   const activeEndpoint = provider?.baseUrls?.find((ep) => ep.value === data.baseUrl)
   const visibleModels = [
     ...(provider?.models ?? []),
@@ -218,7 +213,7 @@ export function StepProvider({ data, updateData }: Props) {
       const result = await api.setup.testProvider(data.provider, data.apiKey, data.model, data.baseUrl)
       setTestResult(result)
     } catch {
-      setTestResult({ success: false, error: 'Falha ao testar conexão' })
+      setTestResult({ success: false, error: 'Connection test failed' })
     } finally {
       setTesting(false)
     }
@@ -226,11 +221,10 @@ export function StepProvider({ data, updateData }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
-        <h2 className="text-lg font-semibold text-white">Provider AI</h2>
+        <h2 className="text-lg font-semibold text-white">AI Provider</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Escolha o modelo de linguagem que vai alimentar o assistente
+          Choose the language model that will power your assistant
         </p>
       </div>
 
@@ -268,7 +262,7 @@ export function StepProvider({ data, updateData }: Props) {
           </div>
         </div>
 
-        {/* Endpoint selector (Z.Ai, Anthropic proxy, etc.) */}
+        {/* Endpoint selector */}
         {provider?.baseUrls && (
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
@@ -315,7 +309,7 @@ export function StepProvider({ data, updateData }: Props) {
               className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 font-mono text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
             />
             <p className="mt-1.5 text-xs text-zinc-500">
-              Endpoint compatível com a API OpenAI (<code className="text-zinc-400">/v1/chat/completions</code>)
+              OpenAI-compatible endpoint (<code className="text-zinc-400">/v1/chat/completions</code>)
             </p>
           </div>
         )}
@@ -334,20 +328,20 @@ export function StepProvider({ data, updateData }: Props) {
                 updateData({ apiKey: e.target.value })
                 setTestResult(null)
               }}
-              placeholder={provider?.keyPlaceholder || 'Sua API key'}
+              placeholder={provider?.keyPlaceholder || 'Your API key'}
               className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
             />
             <p className="mt-1.5 text-xs text-zinc-500">
-              Armazenada com criptografia AES-256-GCM no vault local
+              Encrypted with AES-256-GCM and stored in the local vault
             </p>
           </div>
         )}
 
-        {/* Modelo */}
+        {/* Model */}
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <Cpu className="h-3.5 w-3.5 text-zinc-500" />
-            Modelo
+            Model
           </label>
           {visibleModels.length > 0 ? (
             <select
@@ -355,7 +349,7 @@ export function StepProvider({ data, updateData }: Props) {
               onChange={(e) => updateData({ model: e.target.value })}
               className="flex h-11 w-full cursor-pointer rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
             >
-              <option value="">Selecione um modelo</option>
+              <option value="">Select a model</option>
               {provider && activeEndpoint?.extraModels && (
                 <optgroup label="GLM (Z.Ai)">
                   {activeEndpoint.extraModels.map((m) => (
@@ -375,13 +369,13 @@ export function StepProvider({ data, updateData }: Props) {
             <input
               value={data.model}
               onChange={(e) => updateData({ model: e.target.value })}
-              placeholder="Nome do modelo (ex: provider/model-name)"
+              placeholder="Model name (e.g. provider/model-name)"
               className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
             />
           )}
         </div>
 
-        {/* Testar conexão */}
+        {/* Test connection */}
         <div className="flex items-center gap-3">
           <button
             onClick={handleTest}
@@ -393,14 +387,14 @@ export function StepProvider({ data, updateData }: Props) {
             ) : (
               <ExternalLink className="h-3.5 w-3.5" />
             )}
-            Testar conexão
+            Test connection
           </button>
 
           {testResult && (
             <div className="flex items-center gap-1.5 text-sm">
               {testResult.success ? (
                 <span className="flex items-center gap-1.5 text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4" /> Conectado
+                  <CheckCircle2 className="h-4 w-4" /> Connected
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-red-400">

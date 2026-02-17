@@ -3,7 +3,7 @@
 > AI agent for tech teams. Single binary. Runs everywhere.
 
 [![Release](https://img.shields.io/github/v/release/jholhewres/devclaw?style=for-the-badge)](https://github.com/jholhewres/devclaw/releases)
-[![License](https://img.shields.io/github/license/jholhewres/devclaw?style=for-the-badge)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.24+-00ADD8?style=for-the-badge&logo=go)](https://go.dev)
 [![CI](https://img.shields.io/github/actions/workflow/status/jholhewres/devclaw/ci.yml?branch=master&style=for-the-badge&label=build)](https://github.com/jholhewres/devclaw/actions/workflows/ci.yml)
 

@@ -1,8 +1,11 @@
-import { useEffect, useState, useRef } from 'react'
-import { Puzzle, Check, Search, Package, Code, Zap, Globe, Database, Wrench, Sparkles } from 'lucide-react'
+import { useEffect, useState, useRef, useMemo } from 'react'
+import {
+  Puzzle, Check, Search, Package, Code, Zap, Globe, Database,
+  Wrench, Sparkles, ChevronDown, ChevronRight, MessageSquare,
+  Image, DollarSign, X,
+} from 'lucide-react'
 import type { SetupData } from './SetupWizard'
 
-/** Skill vinda do catálogo */
 interface CatalogSkill {
   name: string
   description: string
@@ -14,19 +17,20 @@ interface CatalogSkill {
   tool_count: number
 }
 
-/** Mapa de categorias para ícone e label */
 const CATEGORY_META: Record<string, { label: string; icon: React.FC<{ className?: string }>; color: string }> = {
-  development:  { label: 'Desenvolvimento', icon: Code,     color: 'text-violet-400' },
-  data:         { label: 'Dados',           icon: Globe,    color: 'text-cyan-400' },
-  productivity: { label: 'Produtividade',   icon: Zap,      color: 'text-amber-400' },
-  infra:        { label: 'Infraestrutura',  icon: Database,  color: 'text-teal-400' },
-  media:        { label: 'Mídia',           icon: Puzzle,   color: 'text-pink-400' },
-  integration:  { label: 'Integração',      icon: Wrench,   color: 'text-orange-400' },
-  builtin:      { label: 'Integrado',      icon: Package,  color: 'text-emerald-400' },
+  development:   { label: 'Development',     icon: Code,           color: 'text-violet-400' },
+  data:          { label: 'Data & Web',      icon: Globe,          color: 'text-cyan-400' },
+  productivity:  { label: 'Productivity',    icon: Zap,            color: 'text-amber-400' },
+  infra:         { label: 'Infrastructure',  icon: Database,       color: 'text-teal-400' },
+  media:         { label: 'Media & Files',   icon: Image,          color: 'text-pink-400' },
+  communication: { label: 'Communication',   icon: MessageSquare,  color: 'text-blue-400' },
+  finance:       { label: 'Finance',         icon: DollarSign,     color: 'text-green-400' },
+  integration:   { label: 'Integrations',    icon: Wrench,         color: 'text-orange-400' },
+  builtin:       { label: 'Built-in',        icon: Package,        color: 'text-emerald-400' },
 }
 
 function getCategoryMeta(cat?: string) {
-  return CATEGORY_META[cat ?? ''] ?? { label: cat ?? 'Outro', icon: Puzzle, color: 'text-zinc-400' }
+  return CATEGORY_META[cat ?? ''] ?? { label: cat ?? 'Other', icon: Puzzle, color: 'text-zinc-400' }
 }
 
 interface Props {
@@ -34,13 +38,12 @@ interface Props {
   updateData: (partial: Partial<SetupData>) => void
 }
 
-/**
- * Etapa 5: Escolha de skills do catálogo devclaw-skills.
- */
 export function StepSkills({ data, updateData }: Props) {
   const [skills, setSkills] = useState<CatalogSkill[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
+  const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set())
+  const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const didInit = useRef(false)
 
   useEffect(() => {
@@ -70,177 +73,341 @@ export function StepSkills({ data, updateData }: Props) {
     updateData({ enabledSkills: next })
   }
 
-  const selectStarterPack = () => {
-    updateData({ enabledSkills: skills.filter((s) => s.starter_pack).map((s) => s.name) })
+  const starterSkills = useMemo(() => skills.filter((s) => s.starter_pack), [skills])
+  const catalogSkills = useMemo(() => skills.filter((s) => !s.starter_pack), [skills])
+
+  const allStarterSelected = starterSkills.length > 0 &&
+    starterSkills.every((s) => data.enabledSkills.includes(s.name))
+
+  const toggleStarterPack = () => {
+    if (allStarterSelected) {
+      const starterNames = new Set(starterSkills.map((s) => s.name))
+      updateData({ enabledSkills: data.enabledSkills.filter((n) => !starterNames.has(n)) })
+    } else {
+      const starterNames = starterSkills.map((s) => s.name)
+      const merged = [...new Set([...data.enabledSkills, ...starterNames])]
+      updateData({ enabledSkills: merged })
+    }
   }
 
-  const selectAll = () => {
-    updateData({ enabledSkills: skills.map((s) => s.name) })
+  const selectAll = () => updateData({ enabledSkills: skills.map((s) => s.name) })
+  const deselectAll = () => updateData({ enabledSkills: [] })
+
+  const toggleCategory = (cat: string) => {
+    setCollapsedCats((prev) => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat)
+      else next.add(cat)
+      return next
+    })
   }
 
-  const deselectAll = () => {
-    updateData({ enabledSkills: [] })
+  const toggleEntireCategory = (_cat: string, skillsInCat: CatalogSkill[]) => {
+    const names = skillsInCat.map((s) => s.name)
+    const allSelected = names.every((n) => data.enabledSkills.includes(n))
+    if (allSelected) {
+      updateData({ enabledSkills: data.enabledSkills.filter((n) => !names.includes(n)) })
+    } else {
+      updateData({ enabledSkills: [...new Set([...data.enabledSkills, ...names])] })
+    }
   }
 
-  const starterCount = skills.filter((s) => s.starter_pack).length
-  const isStarterPackActive = starterCount > 0 &&
-    skills.filter((s) => s.starter_pack).every((s) => data.enabledSkills.includes(s.name)) &&
-    data.enabledSkills.length === starterCount
+  const filtered = useMemo(() => {
+    let list = catalogSkills
+    if (activeCategory) {
+      list = list.filter((s) => (s.category ?? 'other') === activeCategory)
+    }
+    if (filter) {
+      const q = filter.toLowerCase()
+      list = list.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.description.toLowerCase().includes(q) ||
+          (s.tags ?? []).some((t) => t.toLowerCase().includes(q)),
+      )
+    }
+    return list
+  }, [catalogSkills, filter, activeCategory])
+
+  const grouped = useMemo(() => {
+    return filtered.reduce<Record<string, CatalogSkill[]>>((acc, sk) => {
+      const cat = sk.category ?? 'other'
+      ;(acc[cat] ??= []).push(sk)
+      return acc
+    }, {})
+  }, [filtered])
+
+  const categoryOrder = ['development', 'data', 'productivity', 'infra', 'media', 'communication', 'finance', 'integration', 'builtin']
+  const sortedCategories = Object.keys(grouped).sort(
+    (a, b) => (categoryOrder.indexOf(a) === -1 ? 99 : categoryOrder.indexOf(a)) - (categoryOrder.indexOf(b) === -1 ? 99 : categoryOrder.indexOf(b)),
+  )
+
+  const availableCategories = useMemo(() => {
+    const cats = new Set(catalogSkills.map((s) => s.category ?? 'other'))
+    return categoryOrder.filter((c) => cats.has(c))
+  }, [catalogSkills])
+
+  const extraCount = data.enabledSkills.filter(
+    (n) => !starterSkills.some((s) => s.name === n)
+  ).length
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-700 border-t-orange-500" />
-        <p className="text-sm text-zinc-500">Carregando catálogo de skills...</p>
+        <p className="text-sm text-zinc-500">Loading skill catalog...</p>
       </div>
     )
   }
 
-  /* Agrupar skills por categoria */
-  const filtered = filter
-    ? skills.filter(
-        (s) =>
-          s.name.toLowerCase().includes(filter.toLowerCase()) ||
-          s.description.toLowerCase().includes(filter.toLowerCase()) ||
-          (s.tags ?? []).some((t) => t.toLowerCase().includes(filter.toLowerCase())),
-      )
-    : skills
-
-  const grouped = filtered.reduce<Record<string, CatalogSkill[]>>((acc, sk) => {
-    const cat = sk.category ?? 'other'
-    ;(acc[cat] ??= []).push(sk)
-    return acc
-  }, {})
-
-  /* Ordem fixa das categorias */
-  const categoryOrder = ['development', 'data', 'productivity', 'infra', 'media', 'integration', 'builtin']
-  const sortedCategories = Object.keys(grouped).sort(
-    (a, b) => (categoryOrder.indexOf(a) === -1 ? 99 : categoryOrder.indexOf(a)) - (categoryOrder.indexOf(b) === -1 ? 99 : categoryOrder.indexOf(b)),
-  )
+  if (skills.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800/60 ring-1 ring-zinc-700/30">
+          <Puzzle className="h-6 w-6 text-zinc-500" />
+        </div>
+        <p className="text-sm text-zinc-400">No skills available</p>
+        <p className="text-xs text-zinc-500">Skills can be installed later via chat or CLI</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-white">Skills</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Skills ensinam o assistente a usar ferramentas via terminal.
-            O <strong className="text-orange-400">Starter Pack</strong> inclui as essenciais.
-          </p>
-        </div>
-        <div className="flex gap-2 text-xs">
+      <div>
+        <h2 className="text-lg font-semibold text-white">Skills</h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Choose the skills your assistant will use.
+          Start with the <strong className="text-orange-400">Starter Pack</strong> and add more from the catalog.
+        </p>
+      </div>
+
+      {/* ─── Starter Pack Section ─── */}
+      <div className={`rounded-xl border p-3 transition-all ${
+        allStarterSelected
+          ? 'border-orange-500/30 bg-orange-500/5'
+          : 'border-zinc-700/40 bg-zinc-800/20'
+      }`}>
+        <div className="flex items-center justify-between">
           <button
-            onClick={selectStarterPack}
-            className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 transition-colors ${
-              isStarterPackActive
-                ? 'border-orange-500/40 bg-orange-500/10 text-orange-400'
-                : 'border-zinc-700/50 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50 hover:text-white'
-            }`}
+            onClick={toggleStarterPack}
+            className="flex cursor-pointer items-center gap-2.5"
           >
-            <Sparkles className="h-3 w-3" />
-            Starter Pack
+            <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all ${
+              allStarterSelected
+                ? 'border-transparent bg-orange-500 text-white'
+                : 'border-zinc-600 bg-zinc-800 hover:border-zinc-500'
+            }`}>
+              {allStarterSelected && <Check className="h-3 w-3" />}
+            </div>
+            <Sparkles className="h-4 w-4 text-orange-400" />
+            <span className="text-sm font-medium text-white">Starter Pack</span>
+            <span className="text-xs text-zinc-500">({starterSkills.length} core skills)</span>
           </button>
-          <button onClick={selectAll} className="cursor-pointer rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-1.5 text-zinc-400 transition-colors hover:bg-zinc-700/50 hover:text-white">
-            Todos
-          </button>
-          <button onClick={deselectAll} className="cursor-pointer rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-1.5 text-zinc-400 transition-colors hover:bg-zinc-700/50 hover:text-white">
-            Nenhum
-          </button>
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {starterSkills.map((skill) => {
+            const isActive = data.enabledSkills.includes(skill.name)
+            return (
+              <button
+                key={skill.name}
+                onClick={() => toggleSkill(skill.name)}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-all ${
+                  isActive
+                    ? 'border-orange-500/30 bg-orange-500/10 text-orange-300'
+                    : 'border-zinc-700/40 bg-zinc-800/40 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                }`}
+                title={skill.description}
+              >
+                {isActive ? (
+                  <Check className="h-3 w-3 text-orange-400" />
+                ) : (
+                  <div className="h-3 w-3 rounded-sm border border-zinc-600" />
+                )}
+                <span className="font-medium">{skill.name}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-        <input
-          type="text"
-          placeholder="Buscar skills..."
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-zinc-500 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
-        />
-      </div>
-
-      {skills.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-12">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800/60 ring-1 ring-zinc-700/30">
-            <Puzzle className="h-6 w-6 text-zinc-500" />
+      {/* ─── Catalog Section ─── */}
+      <div>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Catalog — add more skills
+          </p>
+          <div className="flex gap-1.5 text-[10px]">
+            <button
+              onClick={selectAll}
+              className="cursor-pointer rounded-md border border-zinc-700/40 bg-zinc-800/30 px-2 py-1 text-zinc-500 transition-colors hover:bg-zinc-700/40 hover:text-zinc-300"
+            >
+              Select all
+            </button>
+            <button
+              onClick={deselectAll}
+              className="cursor-pointer rounded-md border border-zinc-700/40 bg-zinc-800/30 px-2 py-1 text-zinc-500 transition-colors hover:bg-zinc-700/40 hover:text-zinc-300"
+            >
+              Clear
+            </button>
           </div>
-          <p className="text-sm text-zinc-400">Nenhuma skill disponível no momento</p>
-          <p className="text-xs text-zinc-500">Skills podem ser instaladas depois pelo chat ou CLI</p>
         </div>
-      ) : (
-        <div className="max-h-[340px] space-y-5 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-700/50">
+
+        {/* Category pills + Search */}
+        <div className="mt-2.5 flex items-center gap-2">
+          <div className="flex flex-1 gap-1 overflow-x-auto pb-0.5 scrollbar-none">
+            <button
+              onClick={() => setActiveCategory(null)}
+              className={`shrink-0 cursor-pointer rounded-md px-2 py-1 text-[10px] font-medium transition-all ${
+                activeCategory === null
+                  ? 'bg-zinc-700/60 text-white'
+                  : 'text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300'
+              }`}
+            >
+              All
+            </button>
+            {availableCategories.map((cat) => {
+              const meta = getCategoryMeta(cat)
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+                  className={`shrink-0 cursor-pointer rounded-md px-2 py-1 text-[10px] font-medium transition-all ${
+                    activeCategory === cat
+                      ? 'bg-zinc-700/60 text-white'
+                      : 'text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300'
+                  }`}
+                >
+                  {meta.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="relative shrink-0">
+            <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-zinc-600" />
+            <input
+              type="text"
+              placeholder="Search..."
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="w-32 rounded-md border border-zinc-700/40 bg-zinc-800/40 py-1 pl-7 pr-6 text-[11px] text-white placeholder:text-zinc-600 outline-none transition-all focus:w-44 focus:border-orange-500/40"
+            />
+            {filter && (
+              <button
+                onClick={() => setFilter('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 cursor-pointer text-zinc-600 hover:text-zinc-400"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Skills by category */}
+        <div className="mt-3 max-h-[250px] space-y-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-700/50">
+          {sortedCategories.length === 0 && (
+            <p className="py-6 text-center text-xs text-zinc-600">
+              {filter ? `No skills match "${filter}"` : 'No additional skills available'}
+            </p>
+          )}
+
           {sortedCategories.map((cat) => {
             const meta = getCategoryMeta(cat)
             const CatIcon = meta.icon
+            const skillsInCat = grouped[cat]
+            const selectedInCat = skillsInCat.filter((s) => data.enabledSkills.includes(s.name)).length
+            const isCollapsed = collapsedCats.has(cat)
 
             return (
-              <div key={cat}>
+              <div key={cat} className="rounded-lg border border-zinc-800/40">
                 {/* Category header */}
-                <div className="mb-2 flex items-center gap-2">
+                <button
+                  onClick={() => toggleCategory(cat)}
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-2"
+                >
+                  {isCollapsed
+                    ? <ChevronRight className="h-3 w-3 text-zinc-600" />
+                    : <ChevronDown className="h-3 w-3 text-zinc-600" />
+                  }
                   <CatIcon className={`h-3.5 w-3.5 ${meta.color}`} />
-                  <span className={`text-xs font-semibold uppercase tracking-wider ${meta.color}`}>
-                    {meta.label}
+                  <span className={`text-xs font-semibold ${meta.color}`}>{meta.label}</span>
+                  <span className="text-[10px] text-zinc-600">
+                    {selectedInCat > 0
+                      ? `${selectedInCat}/${skillsInCat.length} selected`
+                      : `${skillsInCat.length} available`
+                    }
                   </span>
-                  <span className="text-xs text-zinc-600">({grouped[cat].length})</span>
-                </div>
+                  <div className="flex-1" />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleEntireCategory(cat, skillsInCat) }}
+                    className={`cursor-pointer rounded px-1.5 py-0.5 text-[9px] font-medium transition-all ${
+                      selectedInCat === skillsInCat.length
+                        ? 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20'
+                        : 'text-zinc-600 hover:bg-zinc-800 hover:text-zinc-400'
+                    }`}
+                  >
+                    {selectedInCat === skillsInCat.length ? 'deselect' : 'select all'}
+                  </button>
+                </button>
 
-                {/* Skills grid */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  {grouped[cat].map((skill) => {
-                    const isActive = data.enabledSkills.includes(skill.name)
-
-                    return (
-                      <button
-                        key={skill.name}
-                        onClick={() => toggleSkill(skill.name)}
-                        className={`flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-all ${
-                          isActive
-                            ? 'border-orange-500/40 bg-orange-500/5 ring-1 ring-orange-500/15'
-                            : 'border-zinc-700/40 bg-zinc-800/20 hover:border-zinc-600 hover:bg-zinc-800/50'
-                        }`}
-                      >
-                        {/* Checkbox */}
-                        <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-all ${
-                          isActive
-                            ? 'border-transparent bg-orange-500 text-white'
-                            : 'border-zinc-600 bg-zinc-800'
-                        }`}>
-                          {isActive && <Check className="h-2.5 w-2.5" />}
-                        </div>
-
-                        {/* Info */}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-medium text-white">{skill.name}</span>
-                            {skill.starter_pack && (
-                              <span className="rounded bg-orange-500/15 px-1 py-px text-[9px] font-medium leading-none text-orange-400">
-                                pack
-                              </span>
-                            )}
+                {/* Skills grid (collapsible) */}
+                {!isCollapsed && (
+                  <div className="grid grid-cols-2 gap-1 px-2 pb-2">
+                    {skillsInCat.map((skill) => {
+                      const isActive = data.enabledSkills.includes(skill.name)
+                      return (
+                        <button
+                          key={skill.name}
+                          onClick={() => toggleSkill(skill.name)}
+                          className={`flex w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-all ${
+                            isActive
+                              ? 'border-orange-500/30 bg-orange-500/5'
+                              : 'border-transparent bg-zinc-800/20 hover:bg-zinc-800/50'
+                          }`}
+                        >
+                          <div className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border transition-all ${
+                            isActive
+                              ? 'border-transparent bg-orange-500 text-white'
+                              : 'border-zinc-600 bg-zinc-900/50'
+                          }`}>
+                            {isActive && <Check className="h-2 w-2" />}
                           </div>
-                          <p className="truncate text-[10px] leading-tight text-zinc-500">{skill.description}</p>
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[11px] font-medium text-white">{skill.name}</span>
+                            <p className="truncate text-[9px] leading-tight text-zinc-600">{skill.description}</p>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
-      )}
+      </div>
 
-      {/* Counter */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-zinc-500">
-          {data.enabledSkills.length} de {skills.length} skill{skills.length !== 1 ? 's' : ''} selecionada{data.enabledSkills.length !== 1 ? 's' : ''}
-        </p>
-        {filtered.length !== skills.length && (
-          <p className="text-xs text-zinc-600">
-            Mostrando {filtered.length} de {skills.length}
+      {/* ─── Summary bar ─── */}
+      <div className="flex items-center justify-between rounded-lg bg-zinc-800/30 px-3 py-2">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="h-2 w-2 rounded-full bg-orange-500" />
+            <span className="text-[11px] text-zinc-400">
+              <strong className="text-white">{data.enabledSkills.length}</strong> skill{data.enabledSkills.length !== 1 ? 's' : ''} selected
+            </span>
+          </div>
+          {extraCount > 0 && (
+            <span className="text-[10px] text-zinc-600">
+              ({starterSkills.filter((s) => data.enabledSkills.includes(s.name)).length} pack + {extraCount} extra)
+            </span>
+          )}
+        </div>
+        {filtered.length !== catalogSkills.length && (
+          <p className="text-[10px] text-zinc-600">
+            Showing {filtered.length} of {catalogSkills.length}
           </p>
         )}
       </div>

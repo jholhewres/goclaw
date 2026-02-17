@@ -14,26 +14,21 @@ const LANGUAGES = [
   { value: 'de', label: 'Deutsch', flag: '🇩🇪' },
 ]
 
-/**
- * Etapa 1: Nome do assistente, idioma e fuso horário.
- */
 export function StepIdentity({ data, updateData }: Props) {
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
-        <h2 className="text-lg font-semibold text-white">Identidade</h2>
+        <h2 className="text-lg font-semibold text-white">Identity</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Dê um nome e personalize seu assistente
+          Name and personalize your assistant
         </p>
       </div>
 
       <div className="space-y-4">
-        {/* Nome */}
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <User className="h-3.5 w-3.5 text-zinc-500" />
-            Nome do assistente
+            Assistant name
           </label>
           <input
             value={data.name}
@@ -43,11 +38,10 @@ export function StepIdentity({ data, updateData }: Props) {
           />
         </div>
 
-        {/* Idioma */}
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <Globe className="h-3.5 w-3.5 text-zinc-500" />
-            Idioma
+            Language
           </label>
           <select
             value={data.language}
@@ -62,11 +56,10 @@ export function StepIdentity({ data, updateData }: Props) {
           </select>
         </div>
 
-        {/* Fuso horário */}
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <Clock className="h-3.5 w-3.5 text-zinc-500" />
-            Fuso horário
+            Timezone
           </label>
           <input
             value={data.timezone}
@@ -74,7 +67,7 @@ export function StepIdentity({ data, updateData }: Props) {
             placeholder="America/Sao_Paulo"
             className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
           />
-          <p className="mt-1.5 text-xs text-zinc-500">Detectado automaticamente do seu navegador</p>
+          <p className="mt-1.5 text-xs text-zinc-500">Auto-detected from your browser</p>
         </div>
       </div>
     </div>

@@ -6,29 +6,28 @@ import { StepSecurity } from './StepSecurity'
 import { StepChannels } from './StepChannels'
 import { StepSkills } from './StepSkills'
 
-/** Dados coletados no wizard */
 export interface SetupData {
-  /* Etapa 1: Identidade */
+  /* Step 1: Identity */
   name: string
   language: string
   timezone: string
 
-  /* Etapa 2: Provider */
+  /* Step 2: Provider */
   provider: string
   apiKey: string
   model: string
   baseUrl: string
 
-  /* Etapa 3: Segurança */
+  /* Step 3: Security */
   ownerPhone: string
   webuiPassword: string
   vaultPassword: string
   accessMode: 'relaxed' | 'strict' | 'paranoid'
 
-  /* Etapa 4: Canais */
+  /* Step 4: Channels */
   channels: Record<string, boolean>
 
-  /* Etapa 5: Skills */
+  /* Step 5: Skills */
   enabledSkills: string[]
 }
 
@@ -49,15 +48,15 @@ const INITIAL_DATA: SetupData = {
 }
 
 const STEPS = [
-  { id: 1, label: 'Identidade' },
+  { id: 1, label: 'Identity' },
   { id: 2, label: 'Provider' },
-  { id: 3, label: 'Segurança' },
-  { id: 4, label: 'Canais' },
+  { id: 3, label: 'Security' },
+  { id: 4, label: 'Channels' },
   { id: 5, label: 'Skills' },
 ]
 
 /**
- * Wizard de setup em 5 etapas com stepper visual moderno.
+ * 5-step setup wizard with modern visual stepper.
  */
 export function SetupWizard() {
   const [step, setStep] = useState(1)
@@ -86,23 +85,23 @@ export function SetupWizard() {
         setDone(true)
       } else {
         const body = await res.json().catch(() => ({}))
-        setError(body.error || 'Falha ao salvar configuração')
+        setError(body.error || 'Failed to save configuration')
       }
     } catch {
-      setError('Erro de conexão')
+      setError('Connection error')
     } finally {
       setSubmitting(false)
     }
   }
 
-  /* Tela de sucesso pós-setup — polling para auto-redirect */
+  /* Post-setup success screen — polling for auto-redirect */
   if (done) {
     return <SetupComplete hasPassword={!!data.webuiPassword} />
   }
 
   return (
     <div>
-      {/* Stepper moderno */}
+      {/* Stepper */}
       <div className="mb-8">
         <div className="flex items-center justify-between">
           {STEPS.map(({ id, label }, index) => (
@@ -151,10 +150,10 @@ export function SetupWizard() {
         </div>
       </div>
 
-      {/* Separador */}
+      {/* Separator */}
       <div className="mb-6 h-px bg-gradient-to-r from-transparent via-zinc-700/50 to-transparent" />
 
-      {/* Etapa atual */}
+      {/* Current step */}
       <div className="min-h-[300px]">
         {step === 1 && <StepIdentity data={data} updateData={updateData} />}
         {step === 2 && <StepProvider data={data} updateData={updateData} />}
@@ -163,14 +162,14 @@ export function SetupWizard() {
         {step === 5 && <StepSkills data={data} updateData={updateData} />}
       </div>
 
-      {/* Erro */}
+      {/* Error */}
       {error && (
         <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
           {error}
         </div>
       )}
 
-      {/* Navegação */}
+      {/* Navigation */}
       <div className="mt-8 flex items-center justify-between">
         <button
           onClick={prev}
@@ -178,11 +177,11 @@ export function SetupWizard() {
           className="flex cursor-pointer items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-300 disabled:pointer-events-none disabled:opacity-0"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Voltar
+          Back
         </button>
 
         <div className="flex items-center gap-4">
-          {/* Dots indicadores */}
+          {/* Dot indicators */}
           <div className="flex gap-1.5">
             {STEPS.map(({ id }) => (
               <div
@@ -203,7 +202,7 @@ export function SetupWizard() {
               onClick={next}
               className="group flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-orange-500/20 transition-all hover:bg-orange-400 hover:shadow-orange-500/30"
             >
-              Próximo
+              Next
               <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </button>
           ) : (
@@ -215,12 +214,12 @@ export function SetupWizard() {
               {submitting ? (
                 <>
                   <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Configurando...
+                  Setting up...
                 </>
               ) : (
                 <>
                   <Sparkles className="h-3.5 w-3.5" />
-                  Finalizar
+                  Finish
                 </>
               )}
             </button>
@@ -232,8 +231,8 @@ export function SetupWizard() {
 }
 
 /**
- * Tela pós-setup: mostra progresso enquanto o servidor reinicia,
- * depois redireciona automaticamente para o dashboard.
+ * Post-setup screen: shows progress while the server restarts,
+ * then auto-redirects to the dashboard.
  */
 function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
   const [phase, setPhase] = useState<'restarting' | 'ready'>('restarting')
@@ -245,13 +244,13 @@ function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
     const poll = async () => {
       while (!cancelled && attempts < 60) {
         attempts++
-        // Espera o servidor reiniciar (pm2 faz auto-restart)
+        // Wait for server restart (pm2 auto-restarts)
         await new Promise((r) => setTimeout(r, 2000))
         try {
           const res = await fetch('/api/auth/status')
           if (res.ok) {
             setPhase('ready')
-            // Pequeno delay para o usuário ver a mensagem
+            // Short delay so the user sees the success message
             await new Promise((r) => setTimeout(r, 1500))
             if (!cancelled) {
               window.location.href = hasPassword ? '/login' : '/'
@@ -259,7 +258,7 @@ function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
             return
           }
         } catch {
-          // Servidor ainda reiniciando — continua polling
+          // Server still restarting — keep polling
         }
       }
     }
@@ -279,17 +278,17 @@ function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
       </div>
       <div>
         <h2 className="text-xl font-semibold text-white">
-          {phase === 'restarting' ? 'Iniciando...' : 'Tudo pronto!'}
+          {phase === 'restarting' ? 'Starting up...' : 'All set!'}
         </h2>
         <p className="mt-2 text-sm text-zinc-400 max-w-sm">
           {phase === 'restarting'
-            ? 'O servidor está reiniciando com as novas configurações. Aguarde...'
-            : 'Redirecionando para o painel...'
+            ? 'The server is restarting with the new configuration. Please wait...'
+            : 'Redirecting to dashboard...'
           }
         </p>
       </div>
 
-      {/* Barra de progresso */}
+      {/* Progress bar */}
       <div className="w-48 h-1 rounded-full bg-zinc-800 overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-1000 ${
           phase === 'restarting'
@@ -300,7 +299,7 @@ function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
 
       {hasPassword && phase === 'ready' && (
         <p className="text-xs text-zinc-500">
-          Use a senha definida na etapa de segurança para acessar.
+          Use the password you set in the Security step to log in.
         </p>
       )}
     </div>
