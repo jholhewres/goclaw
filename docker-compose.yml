@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     volumes:
       - devclaw-state:/home/devclaw
-      - ./skills:/home/devclaw/skills:ro
+      - ./skills:/home/devclaw/skills
     environment:
       - TZ=America/Sao_Paulo
     ports:
