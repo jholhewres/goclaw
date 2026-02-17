@@ -6,11 +6,13 @@ services:
     volumes:
       - ./sessions:/home/devclaw/sessions
       - ./data:/home/devclaw/data
+      - ./skills:/home/devclaw/skills
+      - ./workspace:/home/devclaw/workspace
       - ./config.yaml:/etc/devclaw/config.yaml:ro
-      - ./data/.devclaw.vault:/home/devclaw/.devclaw.vault
+      - ./.devclaw.vault:/home/devclaw/.devclaw.vault
+    env_file: .env
     environment:
       - TZ=America/Sao_Paulo
-      - DEVCLAW_VAULT_PASSWORD=${DEVCLAW_VAULT_PASSWORD}
     ports:
       - "8080:8080"
       - "8090:8090"
