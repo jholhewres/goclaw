@@ -120,14 +120,33 @@ type RegisteredHook struct {
 	// Name identifies this hook for logging.
 	Name string
 
+	// Description provides a human-readable summary of this hook.
+	Description string
+
+	// Source indicates where the hook came from (e.g. "system", "plugin:github", "skill:monitor").
+	Source string
+
 	// Events lists which events this hook subscribes to.
 	Events []HookEvent
 
 	// Priority controls execution order (lower = earlier). Default: 100.
 	Priority int
 
+	// Enabled controls whether this hook is active. Default: true.
+	Enabled bool
+
 	// Handler is the callback function.
 	Handler HookHandler
+}
+
+// HookSummary is a serializable representation of a registered hook (no handler).
+type HookSummary struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Source      string      `json:"source"`
+	Events      []HookEvent `json:"events"`
+	Priority    int         `json:"priority"`
+	Enabled     bool        `json:"enabled"`
 }
 
 // HookManager manages lifecycle hook registration and dispatch.
@@ -162,6 +181,10 @@ func (hm *HookManager) Register(hook *RegisteredHook) error {
 	}
 	if hook.Priority == 0 {
 		hook.Priority = 100
+	}
+	// Default: enabled.
+	if !hook.Enabled {
+		hook.Enabled = true
 	}
 
 	hm.mu.Lock()
@@ -216,6 +239,10 @@ func (hm *HookManager) Dispatch(ctx context.Context, payload HookPayload) HookAc
 	var combined HookAction
 
 	for _, hook := range hooks {
+		if !hook.Enabled {
+			continue
+		}
+
 		action, panicked := func(h *RegisteredHook) (a HookAction, didPanic bool) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -269,6 +296,9 @@ func (hm *HookManager) DispatchAsync(payload HookPayload) {
 	go func() {
 		ctx := context.Background()
 		for _, hook := range hooks {
+			if !hook.Enabled {
+				continue
+			}
 			func(h *RegisteredHook) {
 				defer func() {
 					if r := recover(); r != nil {
@@ -315,4 +345,113 @@ func (hm *HookManager) ListHooks() map[HookEvent][]string {
 		}
 	}
 	return result
+}
+
+// ListDetailed returns a deduplicated list of all registered hooks with metadata.
+func (hm *HookManager) ListDetailed() []HookSummary {
+	hm.mu.RLock()
+	defer hm.mu.RUnlock()
+
+	seen := make(map[string]bool)
+	var result []HookSummary
+	for _, hooks := range hm.hooks {
+		for _, h := range hooks {
+			if seen[h.Name] {
+				continue
+			}
+			seen[h.Name] = true
+			result = append(result, HookSummary{
+				Name:        h.Name,
+				Description: h.Description,
+				Source:      h.Source,
+				Events:      h.Events,
+				Priority:    h.Priority,
+				Enabled:     h.Enabled,
+			})
+		}
+	}
+	return result
+}
+
+// SetEnabled enables or disables a hook by name.
+func (hm *HookManager) SetEnabled(name string, enabled bool) bool {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+
+	found := false
+	for _, hooks := range hm.hooks {
+		for _, h := range hooks {
+			if h.Name == name {
+				h.Enabled = enabled
+				found = true
+			}
+		}
+	}
+	if found {
+		hm.logger.Info("hook toggled", "name", name, "enabled", enabled)
+	}
+	return found
+}
+
+// Unregister removes all registrations for a hook by name.
+func (hm *HookManager) Unregister(name string) bool {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+
+	found := false
+	for ev, hooks := range hm.hooks {
+		filtered := hooks[:0]
+		for _, h := range hooks {
+			if h.Name == name {
+				found = true
+				continue
+			}
+			filtered = append(filtered, h)
+		}
+		hm.hooks[ev] = filtered
+	}
+	if found {
+		hm.logger.Info("hook unregistered", "name", name)
+	}
+	return found
+}
+
+// HookEventDescription returns a human-readable description for a hook event.
+func HookEventDescription(ev HookEvent) string {
+	switch ev {
+	case HookSessionStart:
+		return "Sessão criada ou restaurada"
+	case HookSessionEnd:
+		return "Sessão encerrada ou removida"
+	case HookUserPromptSubmit:
+		return "Mensagem do usuário recebida (antes do processamento)"
+	case HookPreToolUse:
+		return "Antes de chamar uma ferramenta (pode bloquear/modificar)"
+	case HookPostToolUse:
+		return "Após o retorno de uma ferramenta"
+	case HookAgentStart:
+		return "Loop do agente iniciando"
+	case HookAgentStop:
+		return "Loop do agente finalizado"
+	case HookSubagentStart:
+		return "Subagente iniciado"
+	case HookSubagentStop:
+		return "Subagente finalizado"
+	case HookPreCompact:
+		return "Antes da compactação de sessão"
+	case HookPostCompact:
+		return "Após a compactação de sessão"
+	case HookMemorySave:
+		return "Memória salva"
+	case HookMemoryRecall:
+		return "Memórias recuperadas para o prompt"
+	case HookNotification:
+		return "Notificação/mensagem sendo enviada"
+	case HookHeartbeat:
+		return "Tick periódico do heartbeat"
+	case HookError:
+		return "Erro irrecuperável ocorreu"
+	default:
+		return string(ev)
+	}
 }
