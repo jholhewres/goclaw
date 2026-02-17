@@ -4,15 +4,10 @@ services:
     container_name: devclaw
     restart: unless-stopped
     volumes:
-      - ./sessions:/home/devclaw/sessions
-      - ./data:/home/devclaw/data
-      - ./skills:/home/devclaw/skills
-      - ./workspace:/home/devclaw/workspace
-      - ./config.yaml:/etc/devclaw/config.yaml:ro
-      - ./.devclaw.vault:/home/devclaw/.devclaw.vault
+      - devclaw-state:/home/devclaw
+      - ./skills:/home/devclaw/skills:ro
     environment:
       - TZ=America/Sao_Paulo
-      - DEVCLAW_VAULT_PASSWORD=${DEVCLAW_VAULT_PASSWORD:-}
     ports:
       - "8080:8080"
       - "8090:8090"
@@ -21,3 +16,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  devclaw-state:

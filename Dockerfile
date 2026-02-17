@@ -40,4 +40,4 @@ COPY --from=builder /app/devclaw /usr/local/bin/devclaw
 EXPOSE 8080 8090
 
 ENTRYPOINT ["devclaw"]
-CMD ["serve", "--config", "/etc/devclaw/config.yaml"]
+CMD ["serve"]

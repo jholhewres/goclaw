@@ -310,7 +310,7 @@ func runWebSetupMode() error {
 		webServer.Stop()
 		fmt.Println()
 		fmt.Println("Setup complete! config.yaml saved.")
-		fmt.Println("Restart with: copilot serve")
+		fmt.Println("Restarting...")
 		return nil
 	case <-sigChan:
 		webServer.Stop()
