@@ -1,8 +1,8 @@
-## O que muda
+## What changed
 
-<!-- Descreva brevemente o que este PR faz -->
+<!-- Briefly describe what this PR does -->
 
-## Tipo
+## Type
 
 - [ ] Feature
 - [ ] Bugfix
@@ -12,6 +12,6 @@
 
 ## Checklist
 
-- [ ] Build passa (`go build ./...`)
-- [ ] Testes passam (`make test`)
-- [ ] Testei manualmente as mudanças
+- [ ] Build passes (`go build ./...`)
+- [ ] Tests pass (`make test`)
+- [ ] Manually tested the changes

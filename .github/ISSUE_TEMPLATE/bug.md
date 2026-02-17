@@ -1,23 +1,23 @@
 ---
 name: Bug
-about: Reportar um problema
+about: Report a bug or unexpected behavior
 labels: bug
 ---
 
-## Descrição
+## Description
 
-<!-- O que aconteceu? -->
+<!-- What happened? -->
 
-## Como reproduzir
+## Steps to Reproduce
 
 1. ...
 2. ...
 
-## Comportamento esperado
+## Expected Behavior
 
-<!-- O que deveria ter acontecido? -->
+<!-- What should have happened instead? -->
 
-## Ambiente
+## Environment
 
 - OS: 
-- Versão: `devclaw --version`
+- Version: `devclaw --version`

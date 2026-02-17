@@ -1,13 +1,13 @@
 ---
 name: Feature
-about: Sugerir uma funcionalidade
+about: Suggest a new feature or improvement
 labels: enhancement
 ---
 
-## Ideia
+## Idea
 
-<!-- Descreva a funcionalidade -->
+<!-- Describe the feature -->
 
-## Motivação
+## Motivation
 
-<!-- Por que isso seria útil? -->
+<!-- Why would this be useful? -->
