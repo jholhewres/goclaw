@@ -82,6 +82,9 @@ type Config struct {
 	// Budget configures monthly cost tracking and limits.
 	Budget BudgetConfig `yaml:"budget"`
 
+	// Team configures multi-user mode.
+	Team TeamConfig `yaml:"team"`
+
 	// Media configures vision and audio transcription.
 	Media MediaConfig `yaml:"media"`
 
@@ -552,6 +555,7 @@ func DefaultConfig() *Config {
 		Agent:      DefaultAgentConfig(),
 		Fallback:   DefaultFallbackConfig(),
 		Budget:     DefaultBudgetConfig(),
+		Team:       DefaultTeamConfig(),
 		Media:      DefaultMediaConfig(),
 		Logging: LoggingConfig{
 			Level:  "info",

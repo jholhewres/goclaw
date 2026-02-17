@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // ---------- Git Data Types ----------
@@ -499,6 +498,3 @@ func RegisterGitTools(executor *ToolExecutor) {
 		return out, nil
 	})
 }
-
-// Ensure time is used to avoid import error if needed.
-var _ = time.Now

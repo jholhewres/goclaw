@@ -22,6 +22,11 @@ builds:
     goarch:
       - amd64
       - arm64
+    overrides:
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=aarch64-linux-gnu-gcc
     ignore:
       - goos: windows
         goarch: arm64

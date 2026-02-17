@@ -5,7 +5,6 @@ package copilot
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -244,6 +243,3 @@ func parseMySQLDSN(dsn string) map[string]string {
 
 	return result
 }
-
-// Compile-time check that json is used.
-var _ = json.Marshal

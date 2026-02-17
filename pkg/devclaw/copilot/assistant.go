@@ -122,6 +122,15 @@ type Assistant struct {
 	// loopDetectorConfig holds tool loop detection config for creating per-run detectors.
 	loopDetectorConfig ToolLoopConfig
 
+	// daemonMgr manages background processes (dev servers, watchers, etc.).
+	daemonMgr *DaemonManager
+
+	// pluginMgr manages installed plugins (GitHub, Jira, Sentry, etc.).
+	pluginMgr *PluginManager
+
+	// userMgr handles multi-user operations when team mode is enabled.
+	userMgr *UserManager
+
 	// configMu protects hot-reloadable config fields.
 	configMu sync.RWMutex
 
@@ -1655,6 +1664,38 @@ func (a *Assistant) registerSystemTools() {
 
 	// Register media tools (describe_image, transcribe_audio).
 	RegisterMediaTools(a.toolExecutor, a.llmClient, a.config, a.logger)
+
+	// Register native developer tools (git, docker, db, env, utils, codebase, testing, ops, product, IDE).
+	RegisterGitTools(a.toolExecutor)
+	RegisterDockerTools(a.toolExecutor)
+	RegisterDBTools(a.toolExecutor)
+	RegisterEnvTools(a.toolExecutor)
+	RegisterDevUtilTools(a.toolExecutor)
+	RegisterCodebaseTools(a.toolExecutor)
+	RegisterTestingTools(a.toolExecutor)
+	RegisterOpsTools(a.toolExecutor)
+	RegisterProductTools(a.toolExecutor)
+	RegisterIDETools(a.toolExecutor)
+
+	// Register daemon manager for background process control.
+	if a.daemonMgr == nil {
+		a.daemonMgr = NewDaemonManager()
+	}
+	RegisterDaemonTools(a.toolExecutor, a.daemonMgr)
+
+	// Register plugin system.
+	if a.pluginMgr == nil {
+		a.pluginMgr = NewPluginManager()
+	}
+	RegisterPluginTools(a.toolExecutor, a.pluginMgr)
+
+	// Register multi-user tools (when enabled).
+	if a.config.Team.Enabled {
+		if a.userMgr == nil {
+			a.userMgr = NewUserManager(a.config.Team)
+		}
+		RegisterMultiUserTools(a.toolExecutor, a.userMgr)
+	}
 
 	a.logger.Info("system tools registered",
 		"tools", a.toolExecutor.ToolNames(),

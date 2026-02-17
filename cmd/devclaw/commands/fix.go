@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/jholhewres/devclaw/pkg/devclaw/copilot"
 	"github.com/spf13/cobra"
@@ -101,6 +100,3 @@ func quietLogger() *slog.Logger {
 func signalContext() (context.Context, func()) {
 	return context.WithCancel(context.Background())
 }
-
-// Need these imports at package level — they're in other files already.
-var _ = strings.TrimSpace

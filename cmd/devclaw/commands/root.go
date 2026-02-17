@@ -39,6 +39,7 @@ Examples:
 		newCommitCmd(),
 		newHowCmd(),
 		newShellHookCmd(),
+		newMCPCmd(),
 	)
 
 	// Flags globais.
