@@ -136,8 +136,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// ── Start Web UI first (independent of channels) ──
 	var webServer *webui.Server
+	var adapter *webui.AssistantAdapter
 	if cfg.WebUI.Enabled {
-		adapter := buildWebUIAdapter(assistant, cfg, wa)
+		adapter = buildWebUIAdapter(assistant, cfg, wa)
 		webServer = webui.New(cfg.WebUI, adapter, logger)
 		if err := webServer.Start(ctx); err != nil {
 			logger.Error("failed to start web UI", "error", err)
@@ -161,6 +162,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		} else {
 			logger.Info("gateway running", "address", cfg.Gateway.Address)
 		}
+	}
+
+	// ── Wire webhook management to WebUI adapter ──
+	if webServer != nil {
+		wireWebhookAdapter(adapter, gw)
 	}
 
 	// ── Start config watcher for hot-reload ──
@@ -323,6 +329,65 @@ func shouldEnable(name string, filter []string, defaultEnabled bool) bool {
 		}
 	}
 	return false
+}
+
+// wireWebhookAdapter connects webhook management functions to the WebUI adapter.
+// Called after the gateway is created (may be nil if gateway is disabled).
+func wireWebhookAdapter(adapter *webui.AssistantAdapter, gw *gateway.Gateway) {
+	if gw == nil {
+		adapter.ListWebhooksFn = func() []webui.WebhookInfo { return nil }
+		adapter.CreateWebhookFn = func(string, []string) (webui.WebhookInfo, error) {
+			return webui.WebhookInfo{}, fmt.Errorf("Gateway API não está habilitada")
+		}
+		adapter.DeleteWebhookFn = func(string) error {
+			return fmt.Errorf("Gateway API não está habilitada")
+		}
+		adapter.ToggleWebhookFn = func(string, bool) error {
+			return fmt.Errorf("Gateway API não está habilitada")
+		}
+		adapter.GetValidWebhookEventsFn = func() []string { return gateway.ValidWebhookEvents }
+		return
+	}
+
+	adapter.ListWebhooksFn = func() []webui.WebhookInfo {
+		entries := gw.ListWebhooks()
+		result := make([]webui.WebhookInfo, len(entries))
+		for i, e := range entries {
+			result[i] = webui.WebhookInfo{
+				ID:        e.ID,
+				URL:       e.URL,
+				Events:    e.Events,
+				Active:    e.Active,
+				CreatedAt: e.CreatedAt,
+			}
+		}
+		return result
+	}
+	adapter.CreateWebhookFn = func(url string, events []string) (webui.WebhookInfo, error) {
+		entry := gw.AddWebhook(url, events)
+		return webui.WebhookInfo{
+			ID:        entry.ID,
+			URL:       entry.URL,
+			Events:    entry.Events,
+			Active:    entry.Active,
+			CreatedAt: entry.CreatedAt,
+		}, nil
+	}
+	adapter.DeleteWebhookFn = func(id string) error {
+		if !gw.DeleteWebhook(id) {
+			return fmt.Errorf("webhook %q não encontrado", id)
+		}
+		return nil
+	}
+	adapter.ToggleWebhookFn = func(id string, active bool) error {
+		if !gw.ToggleWebhook(id, active) {
+			return fmt.Errorf("webhook %q não encontrado", id)
+		}
+		return nil
+	}
+	adapter.GetValidWebhookEventsFn = func() []string {
+		return gateway.ValidWebhookEvents
+	}
 }
 
 // buildWebUIAdapter creates the adapter that bridges the Assistant to the WebUI.
@@ -695,6 +760,71 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 			}
 		}
 		return s
+	}
+
+	// ── Hooks (Lifecycle) ──
+	adapter.ListHooksFn = func() []webui.HookInfo {
+		hm := assistant.HookManager()
+		if hm == nil {
+			return nil
+		}
+		summaries := hm.ListDetailed()
+		result := make([]webui.HookInfo, len(summaries))
+		for i, s := range summaries {
+			events := make([]string, len(s.Events))
+			for j, ev := range s.Events {
+				events[j] = string(ev)
+			}
+			result[i] = webui.HookInfo{
+				Name:        s.Name,
+				Description: s.Description,
+				Source:      s.Source,
+				Events:      events,
+				Priority:    s.Priority,
+				Enabled:     s.Enabled,
+			}
+		}
+		return result
+	}
+	adapter.ToggleHookFn = func(name string, enabled bool) error {
+		hm := assistant.HookManager()
+		if hm == nil {
+			return fmt.Errorf("hook manager não disponível")
+		}
+		if !hm.SetEnabled(name, enabled) {
+			return fmt.Errorf("hook %q não encontrado", name)
+		}
+		return nil
+	}
+	adapter.UnregisterHookFn = func(name string) error {
+		hm := assistant.HookManager()
+		if hm == nil {
+			return fmt.Errorf("hook manager não disponível")
+		}
+		if !hm.Unregister(name) {
+			return fmt.Errorf("hook %q não encontrado", name)
+		}
+		return nil
+	}
+	adapter.GetHookEventsFn = func() []webui.HookEventInfo {
+		hm := assistant.HookManager()
+		if hm == nil {
+			return nil
+		}
+		hooksByEvent := hm.ListHooks()
+		result := make([]webui.HookEventInfo, 0, len(copilot.AllHookEvents))
+		for _, ev := range copilot.AllHookEvents {
+			names := hooksByEvent[ev]
+			if names == nil {
+				names = []string{}
+			}
+			result = append(result, webui.HookEventInfo{
+				Event:       string(ev),
+				Description: copilot.HookEventDescription(ev),
+				Hooks:       names,
+			})
+		}
+		return result
 	}
 
 	// Wire up WhatsApp QR callbacks if WhatsApp channel is available.

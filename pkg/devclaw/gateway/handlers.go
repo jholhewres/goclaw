@@ -518,39 +518,95 @@ func (g *Gateway) handleStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRegisterWebhook implements POST /api/webhooks
-func (g *Gateway) handleRegisterWebhook(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		g.writeError(w, "method not allowed", 405)
-		return
-	}
-	var req struct {
-		URL    string   `json:"url"`
-		Events []string `json:"events"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		g.writeError(w, "invalid request body", 400)
-		return
-	}
-	if req.URL == "" {
-		g.writeError(w, "url required", 400)
-		return
-	}
-	validEvents := map[string]bool{
-		"message.received": true,
-		"message.sent":     true,
-		"agent.started":    true,
-		"agent.completed":  true,
-		"agent.error":     true,
-	}
-	for _, e := range req.Events {
-		if !validEvents[e] {
-			g.writeError(w, "invalid event: "+e, 400)
-			return
+// ValidWebhookEvents lists all supported webhook event types.
+var ValidWebhookEvents = []string{
+	"message.received",
+	"message.sent",
+	"agent.started",
+	"agent.completed",
+	"agent.error",
+	"tool.called",
+	"tool.completed",
+	"session.created",
+	"session.deleted",
+}
+
+func isValidWebhookEvent(e string) bool {
+	for _, v := range ValidWebhookEvents {
+		if v == e {
+			return true
 		}
 	}
-	g.webhooksMu.Lock()
-	g.webhooks = append(g.webhooks, webhookEntry{URL: req.URL, Events: req.Events})
-	g.webhooksMu.Unlock()
-	g.writeJSON(w, 200, map[string]any{"status": "registered", "url": req.URL})
+	return false
+}
+
+// handleWebhooks implements GET /api/webhooks (list) and POST /api/webhooks (create).
+func (g *Gateway) handleWebhooks(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		g.writeJSON(w, 200, map[string]any{
+			"webhooks":     g.ListWebhooks(),
+			"valid_events": ValidWebhookEvents,
+		})
+	case http.MethodPost:
+		var req struct {
+			URL    string   `json:"url"`
+			Events []string `json:"events"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			g.writeError(w, "invalid request body", 400)
+			return
+		}
+		if req.URL == "" {
+			g.writeError(w, "url required", 400)
+			return
+		}
+		for _, e := range req.Events {
+			if !isValidWebhookEvent(e) {
+				g.writeError(w, "invalid event: "+e, 400)
+				return
+			}
+		}
+		entry := g.AddWebhook(req.URL, req.Events)
+		g.writeJSON(w, 201, entry)
+	default:
+		g.writeError(w, "method not allowed", 405)
+	}
+}
+
+// handleWebhookByID implements DELETE /api/webhooks/{id} and PATCH /api/webhooks/{id}.
+func (g *Gateway) handleWebhookByID(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/webhooks/")
+	if id == "" {
+		g.writeError(w, "webhook id required", 400)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodDelete:
+		if !g.DeleteWebhook(id) {
+			g.writeError(w, "webhook not found", 404)
+			return
+		}
+		g.writeJSON(w, 200, map[string]string{"status": "deleted"})
+	case http.MethodPatch:
+		var req struct {
+			Active *bool `json:"active"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			g.writeError(w, "invalid request body", 400)
+			return
+		}
+		if req.Active == nil {
+			g.writeError(w, "active field required", 400)
+			return
+		}
+		if !g.ToggleWebhook(id, *req.Active) {
+			g.writeError(w, "webhook not found", 404)
+			return
+		}
+		g.writeJSON(w, 200, map[string]string{"status": "updated"})
+	default:
+		g.writeError(w, "method not allowed", 405)
+	}
 }

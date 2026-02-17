@@ -3,6 +3,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -19,13 +20,18 @@ type Gateway struct {
 	server      *http.Server
 	logger      *slog.Logger
 	startedAt   time.Time
-	webhooks    []webhookEntry
+	webhooks    []WebhookEntry
 	webhooksMu  sync.Mutex
+	webhookSeq  int
 }
 
-type webhookEntry struct {
-	URL    string
-	Events []string
+// WebhookEntry represents a registered outgoing webhook.
+type WebhookEntry struct {
+	ID        string    `json:"id"`
+	URL       string    `json:"url"`
+	Events    []string  `json:"events"`
+	CreatedAt time.Time `json:"created_at"`
+	Active    bool      `json:"active"`
 }
 
 // New creates a new Gateway.
@@ -40,7 +46,7 @@ func New(assistant *copilot.Assistant, cfg copilot.GatewayConfig, logger *slog.L
 		assistant: assistant,
 		config:   cfg,
 		logger:   logger.With("component", "gateway"),
-		webhooks: make([]webhookEntry, 0),
+		webhooks: make([]WebhookEntry, 0),
 	}
 }
 
@@ -61,7 +67,8 @@ func (g *Gateway) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/usage", g.handleGlobalUsage)
 	mux.HandleFunc("/api/usage/", g.handleSessionUsage)
 	mux.HandleFunc("/api/status", g.handleStatus)
-	mux.HandleFunc("/api/webhooks", g.handleRegisterWebhook)
+	mux.HandleFunc("/api/webhooks", g.handleWebhooks)
+	mux.HandleFunc("/api/webhooks/", g.handleWebhookByID)
 
 	handler := g.corsMiddleware(g.authMiddleware(mux))
 	g.server = &http.Server{
@@ -84,6 +91,57 @@ func (g *Gateway) Stop(ctx context.Context) error {
 	}
 	g.logger.Info("gateway stopping...")
 	return g.server.Shutdown(ctx)
+}
+
+// ListWebhooks returns all registered webhooks.
+func (g *Gateway) ListWebhooks() []WebhookEntry {
+	g.webhooksMu.Lock()
+	defer g.webhooksMu.Unlock()
+	result := make([]WebhookEntry, len(g.webhooks))
+	copy(result, g.webhooks)
+	return result
+}
+
+// AddWebhook registers a new webhook and returns its ID.
+func (g *Gateway) AddWebhook(url string, events []string) WebhookEntry {
+	g.webhooksMu.Lock()
+	defer g.webhooksMu.Unlock()
+	g.webhookSeq++
+	entry := WebhookEntry{
+		ID:        fmt.Sprintf("wh_%d", g.webhookSeq),
+		URL:       url,
+		Events:    events,
+		CreatedAt: time.Now(),
+		Active:    true,
+	}
+	g.webhooks = append(g.webhooks, entry)
+	return entry
+}
+
+// DeleteWebhook removes a webhook by ID.
+func (g *Gateway) DeleteWebhook(id string) bool {
+	g.webhooksMu.Lock()
+	defer g.webhooksMu.Unlock()
+	for i, wh := range g.webhooks {
+		if wh.ID == id {
+			g.webhooks = append(g.webhooks[:i], g.webhooks[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// ToggleWebhook enables or disables a webhook by ID.
+func (g *Gateway) ToggleWebhook(id string, active bool) bool {
+	g.webhooksMu.Lock()
+	defer g.webhooksMu.Unlock()
+	for i := range g.webhooks {
+		if g.webhooks[i].ID == id {
+			g.webhooks[i].Active = active
+			return true
+		}
+	}
+	return false
 }
 
 // handleSessionByID routes to get, delete, or compact based on method and path.
