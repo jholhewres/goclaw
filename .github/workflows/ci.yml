@@ -15,32 +15,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24"
-
-      - name: Build
-        run: CGO_ENABLED=1 go build ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: CGO_ENABLED=1 go test -tags 'sqlite_fts5' -count=1 -race -timeout 120s ./pkg/devclaw/copilot/ ./pkg/devclaw/copilot/security/ ./pkg/devclaw/skills/ ./pkg/devclaw/scheduler/
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - run: npm ci
-      - run: npm run build
+      - name: Build frontend
+        run: |
+          cd web && npm ci && npm run build
+          cp -r dist ../pkg/devclaw/webui/dist
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build
+        run: CGO_ENABLED=1 go build -tags 'sqlite_fts5' ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: CGO_ENABLED=1 go test -tags 'sqlite_fts5' -count=1 -race -timeout 120s ./pkg/devclaw/copilot/ ./pkg/devclaw/copilot/security/ ./pkg/devclaw/skills/ ./pkg/devclaw/scheduler/
