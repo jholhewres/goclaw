@@ -43,6 +43,12 @@ const XAiIcon = () => (
   </svg>
 )
 
+const GroqIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l6-8v4h4l-6 8z"/>
+  </svg>
+)
+
 const OpenRouterIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
     <circle cx="12" cy="12" r="3"/>
@@ -143,6 +149,14 @@ const PROVIDERS: ProviderDef[] = [
     models: ['grok-4', 'grok-4.1-fast', 'grok-3', 'grok-3-mini'],
     description: 'Grok 4, 4.1 Fast',
     keyPlaceholder: 'xai-...',
+  },
+  {
+    value: 'groq',
+    label: 'Groq',
+    icon: GroqIcon,
+    models: ['llama-4-scout-17b-16e-instruct', 'llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct', 'deepseek-r1-distill-llama-70b', 'qwen-qwq-32b'],
+    description: 'Llama 4, DeepSeek R1',
+    keyPlaceholder: 'gsk_...',
   },
   {
     value: 'openrouter',

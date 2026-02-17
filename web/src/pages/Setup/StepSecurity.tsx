@@ -58,9 +58,9 @@ export function StepSecurity({ data, updateData }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-white">Seguranca</h2>
+        <h2 className="text-lg font-semibold text-white">Segurança</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Proteja o acesso e defina o nivel de controle das ferramentas
+          Proteja o acesso e defina o nível de controle das ferramentas
         </p>
       </div>
 
@@ -69,7 +69,7 @@ export function StepSecurity({ data, updateData }: Props) {
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <Phone className="h-3.5 w-3.5 text-zinc-500" />
-            Numero do dono (WhatsApp)
+            Número do dono (WhatsApp)
           </label>
           <input
             type="tel"
@@ -79,7 +79,7 @@ export function StepSecurity({ data, updateData }: Props) {
             className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
           />
           <p className="mt-1.5 text-xs text-zinc-500">
-            Codigo do pais + DDD + numero, sem espacos. Este numero tera acesso total (owner) a todas as ferramentas do sistema.
+            Código do país + DDD + número, sem espaços. Este número terá acesso total (owner) a todas as ferramentas do sistema.
           </p>
         </div>
 
@@ -124,7 +124,7 @@ export function StepSecurity({ data, updateData }: Props) {
             <div className="flex-1">
               <h3 className="text-sm font-medium text-white">Cofre Criptografado (Vault)</h3>
               <p className="mt-1 text-xs text-zinc-400">
-                O vault armazena suas API keys com criptografia AES-256. Por padrao, usa a mesma senha da Web UI.
+                O vault armazena suas API keys com criptografia AES-256. Por padrão, usa a mesma senha da Web UI.
               </p>
 
               <div className="mt-3 flex items-center gap-2">
@@ -173,7 +173,7 @@ export function StepSecurity({ data, updateData }: Props) {
                 <div className="mt-2 flex items-start gap-1.5">
                   <Info className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400/60" />
                   <p className="text-[11px] text-emerald-400/60">
-                    A API key sera armazenada no vault automaticamente.
+                    A API key será armazenada no vault automaticamente.
                   </p>
                 </div>
               )}
