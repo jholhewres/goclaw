@@ -378,10 +378,25 @@ volumes:
 **systemd (bare metal):**
 
 ```bash
+# Create user and home directory
+sudo useradd -m -s /bin/bash devclaw
+
+# Build and install binary
 make build
 sudo cp bin/devclaw /usr/local/bin/
+
+# Copy config and vault to user home
+sudo cp config.yaml .env .devclaw.vault /home/devclaw/
+sudo chown -R devclaw:devclaw /home/devclaw/
+
+# Install and start service
 sudo cp devclaw.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable --now devclaw
+
+# Check status and logs
+sudo systemctl status devclaw
+sudo journalctl -u devclaw -f
 ```
 
 **PM2:**
@@ -390,6 +405,7 @@ sudo systemctl enable --now devclaw
 make build
 pm2 start ./bin/devclaw --name devclaw -- serve
 pm2 save
+pm2 startup   # auto-start on reboot
 ```
 
 ---

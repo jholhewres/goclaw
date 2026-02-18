@@ -7,26 +7,19 @@ Documentation=https://github.com/jholhewres/devclaw
 Type=simple
 User=devclaw
 Group=devclaw
-WorkingDirectory=/opt/devclaw
-ExecStart=/opt/devclaw/devclaw serve --config /etc/devclaw/config.yaml
+WorkingDirectory=/home/devclaw
+ExecStart=/usr/local/bin/devclaw serve
 Restart=on-failure
 RestartSec=5
 
-# Variáveis de ambiente (melhor usar EnvironmentFile)
-EnvironmentFile=-/etc/devclaw/env
+EnvironmentFile=-/home/devclaw/.env
 
-# Segurança (hardening)
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/devclaw/sessions /opt/devclaw/data
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 
-# Limites de recursos
 LimitNOFILE=65535
-MemoryMax=256M
 
 [Install]
 WantedBy=multi-user.target
