@@ -15,6 +15,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -1044,6 +1046,18 @@ func (c *LLMClient) TranscribeAudio(ctx context.Context, audioData []byte, filen
 		}
 	}
 
+	// Z.AI GLM-ASR only supports .wav and .mp3. Convert other formats.
+	if needsAudioConversion(model, filename) {
+		converted, convErr := convertAudioToMP3(ctx, audioData, filename)
+		if convErr != nil {
+			c.logger.Warn("audio conversion failed, sending original", "error", convErr)
+		} else {
+			audioData = converted
+			filename = strings.TrimSuffix(filename, filepath.Ext(filename)) + ".mp3"
+			c.logger.Debug("converted audio for Z.AI ASR", "new_filename", filename, "new_size", len(audioData))
+		}
+	}
+
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
@@ -1059,6 +1073,26 @@ func (c *LLMClient) TranscribeAudio(ctx context.Context, audioData []byte, filen
 	// Add model part.
 	if err := w.WriteField("model", model); err != nil {
 		return "", fmt.Errorf("writing model field: %w", err)
+	}
+
+	// Pass language hint when available.
+	if mediaCfg != nil && mediaCfg.TranscriptionLanguage != "" {
+		lang := mediaCfg.TranscriptionLanguage
+		if strings.HasPrefix(model, "glm-asr") {
+			// Z.AI uses "prompt" for language hints since it has no language param.
+			langMap := map[string]string{
+				"pt": "Portuguese", "en": "English", "es": "Spanish",
+				"fr": "French", "de": "German", "ja": "Japanese",
+				"ko": "Korean", "zh": "Chinese", "it": "Italian",
+			}
+			langName := langMap[lang]
+			if langName == "" {
+				langName = lang
+			}
+			_ = w.WriteField("prompt", "Language: "+langName)
+		} else {
+			_ = w.WriteField("language", lang)
+		}
 	}
 
 	if err := w.Close(); err != nil {
@@ -2018,4 +2052,47 @@ func (c *LLMClient) CompleteWithFallbackUsingModel(ctx context.Context, modelOve
 	}
 
 	return nil, fmt.Errorf("all models and retries exhausted: %w", lastErr)
+}
+
+// needsAudioConversion returns true if the audio format is not natively
+// supported by the transcription model and should be converted to MP3.
+func needsAudioConversion(model, filename string) bool {
+	if !strings.HasPrefix(model, "glm-asr") {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".mp3", ".wav":
+		return false
+	default:
+		return true
+	}
+}
+
+// convertAudioToMP3 uses ffmpeg to convert audio data to MP3 format.
+func convertAudioToMP3(ctx context.Context, data []byte, filename string) ([]byte, error) {
+	tmpIn, err := os.CreateTemp("", "dcaudio-*"+filepath.Ext(filename))
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmpIn.Name())
+
+	if _, err := tmpIn.Write(data); err != nil {
+		tmpIn.Close()
+		return nil, err
+	}
+	tmpIn.Close()
+
+	tmpOut := tmpIn.Name() + ".mp3"
+	defer os.Remove(tmpOut)
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", tmpIn.Name(),
+		"-vn", "-acodec", "libmp3lame", "-q:a", "4", tmpOut)
+	cmd.Stderr = nil
+	cmd.Stdout = nil
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ffmpeg: %w", err)
+	}
+
+	return os.ReadFile(tmpOut)
 }

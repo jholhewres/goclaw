@@ -404,13 +404,14 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 				"provider": cfg.API.Provider,
 				"base_url": cfg.API.BaseURL,
 				"media": map[string]any{
-					"vision_enabled":        media.VisionEnabled,
-					"vision_model":          media.VisionModel,
-					"vision_detail":         media.VisionDetail,
-					"transcription_enabled": media.TranscriptionEnabled,
-					"transcription_model":   media.TranscriptionModel,
-					"transcription_base_url": media.TranscriptionBaseURL,
-					"transcription_api_key":  media.TranscriptionAPIKey != "",
+					"vision_enabled":          media.VisionEnabled,
+					"vision_model":            media.VisionModel,
+					"vision_detail":           media.VisionDetail,
+					"transcription_enabled":   media.TranscriptionEnabled,
+					"transcription_model":     media.TranscriptionModel,
+					"transcription_base_url":  media.TranscriptionBaseURL,
+					"transcription_api_key":   media.TranscriptionAPIKey != "",
+					"transcription_language":  media.TranscriptionLanguage,
 				},
 			}
 		},
@@ -437,6 +438,9 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 					}
 					if v, ok := mediaMap["transcription_api_key"].(string); ok && v != "" {
 						cfg.Media.TranscriptionAPIKey = v
+					}
+					if v, ok := mediaMap["transcription_language"].(string); ok {
+						cfg.Media.TranscriptionLanguage = v
 					}
 				}
 			}

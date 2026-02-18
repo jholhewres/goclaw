@@ -10,6 +10,7 @@ interface MediaConfig {
   transcription_model: string
   transcription_base_url: string
   transcription_api_key: boolean | string
+  transcription_language: string
 }
 
 interface ConfigData {
@@ -382,6 +383,31 @@ export function Config() {
                   />
                   <p className="mt-2 text-xs text-zinc-600">
                     Preenchida automaticamente ao selecionar o modelo
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    Idioma Principal
+                  </label>
+                  <Select
+                    value={config.media.transcription_language}
+                    onChange={(v) => updateMedia('transcription_language', v)}
+                    placeholder="Auto-detectar"
+                    options={[
+                      { value: 'pt', label: 'Português' },
+                      { value: 'en', label: 'English' },
+                      { value: 'es', label: 'Español' },
+                      { value: 'fr', label: 'Français' },
+                      { value: 'de', label: 'Deutsch' },
+                      { value: 'it', label: 'Italiano' },
+                      { value: 'ja', label: '日本語' },
+                      { value: 'ko', label: '한국어' },
+                      { value: 'zh', label: '中文' },
+                    ]}
+                  />
+                  <p className="mt-2 text-xs text-zinc-600">
+                    Ajuda o modelo a reconhecer o idioma correto
                   </p>
                 </div>
 

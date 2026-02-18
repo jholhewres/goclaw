@@ -2047,11 +2047,14 @@ func (a *Assistant) enrichMessageContentFast(msg *channels.IncomingMessage, logg
 		if !media.TranscriptionEnabled {
 			return msg.Content, false
 		}
-		placeholder := "[Transcribing audio... results will follow]"
-		if msg.Content != "" {
-			return fmt.Sprintf("%s\n\n%s", msg.Content, placeholder), true
+		// Audio transcription is fast enough to do inline (< 5s for typical
+		// voice notes). Running it synchronously avoids the race where the
+		// agent responds to a placeholder before the transcript arrives.
+		enriched := a.enrichMessageContent(a.ctx, msg, logger)
+		if enriched != msg.Content {
+			return enriched, false
 		}
-		return placeholder, true
+		return msg.Content, false
 
 	case channels.MessageDocument:
 		placeholder := "[Reading document... results will follow]"

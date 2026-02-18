@@ -186,6 +186,11 @@ type MediaConfig struct {
 	// If empty, falls back to the main API key.
 	TranscriptionAPIKey string `yaml:"transcription_api_key"`
 
+	// TranscriptionLanguage hints the expected language (ISO 639-1, e.g. "pt", "en", "es").
+	// For Whisper: passed as the "language" field.
+	// For Z.AI GLM-ASR: used as a prompt hint for auto-detection.
+	TranscriptionLanguage string `yaml:"transcription_language"`
+
 	// MaxImageSize is the max image size in bytes to process (default: 20MB).
 	MaxImageSize int64 `yaml:"max_image_size"`
 
