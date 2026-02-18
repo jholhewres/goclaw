@@ -31,7 +31,12 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
 # ── Runtime stage ──
 FROM alpine:3.21
 
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add \
+    ca-certificates tzdata \
+    bash curl wget git jq openssh-client \
+    python3 py3-pip \
+    nodejs npm \
+    sqlite
 
 WORKDIR /home/devclaw
 

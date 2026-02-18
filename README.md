@@ -17,39 +17,65 @@ Open-source AI agent for tech teams — devs, DevOps, QA, PMs, designers, and ev
 
 ## Quick Start
 
-**One-liner (macOS/Linux):**
+### Docker (recommended)
+
+No Go, Node, or build tools required — just Docker:
+
+```bash
+git clone https://github.com/jholhewres/devclaw.git && cd devclaw
+docker compose up -d
+```
+
+Open **http://localhost:8090/setup** to configure your API key and start using DevClaw.
+
+The container includes bash, python, node, git, and other tools the agent needs to execute scripts.
+
+### From Source
+
+Requires **Go 1.24+** and **Node 22+**:
+
+```bash
+git clone https://github.com/jholhewres/devclaw.git && cd devclaw
+make build                  # builds frontend + Go binary
+./bin/devclaw serve         # starts server
+```
+
+Open **http://localhost:8090/setup** for the setup wizard, or run `./bin/devclaw setup` for the CLI wizard.
+
+### Go Install
+
+Requires **Go 1.24+** (CGO enabled, SQLite dependency):
+
+```bash
+CGO_ENABLED=1 go install -tags 'sqlite_fts5' github.com/jholhewres/devclaw/cmd/devclaw@latest
+devclaw serve
+```
+
+> **Note:** This builds without the WebUI. For full functionality (dashboard, setup wizard), use Docker or build from source.
+
+### Install Script (macOS/Linux)
+
+Tries binary download, then `go install`, then source build:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jholhewres/devclaw/master/scripts/install/install.sh | bash
 ```
 
-**Go install:**
+### Setup Wizard
 
-```bash
-go install github.com/jholhewres/devclaw/cmd/devclaw@latest
-devclaw setup
-devclaw serve
+After starting the server, the setup wizard is available at:
+
+```
+http://localhost:8090/setup
 ```
 
-**From source:**
+It guides you through:
+1. API provider and key configuration
+2. Channel setup (WhatsApp, Discord, Telegram, Slack)
+3. Security settings (vault password, access control)
+4. Skills installation
 
-```bash
-git clone https://github.com/jholhewres/devclaw.git && cd devclaw
-make build
-./bin/devclaw serve      # setup wizard at http://localhost:8090/setup
-```
-
-**Docker:**
-
-```bash
-docker run -d -p 8090:8090 -p 8085:8085 ghcr.io/jholhewres/devclaw serve
-```
-
-**Windows (PowerShell):**
-
-```powershell
-iwr -useb https://raw.githubusercontent.com/jholhewres/devclaw/master/scripts/install/install.ps1 | iex
-```
+All secrets are stored in the encrypted vault (`.devclaw.vault`), never in plain text.
 
 ---
 
@@ -330,24 +356,40 @@ See [docs/security.md](docs/security.md) for details.
 
 ## Deployment
 
-**Docker Compose:**
+**Docker Compose (recommended):**
 
 ```bash
-docker compose up -d
-docker compose logs -f devclaw
+docker compose up -d             # start
+docker compose logs -f devclaw   # view logs
+docker compose down              # stop
 ```
 
-**systemd:**
+Data is persisted in a Docker volume (`devclaw-state`). Rebuilds (`docker compose build`) preserve all sessions, memory, and configuration.
+
+To give the agent access to host directories, add bind mounts in `docker-compose.yml`:
+
+```yaml
+volumes:
+  - ./skills:/home/devclaw/skills
+  - ./workspace:/home/devclaw/workspace
+  - /path/to/projects:/home/devclaw/projects  # custom mount
+```
+
+**systemd (bare metal):**
 
 ```bash
+make build
+sudo cp bin/devclaw /usr/local/bin/
 sudo cp devclaw.service /etc/systemd/system/
 sudo systemctl enable --now devclaw
 ```
 
-**From source:**
+**PM2:**
 
 ```bash
-make build && ./bin/devclaw serve
+make build
+pm2 start ./bin/devclaw --name devclaw -- serve
+pm2 save
 ```
 
 ---
