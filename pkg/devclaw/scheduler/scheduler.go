@@ -5,9 +5,12 @@ package scheduler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -112,9 +115,40 @@ type Job struct {
 
 	// Labels are arbitrary tags for filtering and organization.
 	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty"`
+
+	// StaggerMs is a deterministic delay (in ms) applied before execution to
+	// prevent thundering herd when multiple jobs share the same schedule.
+	// Computed from job ID hash if zero and the schedule is top-of-hour.
+	StaggerMs int `json:"stagger_ms,omitempty" yaml:"stagger_ms,omitempty"`
+
+	// Exact disables stagger for this job (fire at exact schedule time).
+	Exact bool `json:"exact,omitempty" yaml:"exact,omitempty"`
+
+	// LastRunDuration is how long the last execution took.
+	LastRunDuration time.Duration `json:"last_run_duration,omitempty" yaml:"last_run_duration,omitempty"`
+
+	// LastUsage holds token usage from the last execution.
+	LastUsage *JobUsage `json:"last_usage,omitempty" yaml:"last_usage,omitempty"`
+}
+
+// JobResult holds the outcome of a job execution, including usage telemetry.
+type JobResult struct {
+	Output string
+	Usage  *JobUsage
+}
+
+// JobUsage tracks token usage from the LLM during a cron job execution.
+type JobUsage struct {
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // JobHandler is called when a job fires. Returns the agent response or error.
+// For backward compatibility, the handler may return just a string via the
+// legacy signature, or a JobResult with usage telemetry.
 type JobHandler func(ctx context.Context, job *Job) (string, error)
 
 // AnnounceHandler is called when a job with Announce=true completes.
@@ -486,6 +520,19 @@ func (s *Scheduler) executeJob(job *Job) {
 		}
 	}()
 
+	// Apply stagger delay to prevent thundering herd.
+	if stagger := resolveStagger(job); stagger > 0 {
+		s.logger.Debug("applying stagger delay", "id", job.ID, "stagger", stagger)
+		select {
+		case <-time.After(stagger):
+		case <-s.ctx.Done():
+			s.mu.Lock()
+			delete(s.runningJobs, job.ID)
+			s.mu.Unlock()
+			return
+		}
+	}
+
 	s.logger.Info("executing scheduled job", "id", job.ID, "command", job.Command)
 
 	s.mu.Lock()
@@ -516,9 +563,12 @@ func (s *Scheduler) executeJob(job *Job) {
 	ctx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
 
+	runStart := time.Now()
 	result, err := s.handler(ctx, job)
+	runDuration := time.Since(runStart)
 
 	s.mu.Lock()
+	job.LastRunDuration = runDuration
 	if err != nil {
 		job.LastError = err.Error()
 	} else {
@@ -529,10 +579,10 @@ func (s *Scheduler) executeJob(job *Job) {
 
 	if err != nil {
 		s.logger.Error("scheduled job failed",
-			"id", job.ID, "error", err)
+			"id", job.ID, "error", err, "duration", runDuration)
 	} else {
 		s.logger.Info("scheduled job completed",
-			"id", job.ID, "result_len", len(result))
+			"id", job.ID, "result_len", len(result), "duration", runDuration)
 	}
 
 	// Announce result to target channel if configured.
@@ -562,4 +612,47 @@ func (s *Scheduler) executeJob(job *Job) {
 	if s.storage != nil && stillExists {
 		s.storage.Save(job)
 	}
+}
+
+// resolveStagger computes the stagger delay for a job. If StaggerMs is
+// explicitly set, uses that. Otherwise, for top-of-hour recurring schedules,
+// derives a deterministic offset from the job ID hash (up to 5 minutes).
+func resolveStagger(job *Job) time.Duration {
+	if job.Exact {
+		return 0
+	}
+	if job.StaggerMs > 0 {
+		return time.Duration(job.StaggerMs) * time.Millisecond
+	}
+	if job.Type == "at" {
+		return 0
+	}
+	if !isTopOfHourSchedule(job.Schedule) {
+		return 0
+	}
+	return resolveStableCronOffset(job.ID, 5*time.Minute)
+}
+
+// resolveStableCronOffset returns a deterministic offset derived from the
+// job ID hash, bounded by maxStagger. The same job ID always gets the same
+// offset, distributing execution across the stagger window.
+func resolveStableCronOffset(jobID string, maxStagger time.Duration) time.Duration {
+	h := sha256.Sum256([]byte(jobID))
+	n := binary.BigEndian.Uint32(h[:4])
+	ms := int64(n) % maxStagger.Milliseconds()
+	return time.Duration(ms) * time.Millisecond
+}
+
+// isTopOfHourSchedule detects schedules that fire at the top of the hour
+// (e.g. "0 * * * *", "@hourly", "0 0 * * *", "@daily").
+func isTopOfHourSchedule(schedule string) bool {
+	s := strings.TrimSpace(strings.ToLower(schedule))
+	if s == "@hourly" || s == "@daily" || s == "@weekly" || s == "@monthly" || s == "@yearly" || s == "@annually" {
+		return true
+	}
+	fields := strings.Fields(s)
+	if len(fields) >= 5 && fields[0] == "0" {
+		return true
+	}
+	return false
 }

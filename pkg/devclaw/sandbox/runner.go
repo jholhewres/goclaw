@@ -95,6 +95,32 @@ func (r *Runner) Run(ctx context.Context, req *ExecRequest) (*ExecResult, error)
 		}, err
 	}
 
+	// Preflight scan: read script content and check for dangerous patterns.
+	// Only scan Python and Node scripts where shell-style env vars are a
+	// language confusion signal (not shell scripts where $VAR is valid).
+	if req.Script != "" && (req.Runtime == RuntimePython || req.Runtime == RuntimeNode) {
+		if content, err := os.ReadFile(req.Script); err == nil {
+			results := r.policy.ScanScript(string(content))
+			if HasCritical(results) {
+				var msgs []string
+				for _, res := range results {
+					if res.Severity == "critical" {
+						msgs = append(msgs, fmt.Sprintf("line %d: %s (%s)", res.Line, res.Message, res.Content))
+					}
+				}
+				errMsg := fmt.Sprintf("script preflight blocked: %s", strings.Join(msgs, "; "))
+				r.logger.Warn("sandbox: preflight scan blocked script",
+					"script", req.Script, "findings", len(results))
+				return &ExecResult{
+					ExitCode:   1,
+					Stderr:     errMsg,
+					Killed:     true,
+					KillReason: "preflight_blocked",
+				}, fmt.Errorf("%s", errMsg)
+			}
+		}
+	}
+
 	// Filter environment variables.
 	req.Env = r.policy.FilterEnv(req.Env)
 

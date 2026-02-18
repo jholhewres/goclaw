@@ -1,8 +1,98 @@
-import { memo, useState } from 'react'
+import { memo, useState, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Copy, Check, Terminal, ChevronDown, ChevronRight, Bot, User } from 'lucide-react'
+import {
+  Copy,
+  Check,
+  Terminal,
+  ChevronDown,
+  ChevronRight,
+  Bot,
+  User,
+  FileText,
+  FileEdit,
+  Search,
+  Globe,
+  Database,
+  Lock,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+const MAX_PREVIEW = 50
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return s.slice(0, max) + '…'
+}
+
+function toTildePath(path: string): string {
+  const m = path.match(/^\/home\/[^/]+\/(.*)$/)
+  return m ? `~/${m[1]}` : path
+}
+
+interface ToolSummary {
+  summary: string
+  icon: LucideIcon
+}
+
+function getToolSummary(toolName: string, toolInput: string | undefined): ToolSummary {
+  const fallback: ToolSummary = {
+    summary: `Using ${toolName}`,
+    icon: Wrench,
+  }
+  if (!toolInput?.trim()) return fallback
+
+  let input: Record<string, unknown>
+  try {
+    input = JSON.parse(toolInput) as Record<string, unknown>
+  } catch {
+    return fallback
+  }
+
+  const path = input.path as string | undefined
+  const command = input.command as string | undefined
+  const query = input.query as string | undefined
+  const url = input.url as string | undefined
+  const name = input.name as string | undefined
+  const content = input.content as string | undefined
+
+  switch (toolName) {
+    case 'read_file':
+      return { summary: path ? `Reading ${toTildePath(path)}` : 'Reading file', icon: FileText }
+    case 'write_file':
+      return { summary: path ? `Writing ${toTildePath(path)}` : 'Writing file', icon: FileEdit }
+    case 'edit_file':
+      return { summary: path ? `Editing ${toTildePath(path)}` : 'Editing file', icon: FileEdit }
+    case 'bash':
+    case 'exec':
+      return { summary: command ? `Running: ${truncate(command, MAX_PREVIEW)}` : 'Running command', icon: Terminal }
+    case 'web_search':
+      return { summary: query ? `Searching: ${truncate(query, MAX_PREVIEW)}` : 'Searching the web', icon: Search }
+    case 'web_fetch':
+      return { summary: url ? `Fetching: ${truncate(url, MAX_PREVIEW)}` : 'Fetching URL', icon: Globe }
+    case 'memory_save':
+      return { summary: content ? `Saving to memory: ${truncate(content, MAX_PREVIEW)}` : 'Saving to memory', icon: Database }
+    case 'memory_search':
+      return { summary: query ? `Searching memory: ${truncate(query, MAX_PREVIEW)}` : 'Searching memory', icon: Database }
+    case 'vault_save':
+      return { summary: name ? `Vault: save ${name}` : 'Vault: save', icon: Lock }
+    case 'vault_get':
+      return { summary: name ? `Vault: get ${name}` : 'Vault: get', icon: Lock }
+    case 'vault_list':
+      return { summary: 'Vault: list', icon: Lock }
+    case 'vault_delete':
+      return { summary: name ? `Vault: delete ${name}` : 'Vault: delete', icon: Lock }
+    default: {
+      const keys = Object.keys(input).filter((k) => input[k] !== undefined && input[k] !== '')
+      const preview = keys.length > 0
+        ? ` (${keys.slice(0, 2).map((k) => `${k}=${truncate(String(input[k]), 20)}`).join(', ')}${keys.length > 2 ? '…' : ''})`
+        : ''
+      return { summary: `Using ${toolName}${preview}`, icon: Wrench }
+    }
+  }
+}
 
 interface ChatMessageProps {
   role: 'user' | 'assistant' | 'tool'
@@ -94,30 +184,36 @@ function TypingDots() {
 
 function ToolMessage({ toolName, toolInput, content }: { toolName?: string; toolInput?: string; content: string }) {
   const [expanded, setExpanded] = useState(false)
+  const { summary, icon: Icon } = useMemo(
+    () => getToolSummary(toolName || 'tool', toolInput),
+    [toolName, toolInput],
+  )
   return (
     <div className="ml-14 animate-fade-in py-2">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-700/30 bg-zinc-800/40 px-3 py-2 text-xs text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:border-zinc-700/50"
-      >
-        <Terminal className="h-3.5 w-3.5 text-orange-500" />
-        <span className="font-semibold text-zinc-300">{toolName || 'tool'}</span>
-        {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-      </button>
-      {expanded && (
-        <div className="mt-1.5 overflow-hidden rounded-xl border border-zinc-700/30 bg-zinc-900/60">
-          {toolInput && (
-            <div className="border-b border-zinc-700/20 px-4 py-3">
-              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-600">Input</p>
-              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-zinc-400">{toolInput}</pre>
+      <div className="rounded-lg border-l-2 border-orange-500/40 bg-zinc-800/30">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2.5 text-left text-xs text-zinc-400 transition-colors hover:bg-zinc-800/50"
+        >
+          <Icon className="h-3.5 w-3.5 shrink-0 text-orange-500/80" />
+          <span className="min-w-0 flex-1 font-medium text-zinc-300">{summary}</span>
+          {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+        </button>
+        {expanded && (
+          <div className="border-t border-zinc-700/20">
+            {toolInput && (
+              <div className="border-b border-zinc-700/20 px-4 py-3">
+                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-600">Input</p>
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-zinc-400">{toolInput}</pre>
+              </div>
+            )}
+            <div className="px-4 py-3">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-600">Output</p>
+              <pre className="max-h-60 overflow-x-auto overflow-y-auto whitespace-pre-wrap font-mono text-xs text-zinc-400">{content}</pre>
             </div>
-          )}
-          <div className="px-4 py-3">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-600">Output</p>
-            <pre className="max-h-60 overflow-x-auto overflow-y-auto whitespace-pre-wrap font-mono text-xs text-zinc-400">{content}</pre>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

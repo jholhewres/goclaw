@@ -240,10 +240,7 @@ func (bs *BlockStreamer) flushLocked() {
 
 	msg := &channels.OutgoingMessage{
 		Content: strings.TrimSpace(sendText),
-	}
-	// Only reply-to the original on the first block.
-	if !bs.flushed {
-		msg.ReplyTo = bs.replyTo
+		ReplyTo: bs.replyTo,
 	}
 
 	if err := bs.channelMgr.Send(bs.ctx, bs.channel, bs.chatID, msg); err != nil {

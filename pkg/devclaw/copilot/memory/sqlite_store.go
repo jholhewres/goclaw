@@ -289,23 +289,45 @@ func (s *SQLiteStore) IndexChunks(ctx context.Context, fileID string, chunks []C
 
 // SearchBM25 performs a keyword search using FTS5 BM25 ranking.
 // Falls back to LIKE-based search when FTS5 is not available.
+// Applies query expansion to handle conversational queries.
 func (s *SQLiteStore) SearchBM25(query string, maxResults int) ([]SearchResult, error) {
 	if maxResults <= 0 {
 		maxResults = 10
 	}
 
-	// If FTS5 is not available, use LIKE fallback.
+	// If FTS5 is not available, use LIKE fallback with expanded keywords.
 	if !s.ftsAvailable {
 		return s.searchLikeFallback(query, maxResults)
 	}
 
-	// Sanitize query for FTS5 syntax: wrap in double quotes to treat as phrase.
+	// Try phrase search first.
 	safeQuery := sanitizeFTS5Query(query)
 	if safeQuery == "" {
 		return nil, nil
 	}
 
-	// FTS5 match query.
+	results, err := s.ftsQuery(safeQuery, maxResults)
+	if err == nil && len(results) >= maxResults/2 {
+		return results, nil
+	}
+
+	// Expand query: extract keywords and search with OR.
+	keywords := extractKeywords(query)
+	if len(keywords) > 0 {
+		expandedQuery := expandQueryForFTS(keywords)
+		if expandedQuery != "" && expandedQuery != safeQuery {
+			moreResults, err := s.ftsQuery(expandedQuery, maxResults)
+			if err == nil {
+				results = mergeSearchResults(results, moreResults, maxResults*2)
+			}
+		}
+	}
+
+	return results, nil
+}
+
+// ftsQuery runs a single FTS5 query and returns ranked results.
+func (s *SQLiteStore) ftsQuery(ftsQuery string, maxResults int) ([]SearchResult, error) {
 	rows, err := s.db.Query(`
 		SELECT c.file_id, c.text, rank
 		FROM chunks_fts
@@ -313,10 +335,9 @@ func (s *SQLiteStore) SearchBM25(query string, maxResults int) ([]SearchResult, 
 		WHERE chunks_fts MATCH ?
 		ORDER BY rank
 		LIMIT ?
-	`, safeQuery, maxResults*2) // fetch extra candidates for hybrid merge.
+	`, ftsQuery, maxResults*2)
 	if err != nil {
-		// If FTS5 query fails at runtime, try LIKE fallback.
-		return s.searchLikeFallback(query, maxResults)
+		return s.searchLikeFallback(ftsQuery, maxResults)
 	}
 	defer rows.Close()
 
@@ -327,12 +348,96 @@ func (s *SQLiteStore) SearchBM25(query string, maxResults int) ([]SearchResult, 
 		if err := rows.Scan(&r.FileID, &r.Text, &rank); err != nil {
 			continue
 		}
-		// BM25 rank is negative (lower = better), convert to 0..1 score.
 		r.Score = 1.0 / (1.0 + math.Abs(rank))
 		results = append(results, r)
 	}
 
 	return results, nil
+}
+
+// extractKeywords extracts meaningful keywords from a conversational query
+// by removing stop words and short tokens.
+func extractKeywords(query string) []string {
+	words := strings.Fields(strings.ToLower(query))
+	var keywords []string
+	for _, w := range words {
+		w = strings.Trim(w, ".,;:!?\"'()[]{}*")
+		if len(w) < 3 || stopWords[w] {
+			continue
+		}
+		keywords = append(keywords, w)
+	}
+	return keywords
+}
+
+// expandQueryForFTS converts extracted keywords into an FTS5 OR query.
+func expandQueryForFTS(keywords []string) string {
+	if len(keywords) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, kw := range keywords {
+		s := sanitizeFTS5Query(kw)
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// mergeSearchResults deduplicates and merges two result sets.
+func mergeSearchResults(a, b []SearchResult, maxResults int) []SearchResult {
+	seen := make(map[string]bool)
+	var merged []SearchResult
+	for _, r := range a {
+		key := r.FileID + "|" + r.Text
+		if !seen[key] {
+			seen[key] = true
+			merged = append(merged, r)
+		}
+	}
+	for _, r := range b {
+		key := r.FileID + "|" + r.Text
+		if !seen[key] {
+			seen[key] = true
+			merged = append(merged, r)
+		}
+	}
+	if len(merged) > maxResults {
+		merged = merged[:maxResults]
+	}
+	return merged
+}
+
+// stopWords are common words filtered out during keyword extraction.
+var stopWords = map[string]bool{
+	"the": true, "and": true, "for": true, "are": true, "but": true,
+	"not": true, "you": true, "all": true, "can": true, "had": true,
+	"her": true, "was": true, "one": true, "our": true, "out": true,
+	"has": true, "its": true, "let": true, "may": true, "who": true,
+	"did": true, "get": true, "got": true, "him": true, "his": true,
+	"how": true, "man": true, "new": true, "now": true, "old": true,
+	"see": true, "way": true, "day": true, "too": true, "use": true,
+	"that": true, "with": true, "have": true, "this": true, "will": true,
+	"your": true, "from": true, "they": true, "been": true, "said": true,
+	"each": true, "which": true, "their": true, "what": true, "about": true,
+	"would": true, "there": true, "when": true, "make": true, "like": true,
+	"time": true, "just": true, "know": true, "take": true, "come": true,
+	"could": true, "than": true, "look": true, "only": true, "into": true,
+	"over": true, "such": true, "also": true, "back": true, "some": true,
+	"them": true, "then": true, "these": true, "thing": true, "where": true,
+	"much": true, "should": true, "well": true, "after": true,
+	// Portuguese stop words
+	"que": true, "não": true, "com": true, "uma": true, "para": true,
+	"por": true, "mais": true, "como": true, "mas": true, "dos": true,
+	"das": true, "nos": true, "nas": true, "foi": true, "ser": true,
+	"tem": true, "são": true, "seu": true, "sua": true, "isso": true,
+	"este": true, "esta": true, "esse": true, "essa": true, "aqui": true,
+	"ele": true, "ela": true, "eles": true, "elas": true, "nós": true,
+	"vocé": true, "voce": true, "você": true, "também": true,
 }
 
 // searchLikeFallback performs a simple LIKE search when FTS5 is not available.

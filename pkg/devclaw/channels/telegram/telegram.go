@@ -49,16 +49,42 @@ type Config struct {
 
 	// ParseMode sets the default parse mode for outgoing messages ("HTML" or "Markdown").
 	ParseMode string `yaml:"parse_mode"`
+
+	// ReactionNotifications controls when user reactions are surfaced as system events.
+	// "off" (default): ignore reactions
+	// "own": only reactions to bot messages
+	// "all": all reactions in allowed chats
+	ReactionNotifications string `yaml:"reaction_notifications"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		RespondToGroups: true,
-		RespondToDMs:    true,
-		SendTyping:      true,
-		ParseMode:       "HTML",
+		RespondToGroups:       true,
+		RespondToDMs:         true,
+		SendTyping:           true,
+		ParseMode:            "HTML",
+		ReactionNotifications: "off",
 	}
+}
+
+// ButtonStyle is the visual style of an inline keyboard button.
+// Telegram Bot API 9.4+ supports native styles; older clients may fall back to emoji prefixes.
+const (
+	ButtonStyleDefault  = ""
+	ButtonStylePrimary  = "primary"  // blue
+	ButtonStyleSuccess  = "success"  // green
+	ButtonStyleDanger   = "danger"   // red
+)
+
+// InlineButton represents an inline keyboard button.
+// Use via OutgoingMessage.Metadata["telegram_buttons"] as []InlineButton.
+// Each button needs either CallbackData or URL; Style is optional.
+type InlineButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Style        string `json:"style,omitempty"` // "primary", "success", "danger", or ""
 }
 
 // Telegram implements channels.Channel, channels.MediaChannel,
@@ -86,6 +112,11 @@ type Telegram struct {
 	// offset is the last processed update ID + 1.
 	offset int64
 
+	// sentMessageIDs tracks (chatID, messageID) of messages sent by the bot,
+	// used for ReactionNotifications "own" scope.
+	sentMessageIDs map[string]bool
+	sentMu         sync.RWMutex
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.RWMutex
@@ -100,11 +131,12 @@ func New(cfg Config, logger *slog.Logger) *Telegram {
 		cfg.ParseMode = "HTML"
 	}
 	return &Telegram{
-		cfg:     cfg,
-		logger:  logger.With("component", "telegram"),
-		client:  &http.Client{Timeout: 60 * time.Second},
-		baseURL: "https://api.telegram.org/bot" + cfg.Token,
-		messages: make(chan *channels.IncomingMessage, 256),
+		cfg:             cfg,
+		logger:          logger.With("component", "telegram"),
+		client:          &http.Client{Timeout: 60 * time.Second},
+		baseURL:         "https://api.telegram.org/bot" + cfg.Token,
+		messages:        make(chan *channels.IncomingMessage, 256),
+		sentMessageIDs:  make(map[string]bool),
 	}
 }
 
@@ -171,8 +203,21 @@ func (t *Telegram) Send(ctx context.Context, to string, message *channels.Outgoi
 		}
 	}
 
-	_, err = t.apiCall("sendMessage", payload)
-	return err
+	// Add inline keyboard if buttons are provided via Metadata.
+	if replyMarkup := t.buildReplyMarkup(message); replyMarkup != nil {
+		payload["reply_markup"] = replyMarkup
+	}
+
+	result, err := t.apiCall("sendMessage", payload)
+	if err != nil {
+		return err
+	}
+
+	// Record sent message ID for reaction notifications "own" scope.
+	if t.cfg.ReactionNotifications == "own" && result != nil {
+		t.recordSentMessage(chatID, result)
+	}
+	return nil
 }
 
 // Receive returns the incoming messages channel.
@@ -329,6 +374,242 @@ func (t *Telegram) SendReaction(ctx context.Context, chatID, messageID, emoji st
 
 // ---------- Internal Methods ----------
 
+// buildReplyMarkup builds an InlineKeyboardMarkup from OutgoingMessage.Metadata["telegram_buttons"].
+// Each button can have text, callback_data or url, and optional style (primary/success/danger).
+func (t *Telegram) buildReplyMarkup(msg *channels.OutgoingMessage) map[string]any {
+	if msg == nil || msg.Metadata == nil {
+		return nil
+	}
+	raw, ok := msg.Metadata["telegram_buttons"]
+	if !ok {
+		return nil
+	}
+	// Accept []InlineButton or []map[string]any for flexibility.
+	var buttons []InlineButton
+	switch v := raw.(type) {
+	case []InlineButton:
+		for _, b := range v {
+			if b.Text != "" {
+				if b.CallbackData == "" && b.URL == "" {
+					b.CallbackData = "1"
+				}
+				buttons = append(buttons, b)
+			}
+		}
+	case []map[string]any:
+		for _, m := range v {
+			var b InlineButton
+			if text, ok := m["text"].(string); ok {
+				b.Text = text
+			}
+			if cb, ok := m["callback_data"].(string); ok {
+				b.CallbackData = cb
+			}
+			if url, ok := m["url"].(string); ok {
+				b.URL = url
+			}
+			if style, ok := m["style"].(string); ok {
+				b.Style = style
+			}
+			if b.Text != "" {
+				if b.CallbackData == "" && b.URL == "" {
+					b.CallbackData = "1" // Telegram requires callback_data or url; use minimal placeholder
+				}
+				buttons = append(buttons, b)
+			}
+		}
+	case []any:
+		for _, a := range v {
+			if m, ok := a.(map[string]any); ok {
+				var b InlineButton
+				if text, ok := m["text"].(string); ok {
+					b.Text = text
+				}
+				if cb, ok := m["callback_data"].(string); ok {
+					b.CallbackData = cb
+				}
+				if url, ok := m["url"].(string); ok {
+					b.URL = url
+				}
+				if style, ok := m["style"].(string); ok {
+					b.Style = style
+				}
+				if b.Text != "" {
+					if b.CallbackData == "" && b.URL == "" {
+						b.CallbackData = "1"
+					}
+					buttons = append(buttons, b)
+				}
+			}
+		}
+	default:
+		return nil
+	}
+	if len(buttons) == 0 {
+		return nil
+	}
+	// Build rows: one row per button (each button on its own row).
+	// For multiple buttons per row, caller could pass rows as Metadata["telegram_button_rows"].
+	rows := make([][]map[string]any, 0, len(buttons))
+	for _, b := range buttons {
+		btn := map[string]any{"text": t.applyButtonStyle(b)}
+		if b.URL != "" {
+			btn["url"] = b.URL
+		} else if b.CallbackData != "" {
+			if len(b.CallbackData) > 64 {
+				b.CallbackData = b.CallbackData[:64]
+			}
+			btn["callback_data"] = b.CallbackData
+		}
+		// Telegram Bot API 9.4+ supports native style.
+		if b.Style == ButtonStylePrimary || b.Style == ButtonStyleSuccess || b.Style == ButtonStyleDanger {
+			btn["style"] = b.Style
+		}
+		rows = append(rows, []map[string]any{btn})
+	}
+	return map[string]any{"inline_keyboard": rows}
+}
+
+// applyButtonStyle prefixes button text with emoji for older clients that don't support native style.
+// Returns the display text. Native style is sent separately in buildReplyMarkup.
+func (t *Telegram) applyButtonStyle(b InlineButton) string {
+	text := b.Text
+	// Emoji prefix as fallback for clients without native style support.
+	switch b.Style {
+	case ButtonStyleSuccess:
+		text = "✅ " + text
+	case ButtonStyleDanger:
+		text = "❌ " + text
+	case ButtonStylePrimary:
+		text = "🔵 " + text
+	}
+	return text
+}
+
+// processMessageReaction handles message_reaction updates and surfaces them as system events.
+func (t *Telegram) processMessageReaction(r *tgMessageReaction) {
+	mode := strings.ToLower(strings.TrimSpace(t.cfg.ReactionNotifications))
+	if mode == "" {
+		mode = "off"
+	}
+	if mode == "off" {
+		return
+	}
+
+	// "own" = only reactions to bot messages.
+	if mode == "own" && !t.isBotMessage(r.Chat.ID, r.MessageID) {
+		return
+	}
+
+	// Apply AllowedChats filter.
+	if len(t.cfg.AllowedChats) > 0 {
+		allowed := false
+		for _, id := range t.cfg.AllowedChats {
+			if id == r.Chat.ID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return
+		}
+	}
+
+	emoji := t.extractReactionEmoji(r.NewReaction)
+	if emoji == "" {
+		emoji = "👤" // fallback for custom emoji or empty
+	}
+
+	fromID := "0"
+	fromName := "Unknown"
+	if r.User != nil {
+		fromID = strconv.FormatInt(r.User.ID, 10)
+		if n := strings.TrimSpace(r.User.FirstName + " " + r.User.LastName); n != "" {
+			fromName = n
+		} else if r.User.Username != "" {
+			fromName = r.User.Username
+		} else {
+			fromName = fromID
+		}
+	}
+	if r.ActorChat != nil && r.ActorChat.Title != "" {
+		fromName = r.ActorChat.Title // anonymous reaction from group
+		fromID = strconv.FormatInt(r.ActorChat.ID, 10)
+	}
+
+	content := fmt.Sprintf("Telegram reaction: %s by %s on message #%d", emoji, fromName, r.MessageID)
+	chatIDStr := strconv.FormatInt(r.Chat.ID, 10)
+	isGroup := r.Chat.Type == "group" || r.Chat.Type == "supergroup"
+
+	incoming := &channels.IncomingMessage{
+		ID:        fmt.Sprintf("reaction-%d-%d", r.Chat.ID, r.MessageID),
+		Channel:   "telegram",
+		From:      fromID,
+		FromName:  fromName,
+		ChatID:    chatIDStr,
+		IsGroup:   isGroup,
+		Type:      channels.MessageReaction,
+		Content:   content,
+		Timestamp: time.Unix(int64(r.Date), 0),
+		ReplyTo:   strconv.Itoa(r.MessageID),
+		Reaction: &channels.ReactionInfo{
+			Emoji:     emoji,
+			MessageID: strconv.Itoa(r.MessageID),
+			From:      fromID,
+			Remove:    len(r.NewReaction) == 0,
+		},
+	}
+
+	t.lastMsg.Store(time.Now())
+	select {
+	case t.messages <- incoming:
+	default:
+		t.logger.Warn("telegram: message buffer full, dropping reaction", "msg_id", r.MessageID)
+	}
+}
+
+// extractReactionEmoji returns the emoji string from the first emoji-type reaction.
+func (t *Telegram) extractReactionEmoji(reactions []tgReaction) string {
+	for _, r := range reactions {
+		if r.Type == "emoji" && r.Emoji != "" {
+			return r.Emoji
+		}
+	}
+	return ""
+}
+
+// recordSentMessage parses the sendMessage result and stores the message ID.
+func (t *Telegram) recordSentMessage(chatID int64, result json.RawMessage) {
+	var msg struct {
+		MessageID int `json:"message_id"`
+	}
+	if err := json.Unmarshal(result, &msg); err != nil {
+		return
+	}
+	key := fmt.Sprintf("%d:%d", chatID, msg.MessageID)
+	t.sentMu.Lock()
+	if len(t.sentMessageIDs) >= 5000 {
+		// Simple eviction: clear half when full.
+		for k := range t.sentMessageIDs {
+			delete(t.sentMessageIDs, k)
+			if len(t.sentMessageIDs) < 2500 {
+				break
+			}
+		}
+	}
+	t.sentMessageIDs[key] = true
+	t.sentMu.Unlock()
+}
+
+// isBotMessage returns true if the given chatID:messageID was sent by the bot.
+func (t *Telegram) isBotMessage(chatID int64, messageID int) bool {
+	key := fmt.Sprintf("%d:%d", chatID, messageID)
+	t.sentMu.RLock()
+	ok := t.sentMessageIDs[key]
+	t.sentMu.RUnlock()
+	return ok
+}
+
 // pollLoop runs the getUpdates long-polling loop.
 func (t *Telegram) pollLoop() {
 	t.logger.Info("telegram: polling started")
@@ -371,6 +652,12 @@ func (t *Telegram) pollLoop() {
 
 // processUpdate converts a Telegram update into an IncomingMessage.
 func (t *Telegram) processUpdate(u tgUpdate) {
+	// Handle message_reaction updates (user reactions to messages).
+	if u.MessageReaction != nil {
+		t.processMessageReaction(u.MessageReaction)
+		return
+	}
+
 	msg := u.Message
 	if msg == nil {
 		if u.EditedMessage != nil {
@@ -512,9 +799,28 @@ func (t *Telegram) processUpdate(u tgUpdate) {
 // ---------- Telegram Bot API Types ----------
 
 type tgUpdate struct {
-	UpdateID      int64    `json:"update_id"`
-	Message       *tgMessage `json:"message"`
-	EditedMessage *tgMessage `json:"edited_message"`
+	UpdateID        int64                `json:"update_id"`
+	Message         *tgMessage           `json:"message"`
+	EditedMessage   *tgMessage           `json:"edited_message"`
+	MessageReaction *tgMessageReaction   `json:"message_reaction"`
+}
+
+// tgMessageReaction is the MessageReactionUpdated object from the Bot API.
+type tgMessageReaction struct {
+	Chat        tgChat         `json:"chat"`
+	MessageID   int            `json:"message_id"`
+	User        *tgUser        `json:"user"`
+	ActorChat   *tgChat        `json:"actor_chat"`
+	Date        int            `json:"date"`
+	OldReaction []tgReaction   `json:"old_reaction"`
+	NewReaction []tgReaction   `json:"new_reaction"`
+}
+
+// tgReaction represents a ReactionType (emoji or custom_emoji).
+type tgReaction struct {
+	Type  string `json:"type"`  // "emoji" or "custom_emoji"
+	Emoji string `json:"emoji"` // for type "emoji"
+	CustomEmojiID string `json:"custom_emoji_id"` // for type "custom_emoji"
 }
 
 type tgMessage struct {

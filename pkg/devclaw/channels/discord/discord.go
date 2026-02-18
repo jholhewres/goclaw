@@ -7,6 +7,7 @@
 //   - Thread support (auto-thread mode)
 //   - Embed messages for long responses
 //   - Guild and channel allowlists
+//   - Interactive components (buttons, select menus) with Reusable and AllowedUsers
 //   - Automatic reconnection via discordgo's gateway
 package discord
 
@@ -79,6 +80,9 @@ type Discord struct {
 	// httpClient is used for downloading attachments.
 	httpClient *http.Client
 
+	// components manages interactive component registration and TTL cleanup.
+	components *ComponentRegistry
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.RWMutex
@@ -89,11 +93,13 @@ func New(cfg Config, logger *slog.Logger) *Discord {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	l := logger.With("component", "discord")
 	return &Discord{
 		cfg:        cfg,
-		logger:     logger.With("component", "discord"),
+		logger:     l,
 		messages:   make(chan *channels.IncomingMessage, 256),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		components:  NewComponentRegistry(l),
 	}
 }
 
@@ -123,6 +129,7 @@ func (d *Discord) Connect(ctx context.Context) error {
 
 	// Register handlers.
 	session.AddHandler(d.onMessageCreate)
+	session.AddHandler(d.onInteractionCreate)
 
 	// Open the WebSocket connection.
 	if err := session.Open(); err != nil {
@@ -142,6 +149,9 @@ func (d *Discord) Connect(ctx context.Context) error {
 func (d *Discord) Disconnect() error {
 	if d.cancel != nil {
 		d.cancel()
+	}
+	if d.components != nil {
+		d.components.Stop()
 	}
 	if d.session != nil {
 		d.session.Close()
@@ -397,6 +407,128 @@ func (d *Discord) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCrea
 	default:
 		d.logger.Warn("discord: message buffer full, dropping message", "msg_id", incoming.ID)
 	}
+}
+
+// onInteractionCreate handles button clicks and select menu choices.
+func (d *Discord) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionMessageComponent {
+		return
+	}
+
+	data := i.MessageComponentData()
+	customID := data.CustomID
+	if customID == "" {
+		return
+	}
+
+	spec, ok := d.components.Get(customID)
+	if !ok {
+		respondEphemeral(s, i, "Unknown or expired component.")
+		return
+	}
+
+	userID := ""
+	if i.Member != nil && i.Member.User != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+	if userID == "" {
+		respondEphemeral(s, i, "Could not identify user.")
+		return
+	}
+
+	if !spec.IsAllowed(userID) {
+		respondEphemeral(s, i, "You are not allowed to use this component.")
+		return
+	}
+
+	evt := &InteractionEvent{
+		CustomID:     customID,
+		UserID:       userID,
+		ChannelID:    i.ChannelID,
+		GuildID:      i.GuildID,
+		MessageID:    i.Message.ID,
+		Values:       data.Values,
+		ComponentType: data.ComponentType,
+	}
+	if i.Member != nil && i.Member.User != nil {
+		evt.Username = i.Member.User.Username
+	} else if i.User != nil {
+		evt.Username = i.User.Username
+	}
+
+	// Acknowledge immediately to satisfy Discord's 3s limit.
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+	}); err != nil {
+		d.logger.Warn("discord: failed to ack interaction", "custom_id", customID, "error", err)
+		return
+	}
+
+	// Run handler then edit the message.
+	go func() {
+		ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
+		defer cancel()
+
+		content, err := spec.Handler(ctx, evt)
+		if err != nil {
+			content = "Error: " + err.Error()
+			d.logger.Warn("discord: component handler error", "custom_id", customID, "error", err)
+		}
+
+		var components []discordgo.MessageComponent
+		if spec.Reusable && i.Message != nil && len(i.Message.Components) > 0 {
+			components = i.Message.Components
+		}
+		// For non-reusable, components stays nil/empty.
+
+		edit := &discordgo.WebhookEdit{Content: &content}
+		if len(components) > 0 {
+			edit.Components = &components
+		} else {
+			empty := []discordgo.MessageComponent{}
+			edit.Components = &empty
+		}
+
+		if _, err := s.InteractionResponseEdit(i.Interaction, edit); err != nil {
+			d.logger.Warn("discord: failed to edit interaction response", "custom_id", customID, "error", err)
+		}
+	}()
+}
+
+// respondEphemeral sends an ephemeral (visible only to the user) response.
+func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	flags := discordgo.MessageFlagsEphemeral
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: content,
+			Flags:   flags,
+		},
+	})
+}
+
+// ---------- Interactive Components ----------
+
+// ComponentRegistry returns the component registry for registering buttons and selects.
+func (d *Discord) ComponentRegistry() *ComponentRegistry {
+	return d.components
+}
+
+// SendWithComponents sends a message with interactive components (buttons, selects).
+// Register components with d.ComponentRegistry().Register(customID, spec) before calling.
+func (d *Discord) SendWithComponents(ctx context.Context, to string, content string, components []discordgo.MessageComponent) error {
+	if d.session == nil {
+		return channels.ErrChannelDisconnected
+	}
+
+	msgSend := &discordgo.MessageSend{
+		Content:    content,
+		Components:  components,
+	}
+	_, err := d.session.ChannelMessageSendComplex(to, msgSend)
+	return err
 }
 
 // ---------- Helpers ----------

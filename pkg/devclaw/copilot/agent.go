@@ -485,6 +485,11 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 				ToolCallID: result.ToolCallID,
 			})
 
+			// Track tool output for progress-aware loop detection.
+			if a.loopDetector != nil {
+				a.loopDetector.RecordToolOutcome(content)
+			}
+
 			// Notify hook (e.g. auto-send media for generate_image).
 			if a.onToolResult != nil && result.Error == nil {
 				a.onToolResult(result.Name, result)

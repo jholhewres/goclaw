@@ -34,6 +34,7 @@ type LLMClient struct {
 	apiKey     string
 	model      string
 	fallback   FallbackConfig
+	params     map[string]any // provider-specific params (context1m, tool_stream, etc.)
 	httpClient *http.Client
 	logger     *slog.Logger
 
@@ -71,6 +72,7 @@ func NewLLMClient(cfg *Config, logger *slog.Logger) *LLMClient {
 		apiKey:           cfg.API.APIKey,
 		model:            cfg.Model,
 		fallback:         cfg.Fallback.Effective(),
+		params:           cfg.API.Params,
 		probeMinInterval: 30 * time.Second,
 		httpClient: &http.Client{
 			// No global timeout here — each call uses context.WithTimeout
@@ -216,6 +218,7 @@ type chatRequest struct {
 	Stream      bool             `json:"stream,omitempty"`
 	Temperature *float64         `json:"temperature,omitempty"`
 	MaxTokens   *int             `json:"max_tokens,omitempty"`
+	ToolStream  *bool            `json:"tool_stream,omitempty"` // Z.AI: real-time tool call streaming
 }
 
 // modelDefaults holds per-model/provider behavior overrides.
@@ -254,6 +257,10 @@ func getModelDefaults(model, provider string) modelDefaults {
 
 	// ── Anthropic models ──
 	case strings.HasPrefix(model, "claude-opus-4"):
+		d.DefaultTemperature = 1.0
+		d.MaxOutputTokens = 16384
+	case strings.HasPrefix(model, "claude-sonnet-4-6"),
+		strings.HasPrefix(model, "claude-sonnet-4.6"):
 		d.DefaultTemperature = 1.0
 		d.MaxOutputTokens = 16384
 	case strings.HasPrefix(model, "claude-sonnet-4"):
@@ -325,6 +332,15 @@ func (c *LLMClient) applyModelDefaults(req *chatRequest) {
 	if c.supportsCacheControl() {
 		c.applyPromptCaching(req)
 	}
+
+	// Z.AI tool_stream: enable real-time tool call streaming by default.
+	// Opt-out via params.tool_stream: false.
+	if c.isZAI() && req.ToolStream == nil {
+		enabled := !c.paramBool("tool_stream_disabled")
+		if enabled {
+			req.ToolStream = &enabled
+		}
+	}
 }
 
 // supportsCacheControl returns true if the provider supports prompt caching.
@@ -337,6 +353,11 @@ func (c *LLMClient) supportsCacheControl() bool {
 	}
 }
 
+// isZAI returns true if the provider is Z.AI (GLM or Z.AI coding).
+func (c *LLMClient) isZAI() bool {
+	return c.provider == "zai" || c.provider == "zai-coding"
+}
+
 // setProviderHeaders adds provider-specific HTTP headers to the request.
 // OpenRouter requires attribution headers; other providers may need custom auth.
 func (c *LLMClient) setProviderHeaders(req *http.Request) {
@@ -344,6 +365,39 @@ func (c *LLMClient) setProviderHeaders(req *http.Request) {
 	case "openrouter":
 		req.Header.Set("X-Title", "DevClaw")
 		req.Header.Set("HTTP-Referer", "https://github.com/jholhewres/devclaw")
+	}
+}
+
+// setAnthropicBetaHeaders adds opt-in beta headers for Anthropic models.
+// Currently supports context1m (1M token context window) for Opus/Sonnet.
+func (c *LLMClient) setAnthropicBetaHeaders(req *http.Request, model string) {
+	if c.paramBool("context1m") && isAnthropic1MModel(model) {
+		req.Header.Set("anthropic-beta", "context-1m-2025-08-07")
+	}
+}
+
+// isAnthropic1MModel returns true if the model supports the 1M context beta.
+func isAnthropic1MModel(model string) bool {
+	return strings.HasPrefix(model, "claude-opus-4") ||
+		strings.HasPrefix(model, "claude-sonnet-4")
+}
+
+// paramBool reads a boolean parameter from the provider params map.
+func (c *LLMClient) paramBool(key string) bool {
+	if c.params == nil {
+		return false
+	}
+	v, ok := c.params[key]
+	if !ok {
+		return false
+	}
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		return b == "true" || b == "1"
+	default:
+		return false
 	}
 }
 
@@ -1104,6 +1158,7 @@ func (c *LLMClient) completeOnceAnthropic(ctx context.Context, model string, mes
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
+	c.setAnthropicBetaHeaders(req, model)
 	// Z.Ai Anthropic Proxy expects Authorization: Bearer; native Anthropic uses x-api-key.
 	if c.provider == "zai-anthropic" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -1404,6 +1459,7 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("Accept", "text/event-stream")
+	c.setAnthropicBetaHeaders(req, model)
 	// Z.Ai Anthropic Proxy expects Authorization: Bearer; native Anthropic uses x-api-key.
 	if c.provider == "zai-anthropic" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)

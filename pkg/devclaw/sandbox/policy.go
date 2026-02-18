@@ -92,8 +92,13 @@ func (p *Policy) FilterEnv(env map[string]string) map[string]string {
 	filtered := make(map[string]string)
 
 	for k, v := range env {
-		// Always block dangerous variables.
+		// Always block dangerous variables (exact match).
 		if p.blockedEnvSet[k] {
+			continue
+		}
+
+		// Block dangerous variable prefixes (e.g. LD_*, DYLD_*).
+		if hasBlockedPrefix(k) {
 			continue
 		}
 
@@ -108,6 +113,16 @@ func (p *Policy) FilterEnv(env map[string]string) map[string]string {
 	}
 
 	return filtered
+}
+
+// hasBlockedPrefix checks if an env var name matches any blocked prefix.
+func hasBlockedPrefix(name string) bool {
+	for _, prefix := range blockedEnvPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // ScanScript analyzes script content for dangerous patterns.
@@ -277,6 +292,17 @@ func defaultScanRules() []ScanRule {
 			Severity: "warn",
 			Pattern:  regexp.MustCompile(`(?i)(os\.environ|process\.env)\s*\[.*\]\s*=`),
 			Message:  "Environment variable manipulation detected",
+		},
+
+		// -- Critical: Shell env var injection in Python/Node scripts --
+		// Detects when LLM generates scripts that reference shell-style
+		// environment variables (e.g. $DM_JSON, $TMPDIR), which indicates
+		// the model confused shell with the target language.
+		{
+			Name:     "shell-env-injection",
+			Severity: "critical",
+			Pattern:  regexp.MustCompile(`\$[A-Z_][A-Z0-9_]{2,}`),
+			Message:  "Shell-style environment variable reference in script (possible language confusion)",
 		},
 	}
 }

@@ -315,6 +315,11 @@ type APIConfig struct {
 	// Provider hints which SDK to use ("openai", "anthropic", "glm").
 	// Auto-detected from base_url if omitted.
 	Provider string `yaml:"provider"`
+
+	// Params holds provider-specific parameters:
+	//   context1m: true   — enable Anthropic 1M context beta for Opus/Sonnet
+	//   tool_stream: true — enable real-time tool call streaming (Z.AI)
+	Params map[string]any `yaml:"params"`
 }
 
 // ChannelsConfig holds configuration for all channels.

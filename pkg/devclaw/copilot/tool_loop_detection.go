@@ -2,10 +2,11 @@
 // tool call loop (repeating the same call with no progress) and triggers
 // circuit breakers to prevent infinite loops.
 //
-// Three detectors:
+// Four detectors:
 //   - Generic repeat: same tool+args hash repeated N times
 //   - Ping-pong: alternating between two tool calls
-//   - Known poll: tools that poll external state without progress
+//   - Known no-progress poll: tools that poll external state without progress
+//   - Global circuit breaker: total no-progress calls across all patterns
 package copilot
 
 import (
@@ -32,6 +33,9 @@ type ToolLoopConfig struct {
 
 	// CircuitBreakerThreshold force-stops the agent run (default: 25).
 	CircuitBreakerThreshold int `yaml:"circuit_breaker_threshold"`
+
+	// GlobalCircuitBreaker is the max total no-progress calls before hard stop (default: 30).
+	GlobalCircuitBreaker int `yaml:"global_circuit_breaker"`
 }
 
 // DefaultToolLoopConfig returns sensible defaults.
@@ -42,6 +46,7 @@ func DefaultToolLoopConfig() ToolLoopConfig {
 		WarningThreshold:        8,
 		CriticalThreshold:       15,
 		CircuitBreakerThreshold: 25,
+		GlobalCircuitBreaker:    30,
 	}
 }
 
@@ -60,20 +65,30 @@ type LoopDetectionResult struct {
 	Severity LoopSeverity
 	Message  string // Injected into the conversation as a system hint
 	Streak   int    // Number of consecutive repeats detected
-	Pattern  string // "repeat", "ping-pong", or ""
+	Pattern  string // "repeat", "ping-pong", "known_poll", "global_breaker", or ""
 }
 
 // toolCallEntry records a single tool call in the history ring buffer.
 type toolCallEntry struct {
-	hash string
-	name string
+	hash     string
+	name     string
+	progress bool // whether this call made progress (output changed from previous)
+}
+
+// knownNoProgressTools are tools that frequently poll external state without
+// making progress. These get hard-blocked earlier than generic repeats.
+var knownNoProgressTools = map[string]map[string]bool{
+	"process": {"poll": true, "log": true},
 }
 
 // ToolLoopDetector tracks tool call history and detects loops.
 type ToolLoopDetector struct {
-	config  ToolLoopConfig
-	history []toolCallEntry
-	logger  *slog.Logger
+	config            ToolLoopConfig
+	history           []toolCallEntry
+	noProgressCount   int // total calls without progress across all tools
+	lastOutputHash    string
+	warningBucket     map[string]int // tool → warning count (coalesce repeated warnings)
+	logger            *slog.Logger
 }
 
 // NewToolLoopDetector creates a new detector with the given config.
@@ -90,6 +105,9 @@ func NewToolLoopDetector(cfg ToolLoopConfig, logger *slog.Logger) *ToolLoopDetec
 	if cfg.CircuitBreakerThreshold <= 0 {
 		cfg.CircuitBreakerThreshold = 25
 	}
+	if cfg.GlobalCircuitBreaker <= 0 {
+		cfg.GlobalCircuitBreaker = 30
+	}
 	// Ensure thresholds are ordered.
 	if cfg.CriticalThreshold <= cfg.WarningThreshold {
 		cfg.CriticalThreshold = cfg.WarningThreshold + 1
@@ -99,10 +117,32 @@ func NewToolLoopDetector(cfg ToolLoopConfig, logger *slog.Logger) *ToolLoopDetec
 	}
 
 	return &ToolLoopDetector{
-		config:  cfg,
-		history: make([]toolCallEntry, 0, cfg.HistorySize),
-		logger:  logger,
+		config:        cfg,
+		history:       make([]toolCallEntry, 0, cfg.HistorySize),
+		warningBucket: make(map[string]int),
+		logger:        logger,
 	}
+}
+
+// RecordToolOutcome records the result of a tool call for progress tracking.
+// Call this after tool execution with the output to determine if the agent
+// is making progress. An empty or identical output signals no progress.
+func (d *ToolLoopDetector) RecordToolOutcome(output string) {
+	h := hashOutput(output)
+	madeProgress := h != d.lastOutputHash && output != ""
+
+	if !madeProgress {
+		d.noProgressCount++
+	} else {
+		d.noProgressCount = 0
+	}
+
+	// Update the last history entry's progress flag before changing lastOutputHash.
+	if len(d.history) > 0 {
+		d.history[len(d.history)-1].progress = madeProgress
+	}
+
+	d.lastOutputHash = h
 }
 
 // RecordAndCheck records a tool call and checks for loops.
@@ -121,7 +161,40 @@ func (d *ToolLoopDetector) RecordAndCheck(toolName string, args map[string]any) 
 		d.history = d.history[len(d.history)-d.config.HistorySize:]
 	}
 
-	// Check for patterns.
+	// 1. Global circuit breaker: total no-progress calls.
+	if d.noProgressCount >= d.config.GlobalCircuitBreaker {
+		d.logger.Error("global circuit breaker triggered",
+			"tool", toolName, "no_progress_count", d.noProgressCount)
+		return LoopDetectionResult{
+			Severity: LoopBreaker,
+			Message: fmt.Sprintf(
+				"GLOBAL CIRCUIT BREAKER: %d consecutive tool calls with no progress. "+
+					"This run is being terminated. Try a completely different approach.",
+				d.noProgressCount),
+			Streak:  d.noProgressCount,
+			Pattern: "global_breaker",
+		}
+	}
+
+	// 2. Known no-progress poll detection (hard-block earlier).
+	if d.isKnownNoProgressCall(toolName, args) {
+		pollStreak := d.getRepeatStreak(hash)
+		if pollStreak >= 5 {
+			d.logger.Warn("known no-progress poll loop detected",
+				"tool", toolName, "streak", pollStreak)
+			return LoopDetectionResult{
+				Severity: LoopCritical,
+				Message: fmt.Sprintf(
+					"BLOCKED: '%s' has been called %d times polling the same resource with no change. "+
+						"Stop polling and try a different approach (e.g. re-read with smaller chunks, check a different resource).",
+					toolName, pollStreak),
+				Streak:  pollStreak,
+				Pattern: "known_poll",
+			}
+		}
+	}
+
+	// 3. Check generic repeat and ping-pong patterns.
 	repeatStreak := d.getRepeatStreak(hash)
 	pingPongStreak := d.getPingPongStreak(hash)
 
@@ -162,16 +235,21 @@ func (d *ToolLoopDetector) RecordAndCheck(toolName string, args map[string]any) 
 	}
 
 	if streak >= d.config.WarningThreshold {
-		d.logger.Warn("tool loop warning threshold reached",
-			"tool", toolName, "streak", streak, "pattern", pattern)
-		return LoopDetectionResult{
-			Severity: LoopWarning,
-			Message: fmt.Sprintf(
-				"WARNING: You have called '%s' %d times with similar arguments. This may indicate a loop. "+
-					"Consider a different approach or ask the user for help.",
-				toolName, streak),
-			Streak:  streak,
-			Pattern: pattern,
+		// Coalesce repeated warnings into buckets to reduce spam.
+		d.warningBucket[toolName]++
+		warnCount := d.warningBucket[toolName]
+		if warnCount == 1 || warnCount%3 == 0 {
+			d.logger.Warn("tool loop warning threshold reached",
+				"tool", toolName, "streak", streak, "pattern", pattern, "warn_count", warnCount)
+			return LoopDetectionResult{
+				Severity: LoopWarning,
+				Message: fmt.Sprintf(
+					"WARNING: You have called '%s' %d times with similar arguments. This may indicate a loop. "+
+						"Consider a different approach or ask the user for help.",
+					toolName, streak),
+				Streak:  streak,
+				Pattern: pattern,
+			}
 		}
 	}
 
@@ -181,6 +259,22 @@ func (d *ToolLoopDetector) RecordAndCheck(toolName string, args map[string]any) 
 // Reset clears the history (e.g. for a new run).
 func (d *ToolLoopDetector) Reset() {
 	d.history = d.history[:0]
+	d.noProgressCount = 0
+	d.lastOutputHash = ""
+	d.warningBucket = make(map[string]int)
+}
+
+// isKnownNoProgressCall checks if a tool call matches known poll patterns.
+func (d *ToolLoopDetector) isKnownNoProgressCall(toolName string, args map[string]any) bool {
+	actions, ok := knownNoProgressTools[toolName]
+	if !ok {
+		return false
+	}
+	// Check if the action argument matches a known poll action.
+	if action, ok := args["action"].(string); ok {
+		return actions[action]
+	}
+	return false
 }
 
 // getRepeatStreak counts consecutive identical tool calls from the end.
@@ -250,5 +344,14 @@ func hashToolCall(name string, args map[string]any) string {
 	}
 
 	h := sha256.Sum256([]byte(key))
+	return fmt.Sprintf("%x", h[:8])
+}
+
+// hashOutput creates a hash of tool output for progress tracking.
+func hashOutput(output string) string {
+	if output == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte(output))
 	return fmt.Sprintf("%x", h[:8])
 }

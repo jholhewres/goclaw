@@ -236,7 +236,16 @@ func defaultBlockedEnv() []string {
 		"BASH_ENV",
 		"ENV",
 		"CDPATH",
+		// OC-09: prevent PATH override (credential theft vector)
+		"PATH",
 	}
+}
+
+// blockedEnvPrefixes are environment variable prefixes that are always
+// stripped. Catches families of dangerous vars (e.g. LD_*, DYLD_*).
+var blockedEnvPrefixes = []string{
+	"LD_",
+	"DYLD_",
 }
 
 // DetectRuntime guesses the runtime from a script path.
