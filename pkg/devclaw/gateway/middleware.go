@@ -2,9 +2,19 @@
 package gateway
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"net/http"
 	"strings"
 )
+
+// compareTokens performs timing-safe comparison by hashing both inputs with
+// SHA-256 before calling ConstantTimeCompare to prevent length-based leakage.
+func compareTokens(a, b string) bool {
+	ha := sha256.Sum256([]byte(a))
+	hb := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
+}
 
 // authMiddleware requires Authorization: Bearer <token> when authToken is non-empty.
 // Skips auth for /health. Applied to /api/* and /v1/* when token is set.
@@ -29,7 +39,7 @@ func (g *Gateway) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(auth, "Bearer ")
-		if token != g.config.AuthToken {
+		if !compareTokens(token, g.config.AuthToken) {
 			g.writeError(w, "invalid token", 401)
 			return
 		}

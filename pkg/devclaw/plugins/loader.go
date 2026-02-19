@@ -18,8 +18,10 @@ import (
 	"os"
 	"path/filepath"
 	"plugin"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/jholhewres/devclaw/pkg/devclaw/channels"
 )
@@ -147,6 +149,15 @@ func (l *Loader) LoadAll(ctx context.Context) error {
 		}
 
 		path := filepath.Join(dir, entry.Name())
+
+		// Trust check: reject plugins in world-writable directories,
+		// symlinked outside the plugin directory, or not owned by the current user.
+		if trusted, reason := isTrustedPlugin(path, dir); !trusted {
+			l.logger.Warn("plugins: rejecting untrusted plugin",
+				"path", path, "reason", reason)
+			continue
+		}
+
 		loaded, err := l.loadPlugin(ctx, path, name)
 		if err != nil {
 			l.logger.Error("plugins: failed to load",
@@ -278,4 +289,44 @@ func (l *Loader) RegisterChannels(mgr *channels.Manager) error {
 		}
 	}
 	return nil
+}
+
+// isTrustedPlugin checks whether a plugin .so file is safe to load.
+// Returns (true, "") if trusted, or (false, reason) if not.
+// On non-Unix systems all plugins are trusted by default (no syscall.Stat_t).
+func isTrustedPlugin(pluginPath, pluginDir string) (bool, string) {
+	// Resolve symlinks and verify the real path stays within pluginDir.
+	realPath, err := filepath.EvalSymlinks(pluginPath)
+	if err != nil {
+		return false, fmt.Sprintf("cannot resolve symlinks: %v", err)
+	}
+	cleanDir := filepath.Clean(pluginDir)
+	if !strings.HasPrefix(filepath.Clean(realPath), cleanDir+string(filepath.Separator)) {
+		return false, fmt.Sprintf("plugin symlink escapes plugin directory: %s → %s", pluginPath, realPath)
+	}
+
+	// Unix-specific: check directory permissions and file ownership.
+	if runtime.GOOS != "windows" {
+		// Reject if the plugin directory is world-writable.
+		dirInfo, err := os.Stat(pluginDir)
+		if err != nil {
+			return false, fmt.Sprintf("cannot stat plugin dir: %v", err)
+		}
+		if dirInfo.Mode().Perm()&0o002 != 0 {
+			return false, fmt.Sprintf("plugin directory is world-writable: %s", pluginDir)
+		}
+
+		// Reject if the plugin file is not owned by the current user.
+		fileInfo, err := os.Stat(realPath)
+		if err != nil {
+			return false, fmt.Sprintf("cannot stat plugin file: %v", err)
+		}
+		if stat, ok := fileInfo.Sys().(*syscall.Stat_t); ok {
+			if stat.Uid != uint32(os.Getuid()) {
+				return false, fmt.Sprintf("plugin file not owned by current user (owner uid=%d)", stat.Uid)
+			}
+		}
+	}
+
+	return true, ""
 }

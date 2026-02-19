@@ -4,7 +4,7 @@
 //
 // Event streams:
 //   - "lifecycle": run_start, run_end, abort
-//   - "assistant": delta (text tokens), thinking_start, thinking_delta
+//   - "assistant": delta (text tokens), thinking_start, thinking_delta, thinking_end
 //   - "tool": tool_use, tool_result
 //   - "error": agent errors, LLM errors
 package copilot
@@ -88,6 +88,42 @@ func (eb *EventBus) EmitDelta(runID, sessionID, content string) {
 		Stream:    "assistant",
 		Type:      "delta",
 		Data:      map[string]string{"content": content},
+	})
+}
+
+// EmitThinkingStart emits a thinking_start event signalling the beginning of
+// an extended thinking / reasoning block.
+func (eb *EventBus) EmitThinkingStart(runID, sessionID string) {
+	eb.Emit(AgentEvent{
+		RunID:     runID,
+		SessionID: sessionID,
+		Stream:    "assistant",
+		Type:      "thinking_start",
+		Data:      nil,
+	})
+}
+
+// EmitThinkingDelta emits a thinking_delta event with a partial reasoning token.
+func (eb *EventBus) EmitThinkingDelta(runID, sessionID, content string) {
+	eb.Emit(AgentEvent{
+		RunID:     runID,
+		SessionID: sessionID,
+		Stream:    "assistant",
+		Type:      "thinking_delta",
+		Data:      map[string]string{"content": content},
+	})
+}
+
+// EmitThinkingEnd emits a thinking_end event. Callers are responsible for
+// deduplication — this method emits unconditionally. The recommended pattern
+// is to track a thinkingActive bool and only call EmitThinkingEnd once.
+func (eb *EventBus) EmitThinkingEnd(runID, sessionID string) {
+	eb.Emit(AgentEvent{
+		RunID:     runID,
+		SessionID: sessionID,
+		Stream:    "assistant",
+		Type:      "thinking_end",
+		Data:      nil,
 	})
 }
 

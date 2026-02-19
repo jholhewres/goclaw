@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -70,11 +72,27 @@ func (g *Gateway) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/webhooks", g.handleWebhooks)
 	mux.HandleFunc("/api/webhooks/", g.handleWebhookByID)
 
-	handler := g.corsMiddleware(g.authMiddleware(mux))
+	handler := g.securityHeadersMiddleware(g.corsMiddleware(g.authMiddleware(mux)))
 	g.server = &http.Server{
 		Addr:    g.config.Address,
 		Handler: handler,
 	}
+
+	// Warn when the gateway has no auth token and is bound to a non-loopback address.
+	if g.config.AuthToken == "" {
+		host, _, _ := net.SplitHostPort(g.config.Address)
+		if host == "" {
+			host = "0.0.0.0"
+		}
+		ip := net.ParseIP(host)
+		isLoopback := ip != nil && ip.IsLoopback()
+		isLocalName := host == "localhost"
+		if !isLoopback && !isLocalName {
+			g.logger.Warn("SECURITY: gateway has no auth token and is bound to a non-loopback address — anyone on the network can access the API",
+				"address", g.config.Address)
+		}
+	}
+
 	go func() {
 		if err := g.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			g.logger.Error("gateway server error", "error", err)
@@ -102,20 +120,62 @@ func (g *Gateway) ListWebhooks() []WebhookEntry {
 	return result
 }
 
-// AddWebhook registers a new webhook and returns its ID.
-func (g *Gateway) AddWebhook(url string, events []string) WebhookEntry {
+// AddWebhook registers a new webhook and returns the entry or an error.
+// Returns an error if the URL targets a private/loopback address (SSRF guard).
+func (g *Gateway) AddWebhook(webhookURL string, events []string) (WebhookEntry, error) {
+	if err := validateWebhookURL(webhookURL); err != nil {
+		return WebhookEntry{}, err
+	}
 	g.webhooksMu.Lock()
 	defer g.webhooksMu.Unlock()
 	g.webhookSeq++
 	entry := WebhookEntry{
 		ID:        fmt.Sprintf("wh_%d", g.webhookSeq),
-		URL:       url,
+		URL:       webhookURL,
 		Events:    events,
 		CreatedAt: time.Now(),
 		Active:    true,
 	}
 	g.webhooks = append(g.webhooks, entry)
-	return entry
+	return entry, nil
+}
+
+// securityHeadersMiddleware adds standard security headers to all responses.
+func (g *Gateway) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// validateWebhookURL rejects URLs that target private or loopback addresses
+// to prevent Server-Side Request Forgery (SSRF) via outgoing webhooks.
+func validateWebhookURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid webhook URL: %w", err)
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return fmt.Errorf("webhook URL must use http or https scheme")
+	}
+	hostname := strings.ToLower(parsed.Hostname())
+	ip := net.ParseIP(hostname)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("webhook URL targets a private or loopback address: %s", hostname)
+		}
+	} else {
+		// Block well-known internal hostnames.
+		for _, blocked := range []string{"localhost", "localhost.localdomain", "metadata.google.internal"} {
+			if hostname == blocked {
+				return fmt.Errorf("webhook URL targets a reserved hostname: %s", hostname)
+			}
+		}
+	}
+	return nil
 }
 
 // DeleteWebhook removes a webhook by ID.

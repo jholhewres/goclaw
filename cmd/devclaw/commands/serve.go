@@ -364,7 +364,10 @@ func wireWebhookAdapter(adapter *webui.AssistantAdapter, gw *gateway.Gateway) {
 		return result
 	}
 	adapter.CreateWebhookFn = func(url string, events []string) (webui.WebhookInfo, error) {
-		entry := gw.AddWebhook(url, events)
+		entry, err := gw.AddWebhook(url, events)
+		if err != nil {
+			return webui.WebhookInfo{}, err
+		}
 		return webui.WebhookInfo{
 			ID:        entry.ID,
 			URL:       entry.URL,

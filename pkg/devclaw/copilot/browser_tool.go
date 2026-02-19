@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/jholhewres/devclaw/pkg/devclaw/copilot/security"
 )
 
 // BrowserConfig configures the browser tool.
@@ -69,8 +70,9 @@ func DefaultBrowserConfig() BrowserConfig {
 
 // BrowserManager manages a Chrome/Chromium process and CDP connections.
 type BrowserManager struct {
-	cfg    BrowserConfig
-	logger *slog.Logger
+	cfg       BrowserConfig
+	logger    *slog.Logger
+	ssrfGuard *security.SSRFGuard
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -78,6 +80,13 @@ type BrowserManager struct {
 	conn    *websocket.Conn
 	msgID   int
 	started bool
+}
+
+// WithSSRFGuard attaches an SSRF guard to the browser manager.
+// When set, Navigate() will validate URLs before loading them.
+func (bm *BrowserManager) WithSSRFGuard(guard *security.SSRFGuard) *BrowserManager {
+	bm.ssrfGuard = guard
+	return bm
 }
 
 // NewBrowserManager creates a new browser manager.
@@ -297,6 +306,11 @@ func (bm *BrowserManager) sendCDP(method string, params map[string]any) (json.Ra
 
 // Navigate opens a URL in the browser.
 func (bm *BrowserManager) Navigate(ctx context.Context, url string) error {
+	if bm.ssrfGuard != nil {
+		if err := bm.ssrfGuard.IsAllowed(url); err != nil {
+			return fmt.Errorf("browser navigation blocked: %w", err)
+		}
+	}
 	if err := bm.Start(ctx); err != nil {
 		return err
 	}

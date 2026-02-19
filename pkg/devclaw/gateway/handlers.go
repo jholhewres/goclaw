@@ -567,7 +567,11 @@ func (g *Gateway) handleWebhooks(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		entry := g.AddWebhook(req.URL, req.Events)
+		entry, err := g.AddWebhook(req.URL, req.Events)
+		if err != nil {
+			g.writeError(w, err.Error(), 400)
+			return
+		}
 		g.writeJSON(w, 201, entry)
 	default:
 		g.writeError(w, "method not allowed", 405)

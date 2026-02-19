@@ -137,6 +137,13 @@ func (h *Heartbeat) tick(ctx context.Context) {
 
 	h.logger.Debug("heartbeat tick", "time", now.Format("15:04"))
 
+	// Skip the API call when HEARTBEAT.md is absent or empty — nothing to act on.
+	heartbeatFile := filepath.Join(h.config.WorkspaceDir, "HEARTBEAT.md")
+	if content, err := os.ReadFile(heartbeatFile); err != nil || len(strings.TrimSpace(string(content))) == 0 {
+		h.logger.Debug("skipping heartbeat: HEARTBEAT.md is absent or empty")
+		return
+	}
+
 	// Build the heartbeat prompt.
 	prompt := h.buildHeartbeatPrompt(now)
 

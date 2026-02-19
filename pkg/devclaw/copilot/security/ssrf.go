@@ -5,12 +5,19 @@
 package security
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
 	"strings"
 )
+
+// builtinBlockedHosts are always blocked regardless of user config.
+var builtinBlockedHosts = []string{
+	"localhost.localdomain",
+	"metadata.google.internal",
+}
 
 // SSRFConfig configures SSRF protection behavior.
 type SSRFConfig struct {
@@ -84,6 +91,14 @@ func (g *SSRFGuard) IsAllowed(rawURL string) error {
 		return fmt.Errorf("SSRF: %s is not allowed", host)
 	}
 
+	// Check builtin blocked hostnames (always enforced).
+	for _, blocked := range builtinBlockedHosts {
+		if strings.EqualFold(hostLower, blocked) {
+			g.logger.Warn("SSRF blocked: builtin blocked host", "url", rawURL, "host", host)
+			return fmt.Errorf("SSRF: host %s is not allowed", host)
+		}
+	}
+
 	// Check blocked hosts blacklist.
 	for _, blocked := range g.cfg.BlockedHosts {
 		if strings.EqualFold(host, blocked) {
@@ -117,7 +132,9 @@ func (g *SSRFGuard) IsAllowed(rawURL string) error {
 	for _, ipStr := range ips {
 		ip := net.ParseIP(ipStr)
 		if ip == nil {
-			continue
+			// Fail closed: unrecognised IP format is blocked.
+			g.logger.Warn("SSRF blocked: unrecognised IP in DNS response", "url", rawURL, "ip", ipStr)
+			return fmt.Errorf("SSRF: unrecognised IP address %q for host %s", ipStr, host)
 		}
 
 		if err := g.checkIP(ip, rawURL); err != nil {
@@ -128,8 +145,52 @@ func (g *SSRFGuard) IsAllowed(rawURL string) error {
 	return nil
 }
 
+// extractEmbeddedIPv4 extracts an IPv4 address embedded in an IPv6 address
+// via NAT64 (64:ff9b::/96), 6to4 (2002::/16), ISATAP (::5efe:), or Teredo (2001:0000::/32).
+// Returns nil if the address is not an IPv6 transition mechanism.
+func extractEmbeddedIPv4(ip net.IP) net.IP {
+	ip6 := ip.To16()
+	if ip6 == nil || ip.To4() != nil {
+		return nil // not an IPv6 address
+	}
+
+	// NAT64: 64:ff9b::/96 — last 4 bytes are the IPv4 address.
+	if ip6[0] == 0x00 && ip6[1] == 0x64 && ip6[2] == 0xff && ip6[3] == 0x9b &&
+		ip6[4] == 0 && ip6[5] == 0 && ip6[6] == 0 && ip6[7] == 0 &&
+		ip6[8] == 0 && ip6[9] == 0 && ip6[10] == 0 && ip6[11] == 0 {
+		return net.IP(ip6[12:16])
+	}
+
+	// 6to4: 2002::/16 — bytes 2-5 are the IPv4 address.
+	if ip6[0] == 0x20 && ip6[1] == 0x02 {
+		return net.IP(ip6[2:6])
+	}
+
+	// Teredo: 2001:0000::/32 — last 4 bytes XOR 0xFFFFFFFF are IPv4.
+	if ip6[0] == 0x20 && ip6[1] == 0x01 && ip6[2] == 0x00 && ip6[3] == 0x00 {
+		embedded := make(net.IP, 4)
+		v := binary.BigEndian.Uint32(ip6[12:16])
+		binary.BigEndian.PutUint32(embedded, v^0xFFFFFFFF)
+		return embedded
+	}
+
+	// ISATAP: ::5efe:<ipv4> — bytes 8-9 are 0x00,0x00 or 0x02,0x00; bytes 10-11 are 0x5e,0xfe.
+	if ip6[10] == 0x5e && ip6[11] == 0xfe {
+		return net.IP(ip6[12:16])
+	}
+
+	return nil
+}
+
 // checkIP validates a resolved IP against private ranges and metadata endpoints.
 func (g *SSRFGuard) checkIP(ip net.IP, rawURL string) error {
+	// Check IPv6 transition mechanisms — extract and validate embedded IPv4.
+	if embedded := extractEmbeddedIPv4(ip); embedded != nil {
+		if err := g.checkIP(embedded, rawURL); err != nil {
+			return fmt.Errorf("SSRF: IPv6 transition address %s embeds blocked IPv4: %w", ip.String(), err)
+		}
+	}
+
 	// Normalize to IPv4 for range checks.
 	ip4 := ip.To4()
 	if ip4 != nil {

@@ -897,9 +897,9 @@ func formatApprovalSummary(toolName string, args map[string]any) string {
 	case "bash", "exec":
 		if cmd, ok := args["command"].(string); ok && cmd != "" {
 			if len(cmd) > 80 {
-				return fmt.Sprintf("%s: %s...", toolName, cmd[:80])
+				return fmt.Sprintf("%s: %s...", toolName, sanitizeForMarkdown(cmd[:80]))
 			}
-			return toolName + ": " + cmd
+			return toolName + ": " + sanitizeForMarkdown(cmd)
 		}
 	case "write_file", "edit_file":
 		if path, ok := args["path"].(string); ok && path != "" {
@@ -907,7 +907,7 @@ func formatApprovalSummary(toolName string, args map[string]any) string {
 		}
 	case "ssh":
 		if host, ok := args["host"].(string); ok {
-			return "ssh " + host
+			return "ssh " + sanitizeForMarkdown(host)
 		}
 	case "scp":
 		src, _ := args["source"].(string)

@@ -106,6 +106,8 @@ type WhatsApp struct {
 	// qrObservers receives QR events (for web UI).
 	qrObservers   []chan QREvent
 	qrObserversMu sync.Mutex
+	// lastQR caches the most recent QR code so late-joining observers get it.
+	lastQR *QREvent
 
 	// ctx and cancel for lifecycle management.
 	ctx    context.Context
@@ -120,6 +122,13 @@ func (w *WhatsApp) SubscribeQR() (chan QREvent, func()) {
 	ch := make(chan QREvent, 8)
 	w.qrObserversMu.Lock()
 	w.qrObservers = append(w.qrObservers, ch)
+	// Replay the last QR code to the new observer so it doesn't miss it.
+	if w.lastQR != nil {
+		select {
+		case ch <- *w.lastQR:
+		default:
+		}
+	}
 	w.qrObserversMu.Unlock()
 
 	return ch, func() {
@@ -139,6 +148,13 @@ func (w *WhatsApp) SubscribeQR() (chan QREvent, func()) {
 func (w *WhatsApp) notifyQR(evt QREvent) {
 	w.qrObserversMu.Lock()
 	defer w.qrObserversMu.Unlock()
+	// Cache the latest QR code for late-joining observers.
+	if evt.Type == "code" {
+		w.lastQR = &evt
+	} else {
+		// Clear cache on success/timeout/error — QR is no longer valid.
+		w.lastQR = nil
+	}
 	for _, ch := range w.qrObservers {
 		select {
 		case ch <- evt:

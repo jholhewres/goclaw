@@ -187,15 +187,18 @@ func (t *Telegram) Send(ctx context.Context, to string, message *channels.Outgoi
 	if !t.connected.Load() {
 		return channels.ErrChannelDisconnected
 	}
-	chatID, err := strconv.ParseInt(to, 10, 64)
+	chatID, threadID, err := parseChatIDAndThread(to)
 	if err != nil {
-		return fmt.Errorf("telegram: invalid chat ID %q: %w", to, err)
+		return err
 	}
 
 	payload := map[string]any{
 		"chat_id":    chatID,
 		"text":       message.Content,
 		"parse_mode": t.cfg.ParseMode,
+	}
+	if threadID != 0 {
+		payload["message_thread_id"] = threadID
 	}
 	if message.ReplyTo != "" {
 		if msgID, e := strconv.ParseInt(message.ReplyTo, 10, 64); e == nil {
@@ -248,9 +251,9 @@ func (t *Telegram) SendMedia(ctx context.Context, to string, media *channels.Med
 	if !t.connected.Load() {
 		return channels.ErrChannelDisconnected
 	}
-	chatID, err := strconv.ParseInt(to, 10, 64)
+	chatID, threadID, err := parseChatIDAndThread(to)
 	if err != nil {
-		return fmt.Errorf("telegram: invalid chat ID %q: %w", to, err)
+		return err
 	}
 
 	var method string
@@ -279,6 +282,9 @@ func (t *Telegram) SendMedia(ctx context.Context, to string, media *channels.Med
 			"chat_id":  chatID,
 			fieldName:  media.URL,
 		}
+		if threadID != 0 {
+			payload["message_thread_id"] = threadID
+		}
 		if media.Caption != "" {
 			payload["caption"] = media.Caption
 			payload["parse_mode"] = t.cfg.ParseMode
@@ -288,7 +294,7 @@ func (t *Telegram) SendMedia(ctx context.Context, to string, media *channels.Med
 	}
 
 	// Otherwise, upload the file.
-	return t.uploadFile(method, chatID, fieldName, media)
+	return t.uploadFile(method, chatID, threadID, fieldName, media)
 }
 
 // DownloadMedia downloads media from an incoming message.
@@ -330,14 +336,18 @@ func (t *Telegram) SendTyping(ctx context.Context, to string) error {
 	if !t.connected.Load() {
 		return nil
 	}
-	chatID, err := strconv.ParseInt(to, 10, 64)
+	chatID, threadID, err := parseChatIDAndThread(to)
 	if err != nil {
 		return nil // ignore invalid chat IDs
 	}
-	_, err = t.apiCall("sendChatAction", map[string]any{
+	payload := map[string]any{
 		"chat_id": chatID,
 		"action":  "typing",
-	})
+	}
+	if threadID != 0 {
+		payload["message_thread_id"] = threadID
+	}
+	_, err = t.apiCall("sendChatAction", payload)
 	return err
 }
 
@@ -370,6 +380,34 @@ func (t *Telegram) SendReaction(ctx context.Context, chatID, messageID, emoji st
 		"reaction":   []map[string]string{{"type": "emoji", "emoji": emoji}},
 	})
 	return err
+}
+
+// ---------- Internal Helpers ----------
+
+// parseChatIDAndThread splits a "to" string that may contain a ":topic:NNN"
+// suffix (e.g. "12345678:topic:42") into the numeric chat ID and an optional
+// message_thread_id for supergroup forum topics. If there is no suffix the
+// returned threadID is 0.
+func parseChatIDAndThread(to string) (chatID int64, threadID int64, err error) {
+	// Look for the ":topic:" marker.
+	if idx := strings.Index(to, ":topic:"); idx != -1 {
+		threadStr := to[idx+len(":topic:"):]
+		chatStr := to[:idx]
+		chatID, err = strconv.ParseInt(chatStr, 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("telegram: invalid chat ID %q: %w", chatStr, err)
+		}
+		threadID, err = strconv.ParseInt(threadStr, 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("telegram: invalid thread ID %q: %w", threadStr, err)
+		}
+		return chatID, threadID, nil
+	}
+	chatID, err = strconv.ParseInt(to, 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("telegram: invalid chat ID %q: %w", to, err)
+	}
+	return chatID, 0, nil
 }
 
 // ---------- Internal Methods ----------
@@ -662,6 +700,8 @@ func (t *Telegram) processUpdate(u tgUpdate) {
 	if msg == nil {
 		if u.EditedMessage != nil {
 			msg = u.EditedMessage // treat edits as new messages
+		} else if u.ChannelPost != nil {
+			msg = u.ChannelPost // treat channel posts as messages
 		} else {
 			return
 		}
@@ -802,6 +842,7 @@ type tgUpdate struct {
 	UpdateID        int64                `json:"update_id"`
 	Message         *tgMessage           `json:"message"`
 	EditedMessage   *tgMessage           `json:"edited_message"`
+	ChannelPost     *tgMessage           `json:"channel_post"`
 	MessageReaction *tgMessageReaction   `json:"message_reaction"`
 }
 
@@ -966,7 +1007,7 @@ func (t *Telegram) getUpdates(offset int64, limit, timeoutSecs int) ([]tgUpdate,
 		"limit":   limit,
 		"timeout": timeoutSecs,
 		"allowed_updates": []string{
-			"message", "edited_message", "message_reaction",
+			"message", "edited_message", "channel_post", "message_reaction",
 		},
 	}
 	data, err := t.apiCall("getUpdates", payload)
@@ -994,7 +1035,7 @@ func (t *Telegram) getFile(fileID string) (*tgFile, error) {
 }
 
 // uploadFile uploads a file to Telegram using multipart form data.
-func (t *Telegram) uploadFile(method string, chatID int64, fieldName string, media *channels.MediaMessage) error {
+func (t *Telegram) uploadFile(method string, chatID int64, threadID int64, fieldName string, media *channels.MediaMessage) error {
 	if len(media.Data) == 0 {
 		return fmt.Errorf("telegram: media data is required for upload")
 	}
@@ -1003,6 +1044,9 @@ func (t *Telegram) uploadFile(method string, chatID int64, fieldName string, med
 	w := multipart.NewWriter(&buf)
 
 	_ = w.WriteField("chat_id", strconv.FormatInt(chatID, 10))
+	if threadID != 0 {
+		_ = w.WriteField("message_thread_id", strconv.FormatInt(threadID, 10))
+	}
 	if media.Caption != "" {
 		_ = w.WriteField("caption", media.Caption)
 		_ = w.WriteField("parse_mode", t.cfg.ParseMode)

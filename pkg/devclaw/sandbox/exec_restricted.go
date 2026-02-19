@@ -19,10 +19,23 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 )
+
+// trustedBinDirs are the only directories from which interpreter binaries
+// may be resolved. This prevents PATH-hijacking attacks where a writable
+// directory earlier in PATH shadows a trusted system binary.
+var trustedBinDirs = []string{
+	"/usr/local/bin",
+	"/usr/bin",
+	"/bin",
+	"/usr/local/sbin",
+	"/usr/sbin",
+	"/sbin",
+}
 
 // RestrictedExecutor runs scripts with Linux namespace isolation.
 type RestrictedExecutor struct {
@@ -117,6 +130,15 @@ func (e *RestrictedExecutor) Close() error { return nil }
 // buildCommand constructs an isolated exec.Cmd.
 func (e *RestrictedExecutor) buildCommand(ctx context.Context, req *ExecRequest) (*exec.Cmd, error) {
 	bin, args := resolveInterpreter(e.cfg, req)
+
+	// Verify the resolved binary lives under a trusted system directory.
+	// This catches PATH-hijacking: e.g. a writable ~/bin/python3 that shadows
+	// /usr/bin/python3 would be rejected here.
+	verified, err := verifyTrustedBin(bin)
+	if err != nil {
+		return nil, fmt.Errorf("interpreter path verification failed for %q: %w", bin, err)
+	}
+	bin = verified
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 
@@ -241,4 +263,38 @@ func resolveInterpreter(cfg Config, req *ExecRequest) (string, []string) {
 	default:
 		return req.Script, req.Args
 	}
+}
+
+// verifyTrustedBin resolves a binary name (or absolute path) via exec.LookPath
+// and then confirms the resolved path is rooted under one of the trusted system
+// directories in trustedBinDirs.
+//
+// This prevents PATH-hijacking: even if a malicious directory appears earlier in
+// PATH (e.g. from a compromised environment), the resolved absolute path must
+// start with a known-good prefix like /usr/bin or /bin.
+//
+// Returns the cleaned absolute path on success, or an error if the binary
+// resolves outside the trusted set.
+func verifyTrustedBin(name string) (string, error) {
+	resolved, err := exec.LookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("binary not found: %w", err)
+	}
+
+	// Clean the path to remove any symlink-confusing elements.
+	// Note: we intentionally do NOT call filepath.EvalSymlinks here because
+	// a symlink at /usr/bin/python3 → /usr/bin/python3.11 is legitimate and
+	// should be accepted; we only care about the symlink entry location itself.
+	resolved = filepath.Clean(resolved)
+
+	for _, trusted := range trustedBinDirs {
+		// Use strings.HasPrefix with a trailing slash to avoid false matches
+		// where /usr/bins would wrongly match /usr/bin.
+		if resolved == trusted || strings.HasPrefix(resolved, trusted+"/") {
+			return resolved, nil
+		}
+	}
+
+	return "", fmt.Errorf("resolved binary %q is not in a trusted directory (allowed: %v)",
+		resolved, trustedBinDirs)
 }

@@ -647,14 +647,33 @@ func (s *imageGenSkill) generateImage(ctx context.Context, prompt, size, quality
 	img := result.Data[0]
 
 	// Save the image to a temp file for media channels.
-	tmpDir := os.TempDir()
-	imgPath := fmt.Sprintf("%s/devclaw-img-%d.png", tmpDir, time.Now().UnixNano())
+	// Use os.CreateTemp for a random name (avoids predictable path injection)
+	// and write with owner-only permissions (0o600) so other local users
+	// cannot read potentially sensitive generated images.
 	imgData, err := base64.StdEncoding.DecodeString(img.B64JSON)
 	if err != nil {
 		return nil, fmt.Errorf("decoding image data: %w", err)
 	}
-	if err := os.WriteFile(imgPath, imgData, 0o644); err != nil {
+	tmpImgFile, err := os.CreateTemp("", "devclaw-img-*.png")
+	if err != nil {
+		return nil, fmt.Errorf("creating image temp file: %w", err)
+	}
+	imgPath := tmpImgFile.Name()
+	// Restrict before writing data — prevents a race where another process
+	// could read a world-readable file between creation and chmod.
+	if err := os.Chmod(imgPath, 0o600); err != nil {
+		tmpImgFile.Close()
+		os.Remove(imgPath)
+		return nil, fmt.Errorf("setting image temp file permissions: %w", err)
+	}
+	if _, err := tmpImgFile.Write(imgData); err != nil {
+		tmpImgFile.Close()
+		os.Remove(imgPath)
 		return nil, fmt.Errorf("saving image: %w", err)
+	}
+	if err := tmpImgFile.Close(); err != nil {
+		os.Remove(imgPath)
+		return nil, fmt.Errorf("closing image temp file: %w", err)
 	}
 
 	response := map[string]any{

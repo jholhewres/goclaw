@@ -2,6 +2,7 @@ package security
 
 import (
 	"log/slog"
+	"net"
 	"testing"
 )
 
@@ -127,5 +128,61 @@ func TestSSRFGuard_EmptyURL(t *testing.T) {
 
 	if err := g.IsAllowed(""); err == nil {
 		t.Error("expected error for empty URL")
+	}
+}
+
+func TestExtractEmbeddedIPv4_NAT64(t *testing.T) {
+	t.Parallel()
+	// 64:ff9b::7f00:1 embeds 127.0.0.1
+	ip := net.ParseIP("64:ff9b::7f00:1")
+	embedded := extractEmbeddedIPv4(ip)
+	if embedded == nil {
+		t.Fatal("expected embedded IPv4 from NAT64 address")
+	}
+	if !embedded.Equal(net.ParseIP("127.0.0.1")) {
+		t.Errorf("expected 127.0.0.1, got %s", embedded.String())
+	}
+}
+
+func TestExtractEmbeddedIPv4_6to4(t *testing.T) {
+	t.Parallel()
+	// 2002:7f00:1:: embeds 127.0.0.1
+	ip := net.ParseIP("2002:7f00:1::")
+	embedded := extractEmbeddedIPv4(ip)
+	if embedded == nil {
+		t.Fatal("expected embedded IPv4 from 6to4 address")
+	}
+	if !embedded.Equal(net.ParseIP("127.0.0.1")) {
+		t.Errorf("expected 127.0.0.1, got %s", embedded.String())
+	}
+}
+
+func TestExtractEmbeddedIPv4_ISATAP(t *testing.T) {
+	t.Parallel()
+	// ::5efe:7f00:1 embeds 127.0.0.1
+	ip := net.ParseIP("::5efe:7f00:1")
+	embedded := extractEmbeddedIPv4(ip)
+	if embedded == nil {
+		t.Fatal("expected embedded IPv4 from ISATAP address")
+	}
+	if !embedded.Equal(net.ParseIP("127.0.0.1")) {
+		t.Errorf("expected 127.0.0.1, got %s", embedded.String())
+	}
+}
+
+func TestSSRFGuard_BlocksBuiltinHosts(t *testing.T) {
+	t.Parallel()
+	g := newTestSSRFGuard(SSRFConfig{})
+
+	blocked := []string{
+		"localhost.localdomain",
+		"metadata.google.internal",
+	}
+	for _, host := range blocked {
+		// These are blocked at the hostname check before DNS resolution.
+		url := "http://" + host + "/path"
+		if err := g.IsAllowed(url); err == nil {
+			t.Errorf("expected %q to be blocked", url)
+		}
 	}
 }

@@ -5,7 +5,6 @@ package webui
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -379,7 +378,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		token := extractToken(r)
-		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AuthToken)) != 1 {
+		if !compareTokens(token, s.cfg.AuthToken) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 			return
 		}

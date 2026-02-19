@@ -222,13 +222,20 @@ func New(cfg *Config, logger *slog.Logger) *Assistant {
 	})
 
 	// Wire subagent announce callback: when a subagent completes, push the
-	// result to the parent's channel instead of requiring the agent to poll
-	// with wait_subagent.
+	// result to the origin channel/chat directly. If OriginChannel is set on
+	// the run (captured at spawn time from the tool execution context), deliver
+	// there; otherwise fall back to splitting ParentSessionID.
 	a.subagentMgr.SetAnnounceCallback(func(run *SubagentRun) {
-		sessionID := run.ParentSessionID
-		channel, chatID, ok := strings.Cut(sessionID, ":")
-		if !ok {
-			return
+		// Prefer the explicit origin coordinates captured at spawn time.
+		channel := run.OriginChannel
+		chatID := run.OriginTo
+		if channel == "" || chatID == "" {
+			// Fallback: derive from ParentSessionID ("channel:chatID").
+			var ok bool
+			channel, chatID, ok = strings.Cut(run.ParentSessionID, ":")
+			if !ok {
+				return
+			}
 		}
 
 		var msg string

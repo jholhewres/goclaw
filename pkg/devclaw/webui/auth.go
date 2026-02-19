@@ -1,11 +1,20 @@
 package webui
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
 )
+
+// compareTokens performs timing-safe comparison by hashing both inputs with
+// SHA-256 before calling ConstantTimeCompare to prevent length-based leakage.
+func compareTokens(a, b string) bool {
+	ha := sha256.Sum256([]byte(a))
+	hb := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
+}
 
 // handleAuthLogin validates the password and returns the auth token.
 func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +41,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Constant-time comparison to prevent timing attacks.
-	if subtle.ConstantTimeCompare([]byte(body.Password), []byte(s.cfg.AuthToken)) != 1 {
+	if !compareTokens(body.Password, s.cfg.AuthToken) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "senha incorreta"})
 		return
 	}
@@ -66,7 +75,7 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	if authRequired {
 		token := extractToken(r)
 		if token != "" {
-			authenticated = subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AuthToken)) == 1
+			authenticated = compareTokens(token, s.cfg.AuthToken)
 		}
 	}
 

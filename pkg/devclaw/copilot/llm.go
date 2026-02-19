@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -550,15 +551,16 @@ type anthropicResponse struct {
 
 // anthropicStreamEvent is a Server-Sent Events chunk from the Anthropic streaming API.
 type anthropicStreamEvent struct {
-	Type         string           `json:"type"` // "message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"
+	Type         string             `json:"type"` // "message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"
 	Message      *anthropicResponse `json:"message,omitempty"`
-	Index        int              `json:"index,omitempty"`
-	ContentBlock *anthropicContent `json:"content_block,omitempty"`
+	Index        int                `json:"index,omitempty"`
+	ContentBlock *anthropicContent  `json:"content_block,omitempty"`
 	Delta        *struct {
-		Type        string          `json:"type,omitempty"`
-		Text        string          `json:"text,omitempty"`
-		PartialJSON string          `json:"partial_json,omitempty"`
-		StopReason  string          `json:"stop_reason,omitempty"`
+		Type        string `json:"type,omitempty"`
+		Text        string `json:"text,omitempty"`
+		Thinking    string `json:"thinking,omitempty"`    // for thinking_delta events
+		PartialJSON string `json:"partial_json,omitempty"`
+		StopReason  string `json:"stop_reason,omitempty"`
 	} `json:"delta,omitempty"`
 	Usage *struct {
 		OutputTokens int `json:"output_tokens,omitempty"`
@@ -1521,11 +1523,17 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 	}
 
 	var contentBuilder strings.Builder
-	toolCallsAccum := make(map[int]*ToolCall) // index -> tool call being built
+	toolCallsAccum := make(map[int]*ToolCall)      // index -> tool call being built
 	toolArgsAccum := make(map[int]*strings.Builder) // index -> partial JSON args
+	thinkingBlocks := make(map[int]bool)            // blockIdx -> true if this is a thinking block
 	finishReason := ""
 	var usage LLMUsage
 	blockIdx := 0
+
+	// thinkingActive tracks whether a thinking block is currently open.
+	// Used to deduplicate thinking_end signals — ignore content_block_stop
+	// for a thinking block if thinking has already been ended.
+	thinkingActive := false
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
@@ -1565,6 +1573,30 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 				usage.PromptTokens = event.Message.Usage.InputTokens
 			}
 
+		// Native thinking_start event: marks the beginning of an extended
+		// thinking block. Sent by some API versions alongside content_block_start.
+		case "thinking_start":
+			if !thinkingActive {
+				thinkingActive = true
+			}
+
+		// Native thinking_delta event: contains partial thinking text.
+		// We forward it to the onChunk callback so that partial text streaming
+		// remains active even while the model is in reasoning mode.
+		case "thinking_delta":
+			if event.Delta != nil && event.Delta.Thinking != "" {
+				if onChunk != nil {
+					onChunk(event.Delta.Thinking)
+				}
+			}
+
+		// Native thinking_end event: marks the end of an extended thinking block.
+		// Deduplicate: only close if thinking is currently active.
+		case "thinking_end":
+			if thinkingActive {
+				thinkingActive = false
+			}
+
 		case "content_block_start":
 			// IMPORTANT: update blockIdx FIRST so that the tool call and its
 			// args builder are stored at the correct index. Subsequent
@@ -1572,13 +1604,22 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 			// to look up the accumulator — if we update after storing, the
 			// indices mismatch and tool arguments are silently lost.
 			blockIdx = event.Index
-			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
-				toolCallsAccum[blockIdx] = &ToolCall{
-					ID:   event.ContentBlock.ID,
-					Type: "function",
-					Function: FunctionCall{Name: event.ContentBlock.Name},
+			if event.ContentBlock != nil {
+				switch event.ContentBlock.Type {
+				case "tool_use":
+					toolCallsAccum[blockIdx] = &ToolCall{
+						ID:   event.ContentBlock.ID,
+						Type: "function",
+						Function: FunctionCall{Name: event.ContentBlock.Name},
+					}
+					toolArgsAccum[blockIdx] = &strings.Builder{}
+				case "thinking":
+					// Mark this block index as a thinking block and open thinking.
+					thinkingBlocks[blockIdx] = true
+					if !thinkingActive {
+						thinkingActive = true
+					}
 				}
-				toolArgsAccum[blockIdx] = &strings.Builder{}
 			}
 
 		case "content_block_delta":
@@ -1589,6 +1630,13 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 					if onChunk != nil {
 						onChunk(event.Delta.Text)
 					}
+				case "thinking_delta":
+					// Forward thinking deltas to the stream callback so that partial
+					// text continues to flow to the UI even during reasoning. The
+					// text itself is not included in the final assistant response.
+					if event.Delta.Thinking != "" && onChunk != nil {
+						onChunk(event.Delta.Thinking)
+					}
 				case "input_json_delta":
 					if b, ok := toolArgsAccum[blockIdx]; ok {
 						b.WriteString(event.Delta.PartialJSON)
@@ -1597,8 +1645,13 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 			}
 
 		case "content_block_stop":
-			// Finalize tool args.
-			if tc, ok := toolCallsAccum[blockIdx]; ok {
+			if thinkingBlocks[blockIdx] {
+				// Deduplicate: only mark thinking as ended if still active.
+				if thinkingActive {
+					thinkingActive = false
+				}
+			} else if tc, ok := toolCallsAccum[blockIdx]; ok {
+				// Finalize tool args.
 				if b, ok := toolArgsAccum[blockIdx]; ok {
 					tc.Function.Arguments = b.String()
 					if tc.Function.Arguments == "" {
@@ -2076,6 +2129,11 @@ func convertAudioToMP3(ctx context.Context, data []byte, filename string) ([]byt
 		return nil, err
 	}
 	defer os.Remove(tmpIn.Name())
+	// Restrict to owner-only: audio data may contain sensitive content.
+	if err := os.Chmod(tmpIn.Name(), 0o600); err != nil {
+		tmpIn.Close()
+		return nil, err
+	}
 
 	if _, err := tmpIn.Write(data); err != nil {
 		tmpIn.Close()
@@ -2083,16 +2141,42 @@ func convertAudioToMP3(ctx context.Context, data []byte, filename string) ([]byt
 	}
 	tmpIn.Close()
 
-	tmpOut := tmpIn.Name() + ".mp3"
-	defer os.Remove(tmpOut)
+	// Pre-create the output file with os.CreateTemp so the name is random
+	// and the file exists with owner-only permissions before ffmpeg writes to
+	// it. We capture the inode to detect TOCTOU replacement after ffmpeg.
+	tmpOutFile, err := os.CreateTemp("", "dcaudio-out-*.mp3")
+	if err != nil {
+		return nil, err
+	}
+	tmpOutPath := tmpOutFile.Name()
+	defer os.Remove(tmpOutPath)
+	if err := os.Chmod(tmpOutPath, 0o600); err != nil {
+		tmpOutFile.Close()
+		return nil, err
+	}
+	var preStat syscall.Stat_t
+	if err := syscall.Fstat(int(tmpOutFile.Fd()), &preStat); err != nil {
+		tmpOutFile.Close()
+		return nil, err
+	}
+	tmpOutFile.Close()
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", tmpIn.Name(),
-		"-vn", "-acodec", "libmp3lame", "-q:a", "4", tmpOut)
+		"-vn", "-acodec", "libmp3lame", "-q:a", "4", tmpOutPath)
 	cmd.Stderr = nil
 	cmd.Stdout = nil
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("ffmpeg: %w", err)
 	}
 
-	return os.ReadFile(tmpOut)
+	// TOCTOU guard: confirm the output file is still the one we created.
+	var postStat syscall.Stat_t
+	if err := syscall.Stat(tmpOutPath, &postStat); err != nil {
+		return nil, fmt.Errorf("audio output temp file missing after ffmpeg: %w", err)
+	}
+	if preStat.Dev != postStat.Dev || preStat.Ino != postStat.Ino {
+		return nil, fmt.Errorf("audio output temp file inode changed — possible TOCTOU attack")
+	}
+
+	return os.ReadFile(tmpOutPath)
 }

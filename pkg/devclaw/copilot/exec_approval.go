@@ -5,11 +5,18 @@ package copilot
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// sanitizeForMarkdown prevents backtick injection in Discord/Slack markdown
+// by inserting a zero-width space after each backtick.
+func sanitizeForMarkdown(s string) string {
+	return strings.ReplaceAll(s, "`", "`\u200b")
+}
 
 const (
 	// ApprovalTimeout is how long to wait for user approval before giving up.
@@ -263,9 +270,9 @@ func formatApprovalDescription(toolName string, args map[string]any) string {
 	case "bash", "exec":
 		if cmd, ok := args["command"].(string); ok && cmd != "" {
 			if len(cmd) > 80 {
-				return fmt.Sprintf("run: %s...", cmd[:80])
+				return fmt.Sprintf("run: %s...", sanitizeForMarkdown(cmd[:80]))
 			}
-			return "run: " + cmd
+			return "run: " + sanitizeForMarkdown(cmd)
 		}
 		return fmt.Sprintf("%s (command)", toolName)
 
@@ -285,9 +292,9 @@ func formatApprovalDescription(toolName string, args map[string]any) string {
 		if host, ok := args["host"].(string); ok && host != "" {
 			cmd, _ := args["command"].(string)
 			if cmd != "" {
-				return fmt.Sprintf("ssh %s: %s", host, truncateForApproval(cmd, 40))
+				return fmt.Sprintf("ssh %s: %s", sanitizeForMarkdown(host), sanitizeForMarkdown(truncateForApproval(cmd, 40)))
 			}
-			return "ssh " + host
+			return "ssh " + sanitizeForMarkdown(host)
 		}
 		return "ssh"
 

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // extractDocumentText extracts readable text from a document based on MIME type.
@@ -82,6 +83,13 @@ func extractPDFText(data []byte, logger *slog.Logger) string {
 		return ""
 	}
 	defer os.Remove(tmpFile.Name())
+	// Restrict to owner-only: prevent other users on the host from reading
+	// potentially sensitive document content from the temp file.
+	if err := os.Chmod(tmpFile.Name(), 0o600); err != nil {
+		tmpFile.Close()
+		logger.Warn("failed to chmod PDF temp file", "error", err)
+		return ""
+	}
 
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
@@ -119,6 +127,12 @@ func extractDOCXText(data []byte, logger *slog.Logger) string {
 		return ""
 	}
 	defer os.Remove(tmpFile.Name())
+	// Restrict to owner-only: DOCX may contain confidential content.
+	if err := os.Chmod(tmpFile.Name(), 0o600); err != nil {
+		tmpFile.Close()
+		logger.Warn("failed to chmod DOCX temp file", "error", err)
+		return ""
+	}
 
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
@@ -192,6 +206,11 @@ func extractVideoFrame(ctx context.Context, data []byte, mimeType string, llm *L
 		return ""
 	}
 	defer os.Remove(tmpVideo.Name())
+	// Restrict to owner-only: video data may be sensitive.
+	if err := os.Chmod(tmpVideo.Name(), 0o600); err != nil {
+		tmpVideo.Close()
+		return ""
+	}
 
 	if _, err := tmpVideo.Write(data); err != nil {
 		tmpVideo.Close()
@@ -199,16 +218,35 @@ func extractVideoFrame(ctx context.Context, data []byte, mimeType string, llm *L
 	}
 	tmpVideo.Close()
 
-	// Extract first frame as JPEG.
-	tmpFrame := tmpVideo.Name() + "-frame.jpg"
-	defer os.Remove(tmpFrame)
+	// Create a temp file for the extracted frame before calling ffmpeg.
+	// Using os.CreateTemp avoids a predictable path and lets us do an
+	// inode-verification read to guard against TOCTOU replacement.
+	tmpFrameFile, err := os.CreateTemp("", "devclaw-frame-*.jpg")
+	if err != nil {
+		return ""
+	}
+	tmpFramePath := tmpFrameFile.Name()
+	defer os.Remove(tmpFramePath)
+	// Restrict before ffmpeg writes into it.
+	if err := os.Chmod(tmpFramePath, 0o600); err != nil {
+		tmpFrameFile.Close()
+		return ""
+	}
+	// Capture the inode of the pre-created file so we can verify it hasn't
+	// been replaced between ffmpeg finishing and our read (TOCTOU guard).
+	var preStat syscall.Stat_t
+	if err := syscall.Fstat(int(tmpFrameFile.Fd()), &preStat); err != nil {
+		tmpFrameFile.Close()
+		return ""
+	}
+	tmpFrameFile.Close()
 
 	cmd := exec.Command("ffmpeg",
 		"-i", tmpVideo.Name(),
 		"-vframes", "1",
 		"-q:v", "2",
 		"-y",
-		tmpFrame,
+		tmpFramePath,
 	)
 	cmd.Stderr = nil
 	cmd.Stdout = nil
@@ -218,7 +256,19 @@ func extractVideoFrame(ctx context.Context, data []byte, mimeType string, llm *L
 		return ""
 	}
 
-	frameData, err := os.ReadFile(tmpFrame)
+	// TOCTOU guard: verify the file on disk is still the same inode that
+	// we created, not a symlink or replacement injected by another process.
+	var postStat syscall.Stat_t
+	if err := syscall.Stat(tmpFramePath, &postStat); err != nil {
+		logger.Warn("frame temp file disappeared after ffmpeg", "error", err)
+		return ""
+	}
+	if preStat.Dev != postStat.Dev || preStat.Ino != postStat.Ino {
+		logger.Warn("frame temp file inode changed — possible TOCTOU attack, aborting")
+		return ""
+	}
+
+	frameData, err := os.ReadFile(tmpFramePath)
 	if err != nil {
 		return ""
 	}

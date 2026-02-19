@@ -23,6 +23,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,6 +124,21 @@ type SubagentRun struct {
 
 	// ParentSessionID is the session that spawned this subagent.
 	ParentSessionID string `json:"parent_session_id"`
+
+	// OriginChannel is the channel name (e.g. "telegram", "discord") where the
+	// spawn was requested. When set, the completion announcement is delivered
+	// directly to that channel/chat rather than only injecting into the agent loop.
+	OriginChannel string `json:"origin_channel,omitempty"`
+
+	// OriginTo is the chat ID / recipient address in the origin channel.
+	// For Telegram this may include a topic suffix (e.g. "12345678:topic:42").
+	OriginTo string `json:"origin_to,omitempty"`
+
+	// OriginThreadID is an optional thread or topic ID for threaded delivery
+	// within the origin channel (e.g. a Slack thread_ts or Telegram topic ID).
+	// TODO: populate from IncomingMessage.Metadata once per-message thread context
+	// is propagated through the tool execution context.
+	OriginThreadID string `json:"origin_thread_id,omitempty"`
 
 	// StartedAt is when the subagent started.
 	StartedAt time.Time `json:"started_at"`
@@ -365,6 +381,14 @@ type SpawnParams struct {
 	Model           string
 	ParentSessionID string
 	TimeoutSeconds  int
+
+	// OriginChannel, OriginTo, and OriginThreadID identify where to push the
+	// completion announcement. When OriginChannel is set the announce callback
+	// delivers the result directly to that channel/chat in addition to injecting
+	// it into the parent agent loop.
+	OriginChannel  string
+	OriginTo       string
+	OriginThreadID string
 }
 
 // Spawn creates and starts a new subagent. Returns the run ID immediately.
@@ -402,6 +426,9 @@ func (m *SubagentManager) Spawn(
 		Status:          SubagentStatusRunning,
 		Model:           params.Model,
 		ParentSessionID: params.ParentSessionID,
+		OriginChannel:   params.OriginChannel,
+		OriginTo:        params.OriginTo,
+		OriginThreadID:  params.OriginThreadID,
 		StartedAt:       time.Now(),
 		cancel:          cancel,
 		done:            make(chan struct{}),
@@ -802,6 +829,19 @@ func RegisterSubagentTools(
 				timeoutSec = int(v)
 			}
 
+			// Capture the origin channel/chat from the session context so the
+			// completion announcement can be delivered directly to the requester.
+			var originChannel, originTo string
+			if sessionID := SessionIDFromContext(ctx); sessionID != "" {
+				// sessionID has the form "channel:chatID" (may include Telegram
+				// topic suffix, e.g. "telegram:12345678:topic:42").
+				// Split on the first ":" only to get channel name.
+				if idx := strings.IndexByte(sessionID, ':'); idx != -1 {
+					originChannel = sessionID[:idx]
+					originTo = sessionID[idx+1:]
+				}
+			}
+
 			run, err := manager.Spawn(
 				context.Background(),
 				SpawnParams{
@@ -809,6 +849,8 @@ func RegisterSubagentTools(
 					Label:          label,
 					Model:          model,
 					TimeoutSeconds: timeoutSec,
+					OriginChannel:  originChannel,
+					OriginTo:       originTo,
 				},
 				llmClient,
 				executor,
@@ -823,7 +865,8 @@ func RegisterSubagentTools(
 					"  run_id: %s\n"+
 					"  label: %s\n"+
 					"  status: running\n\n"+
-					"Use wait_subagent to get the result, or list_subagents to check status.",
+					"The result will be sent back as a user message once completed. "+
+					"You may also use wait_subagent to block until done, or list_subagents to check status.",
 				run.ID, run.Label,
 			), nil
 		},

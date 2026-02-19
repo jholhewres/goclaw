@@ -96,11 +96,18 @@ func (r *Runner) Run(ctx context.Context, req *ExecRequest) (*ExecResult, error)
 	}
 
 	// Preflight scan: read script content and check for dangerous patterns.
-	// Only scan Python and Node scripts where shell-style env vars are a
-	// language confusion signal (not shell scripts where $VAR is valid).
-	if req.Script != "" && (req.Runtime == RuntimePython || req.Runtime == RuntimeNode) {
+	// Python/Node use the standard rule set (which includes shell-env-injection
+	// detection). Shell scripts use a separate rule set because $VAR is valid
+	// syntax in shell and should not trigger the shell-env-injection rule.
+	if req.Script != "" {
 		if content, err := os.ReadFile(req.Script); err == nil {
-			results := r.policy.ScanScript(string(content))
+			var results []ScanResult
+			switch req.Runtime {
+			case RuntimePython, RuntimeNode:
+				results = r.policy.ScanScript(string(content))
+			case RuntimeShell:
+				results = r.policy.ScanShellScript(string(content))
+			}
 			if HasCritical(results) {
 				var msgs []string
 				for _, res := range results {

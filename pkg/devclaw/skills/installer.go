@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -503,11 +504,14 @@ func extractZip(data []byte, targetDir string) error {
 			continue
 		}
 
-		targetPath := filepath.Join(targetDir, name)
-
-		// Security: prevent path traversal.
-		if !strings.HasPrefix(targetPath, targetDir) {
+		// Security: reject symlink entries.
+		if f.Mode()&os.ModeSymlink != 0 {
 			continue
+		}
+
+		targetPath, err := safeJoinPath(targetDir, name)
+		if err != nil {
+			continue // skip path traversal attempts
 		}
 
 		if f.FileInfo().IsDir() {
@@ -542,18 +546,38 @@ func extractZip(data []byte, targetDir string) error {
 	return nil
 }
 
-// copyDir recursively copies a directory.
+// safeJoinPath joins base and name, returning an error if the result
+// escapes base (Zip Slip / path traversal protection).
+func safeJoinPath(base, name string) (string, error) {
+	p := filepath.Clean(filepath.Join(base, name))
+	cleanBase := filepath.Clean(base)
+	if p != cleanBase && !strings.HasPrefix(p, cleanBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q escapes base %q", name, base)
+	}
+	return p, nil
+}
+
+// copyDir recursively copies a directory, skipping symlinks.
 func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Skip symlinks — never follow them into the source tree.
+		linfo, lerr := os.Lstat(path)
+		if lerr != nil {
+			return lerr
+		}
+		if linfo.Mode()&os.ModeSymlink != 0 {
+			return nil
 		}
 
 		relPath, _ := filepath.Rel(src, path)
 		targetPath := filepath.Join(dst, relPath)
 
-		if info.IsDir() {
-			return os.MkdirAll(targetPath, info.Mode())
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, linfo.Mode())
 		}
 
 		data, err := os.ReadFile(path)
@@ -561,6 +585,6 @@ func copyDir(src, dst string) error {
 			return err
 		}
 
-		return os.WriteFile(targetPath, data, info.Mode())
+		return os.WriteFile(targetPath, data, linfo.Mode())
 	})
 }

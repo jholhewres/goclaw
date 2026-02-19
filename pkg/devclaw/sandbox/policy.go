@@ -306,3 +306,86 @@ func defaultScanRules() []ScanRule {
 		},
 	}
 }
+
+// defaultShellScanRules returns patterns specific to shell script scanning.
+// These rules are separate from defaultScanRules because shell scripts use
+// $VAR syntax legitimately (so the shell-env-injection rule does not apply).
+func defaultShellScanRules() []ScanRule {
+	return []ScanRule{
+		// -- Critical: Reverse shell --
+		{
+			Name:     "shell-reverse-shell",
+			Severity: "critical",
+			Pattern:  regexp.MustCompile(`(?i)(\/dev\/tcp\/|nc\s+-[a-z]*e|bash\s+-i\s+>&|python.*socket.*connect)`),
+			Message:  "Possible reverse shell detected",
+		},
+
+		// -- Critical: Output-redirect flags that write to arbitrary files.
+		// sort -o, grep/jq -f (read filter from file, can be used to probe),
+		// curl -o/-O and wget -O write attacker-controlled content to disk.
+		{
+			Name:     "shell-file-write-flag",
+			Severity: "critical",
+			Pattern:  regexp.MustCompile(`\b(sort\s+.*-o|grep\s+.*-f\s+\S|jq\s+.*-f\s+\S|curl\s+.*-[oO]\s+\S|wget\s+.*-O\s+\S)`),
+			Message:  "Tool invoked with flag that writes output to a file path (-o/-O/-f); potential file write outside temp directory",
+		},
+
+		// -- Critical: File-existence oracle via error messages.
+		// Patterns like "test -e /etc/shadow && echo yes" or
+		// "ls /home/user/.ssh/id_rsa" let scripts probe for sensitive files
+		// even when they cannot read them.
+		{
+			Name:     "shell-file-existence-probe",
+			Severity: "critical",
+			Pattern:  regexp.MustCompile(`(?i)(test\s+-[efdrs]\s+\/(?:etc|root|home|proc|sys)|ls\s+\/(?:etc|root|home|proc|sys)|stat\s+\/(?:etc|root|home|proc|sys)|\[\s+-[efdrs]\s+\/(?:etc|root|home|proc|sys))`),
+			Message:  "Possible file-existence probe on sensitive system path",
+		},
+
+		// -- Critical: Reading /etc/passwd, /etc/shadow, SSH keys --
+		{
+			Name:     "shell-sensitive-read",
+			Severity: "critical",
+			Pattern:  regexp.MustCompile(`(?i)(cat|head|tail|less|more|grep)\s+.*\/(?:etc\/(?:passwd|shadow|sudoers)|root\/|\.ssh\/)`),
+			Message:  "Attempt to read sensitive system file",
+		},
+
+		// -- Critical: Crypto mining --
+		{
+			Name:     "shell-crypto-mining",
+			Severity: "critical",
+			Pattern:  regexp.MustCompile(`(?i)(stratum\+tcp|coinhive|xmrig|cryptonight|monero.*pool|mining.*pool)`),
+			Message:  "Possible crypto mining detected",
+		},
+
+		// -- Warn: Obfuscated payload via base64 | eval --
+		{
+			Name:     "shell-base64-exec",
+			Severity: "warn",
+			Pattern:  regexp.MustCompile(`(?i)(base64\s+.*\|\s*(bash|sh|eval)|echo\s+[A-Za-z0-9+/]{20,}.*\|\s*(base64|bash|sh))`),
+			Message:  "Base64-encoded payload piped to shell interpreter",
+		},
+	}
+}
+
+// ScanShellScript analyzes shell script content for dangerous patterns.
+// Shell scripts are scanned with a separate rule set because $VAR syntax
+// is valid in shell and should not trigger the shell-env-injection rule.
+func (p *Policy) ScanShellScript(content string) []ScanResult {
+	var results []ScanResult
+	lines := strings.Split(content, "\n")
+
+	for i, line := range lines {
+		for _, rule := range defaultShellScanRules() {
+			if rule.Pattern.MatchString(line) {
+				results = append(results, ScanResult{
+					Rule:     rule.Name,
+					Severity: rule.Severity,
+					Message:  rule.Message,
+					Line:     i + 1,
+					Content:  strings.TrimSpace(line),
+				})
+			}
+		}
+	}
+	return results
+}
