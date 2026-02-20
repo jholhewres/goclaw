@@ -18,8 +18,8 @@ endif
 web-install:
 	cd web && npm install
 
-## web-build: Build the React frontend
-web-build:
+## web-build: Build the React frontend (installs deps if needed)
+web-build: web-install
 	cd web && npm run build
 	@# Copy dist into the Go embed directory
 	rm -rf pkg/devclaw/webui/dist
