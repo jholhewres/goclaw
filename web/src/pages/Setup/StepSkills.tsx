@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Puzzle, Check, Search, Package, Code, Zap, Globe, Database,
   Wrench, Sparkles, ChevronDown, ChevronRight, MessageSquare,
@@ -17,34 +18,35 @@ interface CatalogSkill {
   tool_count: number
 }
 
-const CATEGORY_META: Record<string, { label: string; icon: React.FC<{ className?: string }>; color: string }> = {
-  development:   { label: 'Development',     icon: Code,           color: 'text-violet-400' },
-  data:          { label: 'Data & Web',      icon: Globe,          color: 'text-cyan-400' },
-  productivity:  { label: 'Productivity',    icon: Zap,            color: 'text-amber-400' },
-  infra:         { label: 'Infrastructure',  icon: Database,       color: 'text-teal-400' },
-  media:         { label: 'Media & Files',   icon: Image,          color: 'text-pink-400' },
-  communication: { label: 'Communication',   icon: MessageSquare,  color: 'text-blue-400' },
-  finance:       { label: 'Finance',         icon: DollarSign,     color: 'text-green-400' },
-  integration:   { label: 'Integrations',    icon: Wrench,         color: 'text-orange-400' },
-  builtin:       { label: 'Built-in',        icon: Package,        color: 'text-emerald-400' },
-}
-
-function getCategoryMeta(cat?: string) {
-  return CATEGORY_META[cat ?? ''] ?? { label: cat ?? 'Other', icon: Puzzle, color: 'text-zinc-400' }
-}
-
 interface Props {
   data: SetupData
   updateData: (partial: Partial<SetupData>) => void
 }
 
 export function StepSkills({ data, updateData }: Props) {
+  const { t } = useTranslation()
   const [skills, setSkills] = useState<CatalogSkill[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
   const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set())
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const didInit = useRef(false)
+
+  const CATEGORY_META: Record<string, { label: string; icon: React.FC<{ className?: string }>; color: string }> = {
+    development:   { label: t('setupPage.catDevelopment'),     icon: Code,           color: 'text-violet-400' },
+    data:          { label: t('setupPage.catData'),            icon: Globe,          color: 'text-cyan-400' },
+    productivity:  { label: t('setupPage.catProductivity'),    icon: Zap,            color: 'text-amber-400' },
+    infra:         { label: t('setupPage.catInfra'),           icon: Database,       color: 'text-teal-400' },
+    media:         { label: t('setupPage.catMedia'),           icon: Image,          color: 'text-pink-400' },
+    communication: { label: t('setupPage.catCommunication'),   icon: MessageSquare,  color: 'text-blue-400' },
+    finance:       { label: t('setupPage.catFinance'),         icon: DollarSign,     color: 'text-green-400' },
+    integration:   { label: t('setupPage.catIntegration'),     icon: Wrench,         color: 'text-blue-400' },
+    builtin:       { label: t('setupPage.catBuiltin'),         icon: Package,        color: 'text-emerald-400' },
+  }
+
+  function getCategoryMeta(cat?: string) {
+    return CATEGORY_META[cat ?? ''] ?? { label: cat ?? t('setupPage.catOther'), icon: Puzzle, color: 'text-zinc-400' }
+  }
 
   useEffect(() => {
     fetch('/api/setup/skills')
@@ -154,8 +156,8 @@ export function StepSkills({ data, updateData }: Props) {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-700 border-t-orange-500" />
-        <p className="text-sm text-zinc-500">Loading skill catalog...</p>
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-700 border-t-blue-500" />
+        <p className="text-sm text-zinc-500">{t('setupPage.loadingCatalog')}</p>
       </div>
     )
   }
@@ -166,8 +168,8 @@ export function StepSkills({ data, updateData }: Props) {
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800/60 ring-1 ring-zinc-700/30">
           <Puzzle className="h-6 w-6 text-zinc-500" />
         </div>
-        <p className="text-sm text-zinc-400">No skills available</p>
-        <p className="text-xs text-zinc-500">Skills can be installed later via chat or CLI</p>
+        <p className="text-sm text-zinc-400">{t('setupPage.noSkills')}</p>
+        <p className="text-xs text-zinc-500">{t('setupPage.skillsLater')}</p>
       </div>
     )
   }
@@ -176,17 +178,16 @@ export function StepSkills({ data, updateData }: Props) {
     <div className="space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-lg font-semibold text-white">Skills</h2>
+        <h2 className="text-lg font-semibold text-white">{t('setupPage.skillsTitle')}</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Choose the skills your assistant will use.
-          Start with the <strong className="text-orange-400">Starter Pack</strong> and add more from the catalog.
+          {t('setupPage.skillsDesc')}
         </p>
       </div>
 
       {/* ─── Starter Pack Section ─── */}
       <div className={`rounded-xl border p-3 transition-all ${
         allStarterSelected
-          ? 'border-orange-500/30 bg-orange-500/5'
+          ? 'border-blue-500/30 bg-blue-500/5'
           : 'border-zinc-700/40 bg-zinc-800/20'
       }`}>
         <div className="flex items-center justify-between">
@@ -196,14 +197,14 @@ export function StepSkills({ data, updateData }: Props) {
           >
             <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all ${
               allStarterSelected
-                ? 'border-transparent bg-orange-500 text-white'
+                ? 'border-transparent bg-blue-500 text-white'
                 : 'border-zinc-600 bg-zinc-800 hover:border-zinc-500'
             }`}>
               {allStarterSelected && <Check className="h-3 w-3" />}
             </div>
-            <Sparkles className="h-4 w-4 text-orange-400" />
-            <span className="text-sm font-medium text-white">Starter Pack</span>
-            <span className="text-xs text-zinc-500">({starterSkills.length} core skills)</span>
+            <Sparkles className="h-4 w-4 text-blue-400" />
+            <span className="text-sm font-medium text-white">{t('setupPage.starterPack')}</span>
+            <span className="text-xs text-zinc-500">({starterSkills.length} {t('setupPage.starterPackCount')})</span>
           </button>
         </div>
 
@@ -216,13 +217,13 @@ export function StepSkills({ data, updateData }: Props) {
                 onClick={() => toggleSkill(skill.name)}
                 className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-all ${
                   isActive
-                    ? 'border-orange-500/30 bg-orange-500/10 text-orange-300'
+                    ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
                     : 'border-zinc-700/40 bg-zinc-800/40 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
                 }`}
                 title={skill.description}
               >
                 {isActive ? (
-                  <Check className="h-3 w-3 text-orange-400" />
+                  <Check className="h-3 w-3 text-blue-400" />
                 ) : (
                   <div className="h-3 w-3 rounded-sm border border-zinc-600" />
                 )}
@@ -237,20 +238,20 @@ export function StepSkills({ data, updateData }: Props) {
       <div>
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-            Catalog — add more skills
+            {t('setupPage.catalogAdd')}
           </p>
           <div className="flex gap-1.5 text-[10px]">
             <button
               onClick={selectAll}
               className="cursor-pointer rounded-md border border-zinc-700/40 bg-zinc-800/30 px-2 py-1 text-zinc-500 transition-colors hover:bg-zinc-700/40 hover:text-zinc-300"
             >
-              Select all
+              {t('setupPage.selectAll')}
             </button>
             <button
               onClick={deselectAll}
               className="cursor-pointer rounded-md border border-zinc-700/40 bg-zinc-800/30 px-2 py-1 text-zinc-500 transition-colors hover:bg-zinc-700/40 hover:text-zinc-300"
             >
-              Clear
+              {t('setupPage.clear')}
             </button>
           </div>
         </div>
@@ -266,7 +267,7 @@ export function StepSkills({ data, updateData }: Props) {
                   : 'text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300'
               }`}
             >
-              All
+              {t('setupPage.all')}
             </button>
             {availableCategories.map((cat) => {
               const meta = getCategoryMeta(cat)
@@ -290,10 +291,10 @@ export function StepSkills({ data, updateData }: Props) {
             <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-zinc-600" />
             <input
               type="text"
-              placeholder="Search..."
+              placeholder={t('setupPage.search')}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="w-32 rounded-md border border-zinc-700/40 bg-zinc-800/40 py-1 pl-7 pr-6 text-[11px] text-white placeholder:text-zinc-600 outline-none transition-all focus:w-44 focus:border-orange-500/40"
+              className="w-32 rounded-md border border-zinc-700/40 bg-zinc-800/40 py-1 pl-7 pr-6 text-[11px] text-white placeholder:text-zinc-600 outline-none transition-all focus:w-44 focus:border-blue-500/40"
             />
             {filter && (
               <button
@@ -310,7 +311,7 @@ export function StepSkills({ data, updateData }: Props) {
         <div className="mt-3 max-h-[250px] space-y-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-700/50">
           {sortedCategories.length === 0 && (
             <p className="py-6 text-center text-xs text-zinc-600">
-              {filter ? `No skills match "${filter}"` : 'No additional skills available'}
+              {filter ? t('setupPage.noSkillsMatch', { filter }) : t('setupPage.noAdditional')}
             </p>
           )}
 
@@ -336,8 +337,8 @@ export function StepSkills({ data, updateData }: Props) {
                   <span className={`text-xs font-semibold ${meta.color}`}>{meta.label}</span>
                   <span className="text-[10px] text-zinc-600">
                     {selectedInCat > 0
-                      ? `${selectedInCat}/${skillsInCat.length} selected`
-                      : `${skillsInCat.length} available`
+                      ? `${selectedInCat}/${skillsInCat.length} ${t('setupPage.selected')}`
+                      : `${skillsInCat.length} ${t('setupPage.available')}`
                     }
                   </span>
                   <div className="flex-1" />
@@ -345,11 +346,11 @@ export function StepSkills({ data, updateData }: Props) {
                     onClick={(e) => { e.stopPropagation(); toggleEntireCategory(cat, skillsInCat) }}
                     className={`cursor-pointer rounded px-1.5 py-0.5 text-[9px] font-medium transition-all ${
                       selectedInCat === skillsInCat.length
-                        ? 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20'
+                        ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
                         : 'text-zinc-600 hover:bg-zinc-800 hover:text-zinc-400'
                     }`}
                   >
-                    {selectedInCat === skillsInCat.length ? 'deselect' : 'select all'}
+                    {selectedInCat === skillsInCat.length ? t('setupPage.deselect') : t('setupPage.selectSkills')}
                   </button>
                 </button>
 
@@ -364,13 +365,13 @@ export function StepSkills({ data, updateData }: Props) {
                           onClick={() => toggleSkill(skill.name)}
                           className={`flex w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-all ${
                             isActive
-                              ? 'border-orange-500/30 bg-orange-500/5'
+                              ? 'border-blue-500/30 bg-blue-500/5'
                               : 'border-transparent bg-zinc-800/20 hover:bg-zinc-800/50'
                           }`}
                         >
                           <div className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border transition-all ${
                             isActive
-                              ? 'border-transparent bg-orange-500 text-white'
+                              ? 'border-transparent bg-blue-500 text-white'
                               : 'border-zinc-600 bg-zinc-900/50'
                           }`}>
                             {isActive && <Check className="h-2 w-2" />}
@@ -394,20 +395,20 @@ export function StepSkills({ data, updateData }: Props) {
       <div className="flex items-center justify-between rounded-lg bg-zinc-800/30 px-3 py-2">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-orange-500" />
+            <div className="h-2 w-2 rounded-full bg-blue-500" />
             <span className="text-[11px] text-zinc-400">
-              <strong className="text-white">{data.enabledSkills.length}</strong> skill{data.enabledSkills.length !== 1 ? 's' : ''} selected
+              <strong className="text-white">{data.enabledSkills.length}</strong> {t('setupPage.skillsSelected')}
             </span>
           </div>
           {extraCount > 0 && (
             <span className="text-[10px] text-zinc-600">
-              ({starterSkills.filter((s) => data.enabledSkills.includes(s.name)).length} pack + {extraCount} extra)
+              ({starterSkills.filter((s) => data.enabledSkills.includes(s.name)).length} {t('setupPage.packExtra', { count: extraCount })})
             </span>
           )}
         </div>
         {filtered.length !== catalogSkills.length && (
           <p className="text-[10px] text-zinc-600">
-            Showing {filtered.length} of {catalogSkills.length}
+            {t('setupPage.showingOf', { shown: filtered.length, total: catalogSkills.length })}
           </p>
         )}
       </div>

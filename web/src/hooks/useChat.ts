@@ -50,7 +50,7 @@ export function useChat(sessionId: string | null) {
     async (content: string) => {
       if (!sessionId || !content.trim()) return
 
-      // Adicionar mensagem do usuário imediatamente
+      // Add user message immediately
       const userMsg: MessageInfo = {
         role: 'user',
         content: content.trim(),
@@ -77,7 +77,7 @@ export function useChat(sessionId: string | null) {
             setState((s) => ({
               ...s,
               isStreaming: false,
-              error: err.message || 'Erro no stream',
+              error: err.message || 'Stream error',
             }))
           },
         })
@@ -85,7 +85,7 @@ export function useChat(sessionId: string | null) {
         setState((s) => ({
           ...s,
           isStreaming: false,
-          error: err instanceof Error ? err.message : 'Erro ao enviar mensagem',
+          error: err instanceof Error ? err.message : 'Failed to send message',
         }))
       }
     },

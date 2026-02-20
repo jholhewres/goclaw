@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Lock, ArrowRight, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export function Login() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -24,9 +26,9 @@ export function Login() {
     } catch (err) {
       if (err instanceof Error) {
         const msg = err.message
-        setError(msg.includes('401') || msg.includes('Unauthorized') ? 'Senha incorreta' : msg)
+        setError(msg.includes('401') || msg.includes('Unauthorized') ? t('login.invalidPassword') : msg)
       } else {
-        setError('Erro ao fazer login')
+        setError(t('common.error'))
       }
     } finally {
       setLoading(false)
@@ -36,12 +38,12 @@ export function Login() {
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-dc-darker p-4">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-1/3 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-orange-500/8 blur-[100px]" />
+        <div className="absolute left-1/2 top-1/3 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500/8 blur-[100px]" />
       </div>
 
       <div className="relative z-10 w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-linear-to-br from-orange-500 to-amber-500 shadow-xl shadow-orange-500/20">
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-linear-to-br from-blue-500 to-blue-500 shadow-xl shadow-blue-500/20">
             <svg className="h-8 w-8 text-white" viewBox="0 0 24 24" fill="currentColor">
               <ellipse cx="7" cy="5" rx="2.5" ry="3" />
               <ellipse cx="17" cy="5" rx="2.5" ry="3" />
@@ -51,28 +53,28 @@ export function Login() {
             </svg>
           </div>
           <h1 className="mt-4 text-2xl font-black tracking-tight text-white">
-            Dev<span className="text-orange-400">Claw</span>
+            Dev<span className="text-blue-400">Claw</span>
           </h1>
-          <p className="mt-1 text-sm text-zinc-500">Entre com sua senha para continuar</p>
+          <p className="mt-1 text-sm text-zinc-500">{t('login.subtitle')}</p>
         </div>
 
-        <div className="rounded-2xl border border-orange-500/10 bg-dc-dark p-6">
-          <div className="-mx-6 -mt-6 mb-6 h-1 rounded-t-2xl bg-linear-to-r from-orange-500 via-amber-400 to-orange-500" />
+        <div className="rounded-2xl border border-blue-500/10 bg-dc-dark p-6">
+          <div className="-mx-6 -mt-6 mb-6 h-1 rounded-t-2xl bg-linear-to-r from-blue-500 via-amber-400 to-blue-500" />
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label htmlFor="password" className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
                 <Lock className="h-3 w-3" />
-                Senha
+                {t('login.password')}
               </label>
               <input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError('') }}
-                placeholder="Sua senha da Web UI"
+                placeholder={t('login.passwordPlaceholder')}
                 autoFocus
-                className="w-full rounded-xl border border-white/8 bg-dc-darker px-4 py-3 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/40 focus:ring-2 focus:ring-orange-500/10"
+                className="w-full rounded-xl border border-white/8 bg-dc-darker px-4 py-3 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/40 focus:ring-2 focus:ring-blue-500/10"
               />
             </div>
 
@@ -85,13 +87,13 @@ export function Login() {
             <button
               type="submit"
               disabled={loading || !password}
-              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-linear-to-r from-orange-500 to-amber-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition-all hover:from-orange-600 hover:to-amber-600 hover:shadow-orange-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-linear-to-r from-blue-500 to-blue-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition-all hover:from-blue-600 hover:to-amber-600 hover:shadow-blue-500/30 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <>
-                  Entrar
+                  {t('login.login')}
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Clock, Play, Pause, AlertCircle, Timer, Wrench, CalendarClock, FileCode } from 'lucide-react'
 import { api, type JobInfo } from '@/lib/api'
 import { timeAgo } from '@/lib/utils'
 
 export function Jobs() {
+  const { t } = useTranslation()
   const [jobs, setJobs] = useState<JobInfo[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -17,7 +19,7 @@ export function Jobs() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-8 w-8 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-8 w-8 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -30,8 +32,8 @@ export function Jobs() {
       <div className="mx-auto max-w-3xl px-8 py-10">
         {/* Header */}
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">Automação</p>
-          <h1 className="mt-1 text-2xl font-black text-white tracking-tight">Jobs</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">{t('jobs.subtitle')}</p>
+          <h1 className="mt-1 text-2xl font-black text-white tracking-tight">{t('jobs.title')}</h1>
         </div>
 
         {jobs.length === 0 ? (
@@ -46,7 +48,7 @@ export function Jobs() {
             {inactive.length > 0 && (
               <div>
                 {active.length > 0 && (
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Desativados</p>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">{t('common.disabled')}</p>
                 )}
                 <div className="space-y-2">
                   {inactive.map((job) => <JobCard key={job.id} job={job} />)}
@@ -61,20 +63,21 @@ export function Jobs() {
 }
 
 function EmptyJobs() {
+  const { t } = useTranslation()
   return (
     <div className="mt-8 rounded-2xl border border-white/6 bg-(--color-dc-dark)/80 px-6 py-12">
       <div className="flex flex-col items-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500/10">
-          <CalendarClock className="h-6 w-6 text-orange-400" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10">
+          <CalendarClock className="h-6 w-6 text-blue-400" />
         </div>
-        <h3 className="mt-4 text-sm font-bold text-zinc-300">Nenhum job configurado</h3>
+        <h3 className="mt-4 text-sm font-bold text-zinc-300">{t('jobs.noJobs')}</h3>
         <p className="mt-1.5 max-w-sm text-center text-xs text-zinc-500">
-          Jobs executam tarefas automaticamente em intervalos definidos — backups, relatórios, monitoramento, etc.
+          {t('jobs.subtitle')}
         </p>
       </div>
 
       <div className="mt-6 mx-auto max-w-md rounded-xl bg-zinc-800/30 px-4 py-3 ring-1 ring-zinc-700/20">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Exemplo no config.yaml</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">config.yaml</p>
         <pre className="mt-2 overflow-x-auto font-mono text-xs leading-relaxed text-zinc-400">
 {`scheduler:
   jobs:
@@ -119,7 +122,7 @@ function JobCard({ job }: { job: JobInfo }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
             <h3 className="text-sm font-bold text-white">{job.id}</h3>
-            <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-orange-400 ring-1 ring-zinc-700/30">
+            <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-blue-400 ring-1 ring-zinc-700/30">
               {job.schedule}
             </span>
             <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 ring-1 ring-zinc-700/30">

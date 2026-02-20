@@ -399,13 +399,14 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 		GetConfigMapFn: func() map[string]any {
 			media := cfg.Media.Effective()
 			return map[string]any{
-				"name":     cfg.Name,
-				"trigger":  cfg.Trigger,
-				"model":    cfg.Model,
-				"language": cfg.Language,
-				"timezone": cfg.Timezone,
-				"provider": cfg.API.Provider,
-				"base_url": cfg.API.BaseURL,
+				"name":               cfg.Name,
+				"trigger":            cfg.Trigger,
+				"model":              cfg.Model,
+				"language":           cfg.Language,
+				"timezone":           cfg.Timezone,
+				"provider":           cfg.API.Provider,
+				"base_url":           cfg.API.BaseURL,
+				"api_key_configured": cfg.API.APIKey != "",
 				"media": map[string]any{
 					"vision_enabled":          media.VisionEnabled,
 					"vision_model":            media.VisionModel,
@@ -419,6 +420,21 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 			}
 		},
 		UpdateConfigMapFn: func(updates map[string]any) error {
+			// Update provider & model.
+			if v, ok := updates["provider"].(string); ok && v != "" {
+				cfg.API.Provider = v
+			}
+			if v, ok := updates["model"].(string); ok && v != "" {
+				cfg.Model = v
+			}
+			if v, ok := updates["base_url"].(string); ok {
+				cfg.API.BaseURL = v
+			}
+			if v, ok := updates["api_key"].(string); ok && v != "" {
+				cfg.API.APIKey = v
+			}
+
+			// Update media config.
 			if mediaRaw, ok := updates["media"]; ok {
 				if mediaMap, ok := mediaRaw.(map[string]any); ok {
 					media := cfg.Media

@@ -48,8 +48,8 @@ export function ChatInput({
           'flex items-end gap-3 rounded-2xl border bg-zinc-900/80 px-4 py-3',
           'transition-all',
           isStreaming
-            ? 'border-orange-500/20 ring-2 ring-orange-500/5'
-            : 'border-zinc-700/40 focus-within:border-orange-500/30 focus-within:ring-2 focus-within:ring-orange-500/10',
+            ? 'border-blue-500/20 ring-2 ring-blue-500/5'
+            : 'border-zinc-700/40 focus-within:border-blue-500/30 focus-within:ring-2 focus-within:ring-blue-500/10',
         )}
       >
         <textarea
@@ -77,7 +77,7 @@ export function ChatInput({
             className={cn(
               'flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-all',
               value.trim()
-                ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20 hover:bg-orange-400'
+                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20 hover:bg-blue-400'
                 : 'bg-zinc-800 text-zinc-600',
             )}
             aria-label="Enviar mensagem"

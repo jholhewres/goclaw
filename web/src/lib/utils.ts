@@ -18,10 +18,10 @@ export function timeAgo(date: string | Date | null | undefined): string {
   const hours = Math.floor(minutes / 60)
   const days = Math.floor(hours / 24)
 
-  if (seconds < 60) return 'agora'
-  if (minutes < 60) return `${minutes}m atrás`
-  if (hours < 24) return `${hours}h atrás`
-  if (days < 7) return `${days}d atrás`
+  if (seconds < 60) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  if (hours < 24) return `${hours}h ago`
+  if (days < 7) return `${days}d ago`
   return d.toLocaleDateString()
 }
 

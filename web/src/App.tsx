@@ -16,6 +16,8 @@ import { Jobs } from '@/pages/Jobs'
 import { Login } from '@/pages/Login'
 import { SetupWizard } from '@/pages/Setup/SetupWizard'
 import { WhatsAppConnect } from '@/pages/WhatsAppConnect'
+import { System } from '@/pages/System'
+import { Integrations } from '@/pages/Integrations'
 
 /** Estado global de autenticação obtido de /api/auth/status */
 interface AuthState {
@@ -72,7 +74,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   if (state.loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-dc-darker">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-orange-500/30 border-t-orange-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500/30 border-t-blue-500" />
       </div>
     )
   }
@@ -100,13 +102,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
  *
  * - /setup → Wizard de configuração inicial (layout centrado, sem sidebar)
  * - /login → Página de login (layout centrado, sem sidebar)
- * - / → Dashboard (layout com sidebar)
- * - /chat → Chat padrão
+ * - / → Chat conversacional (página inicial)
  * - /chat/:sessionId → Chat de sessão específica
+ * - /stats → Dashboard com estatísticas
  * - /sessions → Lista de sessões
  * - /skills → Store de skills
  * - /channels → Status dos canais
- * - /config → Editor de configuração
+ * - /config → Provedores LLM
+ * - /system → Configurações do sistema (nome, timezone, idioma)
+ * - /domain → Domínio & Rede
+ * - /webhooks → Webhooks
+ * - /hooks → Hooks
+ * - /integrations → Integrações OAuth
  * - /security → Painel de segurança
  * - /jobs → Cron jobs
  */
@@ -124,17 +131,19 @@ export function App() {
 
         {/* App principal — layout com sidebar */}
         <Route element={<AppLayout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/chat" element={<Chat />} />
+          <Route path="/" element={<Chat />} />
           <Route path="/chat/:sessionId" element={<Chat />} />
+          <Route path="/stats" element={<Dashboard />} />
           <Route path="/sessions" element={<Sessions />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/channels" element={<Channels />} />
           <Route path="/channels/whatsapp" element={<WhatsAppConnect />} />
           <Route path="/config" element={<Config />} />
+          <Route path="/system" element={<System />} />
           <Route path="/domain" element={<Domain />} />
           <Route path="/webhooks" element={<Webhooks />} />
           <Route path="/hooks" element={<Hooks />} />
+          <Route path="/integrations" element={<Integrations />} />
           <Route path="/security" element={<Security />} />
           <Route path="/jobs" element={<Jobs />} />
         </Route>

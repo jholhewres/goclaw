@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   Shield,
   Key,
@@ -16,9 +17,10 @@ import { api, type SecurityStatus, type AuditEntry, type ToolGuardStatus, type V
 import { timeAgo } from '@/lib/utils'
 
 /**
- * Painel de segurança — vault, tool guard, audit log, API keys.
+ * Security panel — vault, tool guard, audit log, API keys.
  */
 export function Security() {
+  const { t } = useTranslation()
   const [overview, setOverview] = useState<SecurityStatus | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -34,7 +36,7 @@ export function Security() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-8 w-8 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-8 w-8 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -42,9 +44,9 @@ export function Security() {
   if (loadError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center bg-dc-darker">
-        <p className="text-sm text-red-400">Erro ao carregar dados de segurança</p>
-        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-orange-400 hover:text-orange-300 transition-colors">
-          Tentar novamente
+        <p className="text-sm text-red-400">{t('common.error')}</p>
+        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+          {t('common.loading')}
         </button>
       </div>
     )
@@ -59,15 +61,15 @@ export function Security() {
       <div className="mx-auto max-w-3xl px-8 py-10">
         {/* Header */}
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">Sistema</p>
-          <h1 className="mt-1 text-2xl font-black text-white tracking-tight">Segurança</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">{t('security.subtitle')}</p>
+          <h1 className="mt-1 text-2xl font-black text-white tracking-tight">{t('security.title')}</h1>
         </div>
 
         {/* Quick status */}
         <div className="mt-6 grid grid-cols-3 gap-2.5">
-          <StatusPill label="Vault" ok={!!vaultOk} text={vaultOk ? 'Protegido' : 'Inativo'} />
-          <StatusPill label="Tool Guard" ok={!!guardOk} text={guardOk ? 'Ativo' : 'Desativado'} />
-          <StatusPill label="Autenticação" ok={!!authOk} text={authOk ? 'Protegido' : 'Aberto'} />
+          <StatusPill label={t('security.vault')} ok={!!vaultOk} text={vaultOk ? t('common.enabled') : t('common.disabled')} />
+          <StatusPill label={t('security.toolGuard')} ok={!!guardOk} text={guardOk ? t('common.enabled') : t('common.disabled')} />
+          <StatusPill label={t('security.auth')} ok={!!authOk} text={authOk ? t('common.enabled') : t('common.disabled')} />
         </div>
 
         <div className="mt-6 space-y-3">
@@ -172,7 +174,7 @@ function VaultSection({ exists, unlocked }: { exists: boolean; unlocked: boolean
         ? 'bg-zinc-800/50 text-zinc-500 ring-zinc-700/30'
         : unlocked
         ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
-        : 'bg-amber-500/10 text-amber-400 ring-amber-500/20'
+        : 'bg-blue-500/10 text-amber-400 ring-blue-500/20'
     }`}>
       {!exists ? 'Não configurado' : unlocked ? 'Protegido' : 'Inacessível'}
     </span>
@@ -288,7 +290,7 @@ function ToolGuardSection({ enabled }: { enabled: boolean }) {
   return (
     <Accordion
       icon={<Shield className="h-4 w-4 text-amber-400" />}
-      iconColor="bg-amber-500/10"
+      iconColor="bg-blue-500/10"
       title="Tool Guard"
       subtitle="Controle de permissões de ferramentas"
       badge={statusBadge}
@@ -392,7 +394,7 @@ function APIKeysSection({ gatewayConfigured, webuiConfigured }: { gatewayConfigu
       </div>
       <div className="mt-4 flex items-center gap-2 text-[11px] text-zinc-600">
         <span>Altere os tokens em</span>
-        <Link to="/domain" className="inline-flex items-center gap-1 text-orange-400/70 hover:text-orange-400 transition-colors">
+        <Link to="/domain" className="inline-flex items-center gap-1 text-blue-400/70 hover:text-blue-400 transition-colors">
           Domínio & Acesso
           <ExternalLink className="h-2.5 w-2.5" />
         </Link>
@@ -442,8 +444,8 @@ function AuditLogSection({ entryCount }: { entryCount: number }) {
 
   return (
     <Accordion
-      icon={<Activity className="h-4 w-4 text-orange-400" />}
-      iconColor="bg-orange-500/10"
+      icon={<Activity className="h-4 w-4 text-blue-400" />}
+      iconColor="bg-blue-500/10"
       title="Audit Log"
       subtitle={entryCount > 0 ? `${entryCount} registros` : 'Histórico de ações executadas'}
       onOpen={load}
@@ -501,7 +503,7 @@ function AuditLogSection({ entryCount }: { entryCount: number }) {
 function Spinner() {
   return (
     <div className="flex justify-center py-8">
-      <div className="h-6 w-6 rounded-full border-2 border-orange-500/30 border-t-orange-500 animate-spin" />
+      <div className="h-6 w-6 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />
     </div>
   )
 }
@@ -535,8 +537,8 @@ function PermToggle({
   disabled?: boolean
   color?: 'amber' | 'red'
 }) {
-  const ringActive = color === 'red' ? 'ring-red-500/20 bg-red-500/5' : 'ring-amber-500/20 bg-amber-500/5'
-  const trackActive = color === 'red' ? 'bg-red-500' : 'bg-amber-500'
+  const ringActive = color === 'red' ? 'ring-red-500/20 bg-red-500/5' : 'ring-blue-500/20 bg-blue-500/5'
+  const trackActive = color === 'red' ? 'bg-red-500' : 'bg-blue-500'
 
   return (
     <button
@@ -577,7 +579,7 @@ function TagList({
   onAdd: (v: string) => void
 }) {
   const tagClass = color === 'amber'
-    ? 'bg-amber-500/10 text-amber-400 ring-amber-500/20'
+    ? 'bg-blue-500/10 text-amber-400 ring-blue-500/20'
     : 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
 
   return (

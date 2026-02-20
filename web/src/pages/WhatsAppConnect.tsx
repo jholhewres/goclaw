@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { QRCodeSVG } from 'qrcode.react'
 import {
   CheckCircle2,
@@ -11,7 +12,7 @@ import {
 } from 'lucide-react'
 import { api, type WhatsAppStatus } from '@/lib/api'
 
-/** Estados possíveis da conexão WhatsApp */
+/** Possible WhatsApp connection states */
 type ConnectionState =
   | 'loading'
   | 'connected'
@@ -21,17 +22,18 @@ type ConnectionState =
   | 'error'
 
 /**
- * Página de conexão do WhatsApp via QR Code.
- * Usa SSE para receber QR codes em tempo real do backend.
+ * WhatsApp connection page via QR Code.
+ * Uses SSE to receive QR codes in real time from the backend.
  */
 export function WhatsAppConnect() {
+  const { t } = useTranslation()
   const [state, setState] = useState<ConnectionState>('loading')
   const [qrCode, setQrCode] = useState<string>('')
   const [message, setMessage] = useState<string>('')
   const [refreshing, setRefreshing] = useState(false)
   const eventSourceRef = useRef<EventSource | null>(null)
 
-  /** Conecta ao stream SSE de eventos QR */
+  /** Connect to SSE stream for QR events */
   const connectSSE = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
@@ -50,10 +52,10 @@ export function WhatsAppConnect() {
       const data: WhatsAppStatus = JSON.parse(e.data)
       if (data.connected) {
         setState('connected')
-        setMessage('WhatsApp conectado!')
+        setMessage(t('whatsapp.connected'))
       } else if (data.needs_qr) {
         setState('waiting_qr')
-        setMessage('Aguardando QR code...')
+        setMessage(t('whatsapp.waitingQR'))
       }
     })
 
@@ -61,20 +63,20 @@ export function WhatsAppConnect() {
       const data = JSON.parse(e.data)
       setQrCode(data.code)
       setState('waiting_qr')
-      setMessage(data.message || 'Escaneie o QR code com seu WhatsApp')
+      setMessage(data.message || t('whatsapp.scanQR'))
     })
 
     es.addEventListener('success', (e) => {
       const data = JSON.parse(e.data)
       setState('connected')
-      setMessage(data.message || 'WhatsApp conectado com sucesso!')
+      setMessage(data.message || t('whatsapp.connected'))
       setQrCode('')
     })
 
     es.addEventListener('timeout', (e) => {
       const data = JSON.parse(e.data)
       setState('timeout')
-      setMessage(data.message || 'QR code expirou')
+      setMessage(data.message || t('whatsapp.qrExpired'))
       setQrCode('')
     })
 
@@ -82,7 +84,7 @@ export function WhatsAppConnect() {
       if (e instanceof MessageEvent && e.data) {
         const data = JSON.parse(e.data)
         setState('error')
-        setMessage(data.message || 'Erro na conexão')
+        setMessage(data.message || t('whatsapp.connectionError'))
       }
     })
 
@@ -92,40 +94,40 @@ export function WhatsAppConnect() {
 
     es.onerror = () => {
       setState('error')
-      setMessage('Conexão SSE perdida. Tente novamente.')
+      setMessage(t('whatsapp.sseLost'))
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     api.channels.whatsapp.status()
       .then((status) => {
         if (status.connected) {
           setState('connected')
-          setMessage('WhatsApp conectado!')
+          setMessage(t('whatsapp.connected'))
         } else {
           connectSSE()
         }
       })
       .catch(() => {
         setState('error')
-        setMessage('Não foi possível verificar o status do WhatsApp')
+        setMessage(t('whatsapp.statusError'))
       })
 
     return () => {
       eventSourceRef.current?.close()
     }
-  }, [connectSSE])
+  }, [connectSSE, t])
 
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
       await api.channels.whatsapp.requestQR()
       setState('waiting_qr')
-      setMessage('Gerando novo QR code...')
+      setMessage(t('whatsapp.generatingQR'))
       setQrCode('')
       connectSSE()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erro ao solicitar QR code'
+      const msg = err instanceof Error ? err.message : t('whatsapp.connectionError')
       setMessage(msg)
     } finally {
       setRefreshing(false)
@@ -143,23 +145,23 @@ export function WhatsAppConnect() {
             </svg>
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-white">WhatsApp</h1>
-            <p className="text-sm text-zinc-400">Conecte sua conta via QR code</p>
+            <h1 className="text-xl font-semibold text-white">{t('whatsapp.title')}</h1>
+            <p className="text-sm text-zinc-400">{t('whatsapp.subtitle')}</p>
           </div>
         </div>
 
         <div className="mt-8">
-          {/* ── Conectado ── */}
+          {/* ── Connected ── */}
           {state === 'connected' && (
             <div className="flex flex-col items-center rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-8 py-10">
               <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/10 ring-1 ring-emerald-500/20">
                 <CheckCircle2 className="h-10 w-10 text-emerald-400" />
               </div>
-              <h2 className="mt-5 text-lg font-semibold text-white">Conectado</h2>
+              <h2 className="mt-5 text-lg font-semibold text-white">{t('whatsapp.connected')}</h2>
               <p className="mt-1 text-sm text-emerald-400">{message}</p>
               <div className="mt-4 flex items-center gap-2 rounded-full bg-emerald-500/10 px-4 py-1.5 text-xs font-medium text-emerald-400 ring-1 ring-emerald-500/20">
                 <Wifi className="h-3.5 w-3.5" />
-                Online
+                {t('common.online')}
               </div>
             </div>
           )}
@@ -167,8 +169,8 @@ export function WhatsAppConnect() {
           {/* ── Loading ── */}
           {state === 'loading' && (
             <div className="flex flex-col items-center gap-4 py-16">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-orange-500" />
-              <p className="text-sm text-zinc-400">Verificando conexão...</p>
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-blue-500" />
+              <p className="text-sm text-zinc-400">{t('whatsapp.checkingConnection')}</p>
             </div>
           )}
 
@@ -178,7 +180,7 @@ export function WhatsAppConnect() {
               {/* QR */}
               <div className="flex flex-col items-center">
                 <div className="relative rounded-2xl border border-zinc-700/50 bg-zinc-800/50 p-5 backdrop-blur-sm">
-                  {/* Cantos decorativos */}
+                  {/* Decorative corners */}
                   <div className="absolute -left-px -top-px h-6 w-6 rounded-tl-2xl border-l-2 border-t-2 border-emerald-500/50" />
                   <div className="absolute -right-px -top-px h-6 w-6 rounded-tr-2xl border-r-2 border-t-2 border-emerald-500/50" />
                   <div className="absolute -bottom-px -left-px h-6 w-6 rounded-bl-2xl border-b-2 border-l-2 border-emerald-500/50" />
@@ -198,7 +200,7 @@ export function WhatsAppConnect() {
                     <div className="flex h-[264px] w-[264px] items-center justify-center">
                       <div className="flex flex-col items-center gap-3">
                         <QrCode className="h-12 w-12 animate-pulse text-zinc-600" />
-                        <p className="text-xs text-zinc-500">Gerando QR code...</p>
+                        <p className="text-xs text-zinc-500">{t('whatsapp.generatingQR')}</p>
                       </div>
                     </div>
                   )}
@@ -211,29 +213,25 @@ export function WhatsAppConnect() {
                   className="mt-4 flex cursor-pointer items-center gap-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300 disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
-                  Gerar novo QR
+                  {t('whatsapp.generateNew')}
                 </button>
               </div>
 
-              {/* Instruções */}
+              {/* Instructions */}
               <div className="flex flex-col justify-center space-y-5 md:min-w-[220px]">
-                <h3 className="text-sm font-semibold text-white">Como conectar</h3>
+                <h3 className="text-sm font-semibold text-white">{t('whatsapp.howToConnect')}</h3>
 
                 <div className="space-y-4">
-                  <StepItem number={1} text="Abra o WhatsApp no celular" />
-                  <StepItem number={2}>
-                    Toque em <span className="font-medium text-zinc-200">Dispositivos conectados</span>
-                  </StepItem>
-                  <StepItem number={3}>
-                    Toque em <span className="font-medium text-zinc-200">Conectar dispositivo</span>
-                  </StepItem>
-                  <StepItem number={4} text="Aponte a câmera para o QR code" />
+                  <StepItem number={1} text={t('whatsapp.step1')} />
+                  <StepItem number={2} text={t('whatsapp.step2')} />
+                  <StepItem number={3} text={t('whatsapp.step3')} />
+                  <StepItem number={4} text={t('whatsapp.step4')} />
                 </div>
 
                 <div className="mt-2 flex items-start gap-2 rounded-xl bg-zinc-800/50 px-3 py-2.5 ring-1 ring-zinc-700/30">
-                  <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-400" />
+                  <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-400" />
                   <p className="text-[11px] text-zinc-400">
-                    Criptografia ponta a ponta. Suas mensagens ficam no seu dispositivo.
+                    {t('whatsapp.e2eHint')}
                   </p>
                 </div>
               </div>
@@ -246,7 +244,7 @@ export function WhatsAppConnect() {
               <div className="flex h-20 w-20 items-center justify-center rounded-full bg-amber-500/10 ring-1 ring-amber-500/20">
                 <WifiOff className="h-10 w-10 text-amber-400" />
               </div>
-              <h2 className="mt-5 text-lg font-semibold text-white">QR Code Expirado</h2>
+              <h2 className="mt-5 text-lg font-semibold text-white">{t('whatsapp.qrExpired')}</h2>
               <p className="mt-1 text-sm text-amber-400/80">{message}</p>
               <button
                 onClick={handleRefresh}
@@ -258,7 +256,7 @@ export function WhatsAppConnect() {
                 ) : (
                   <RefreshCw className="h-4 w-4" />
                 )}
-                Gerar novo QR code
+                {t('whatsapp.generateNewQR')}
               </button>
             </div>
           )}
@@ -269,7 +267,7 @@ export function WhatsAppConnect() {
               <div className="flex h-20 w-20 items-center justify-center rounded-full bg-red-500/10 ring-1 ring-red-500/20">
                 <WifiOff className="h-10 w-10 text-red-400" />
               </div>
-              <h2 className="mt-5 text-lg font-semibold text-white">Erro na Conexão</h2>
+              <h2 className="mt-5 text-lg font-semibold text-white">{t('whatsapp.connectionError')}</h2>
               <p className="mt-1 text-sm text-red-400/80">{message}</p>
               <button
                 onClick={handleRefresh}
@@ -281,7 +279,7 @@ export function WhatsAppConnect() {
                 ) : (
                   <RefreshCw className="h-4 w-4" />
                 )}
-                Tentar novamente
+                {t('whatsapp.tryAgain')}
               </button>
             </div>
           )}
@@ -291,15 +289,15 @@ export function WhatsAppConnect() {
   )
 }
 
-/** Item de passo numerado para as instruções */
-function StepItem({ number, text, children }: { number: number; text?: string; children?: React.ReactNode }) {
+/** Numbered step item for instructions */
+function StepItem({ number, text }: { number: number; text: string }) {
   return (
     <div className="flex items-start gap-3">
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-[11px] font-semibold text-zinc-400 ring-1 ring-zinc-700/50">
         {number}
       </div>
       <p className="text-sm text-zinc-400 leading-relaxed">
-        {text ?? children}
+        {text}
       </p>
     </div>
   )

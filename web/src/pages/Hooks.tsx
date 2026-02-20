@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Zap,
   Power,
@@ -15,10 +16,10 @@ import { api } from '@/lib/api'
 import type { HookInfo, HookEventInfo } from '@/lib/api'
 
 /**
- * Página de gerenciamento de Hooks do ciclo de vida.
- * Permite visualizar, ativar/desativar e remover hooks registrados.
+ * Lifecycle hooks management page.
  */
 export function Hooks() {
+  const { t } = useTranslation()
   const [hooks, setHooks] = useState<HookInfo[]>([])
   const [events, setEvents] = useState<HookEventInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -32,51 +33,51 @@ export function Hooks() {
       setHooks(data.hooks || [])
       setEvents(data.events || [])
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao carregar hooks' })
+      setMessage({ type: 'error', text: t('common.error') })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadData()
   }, [loadData])
 
-  /** Ativa/desativa um hook */
+  /** Toggle hook enabled status */
   const handleToggle = async (name: string, enabled: boolean) => {
     setMessage(null)
     try {
       await api.hooks.toggle(name, enabled)
       await loadData()
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao atualizar hook' })
+      setMessage({ type: 'error', text: t('common.error') })
     }
   }
 
-  /** Remove um hook */
+  /** Remove a hook */
   const handleDelete = async (name: string) => {
     setMessage(null)
     try {
       await api.hooks.unregister(name)
-      setMessage({ type: 'success', text: `Hook "${name}" removido` })
+      setMessage({ type: 'success', text: t('common.success') })
       await loadData()
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao remover hook' })
+      setMessage({ type: 'error', text: t('common.error') })
     }
   }
 
-  /** Hooks filtrados por evento selecionado */
+  /** Hooks filtered by selected event */
   const filteredHooks = filterEvent
     ? hooks.filter((h) => h.events.includes(filterEvent))
     : hooks
 
-  /** Contagem total de hooks ativos */
+  /** Total active hooks count */
   const activeCount = hooks.filter((h) => h.enabled).length
 
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-10 w-10 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-10 w-10 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -88,14 +89,13 @@ export function Hooks() {
         <div className="flex items-start justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">
-              Sistema
+              {t('hooks.subtitle')}
             </p>
             <h1 className="mt-1 text-2xl font-black text-white tracking-tight">
-              Hooks do Ciclo de Vida
+              {t('hooks.title')}
             </h1>
             <p className="mt-2 text-base text-zinc-500">
-              {hooks.length} hook{hooks.length !== 1 ? 's' : ''} registrado{hooks.length !== 1 ? 's' : ''},
-              {' '}{activeCount} ativo{activeCount !== 1 ? 's' : ''}
+              {hooks.length} · {activeCount} {t('common.enabled').toLowerCase()}
             </p>
           </div>
 
@@ -105,7 +105,7 @@ export function Hooks() {
               onClick={() => setView('hooks')}
               className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
                 view === 'hooks'
-                  ? 'bg-orange-500/20 text-orange-300'
+                  ? 'bg-blue-500/20 text-blue-300'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
@@ -115,7 +115,7 @@ export function Hooks() {
               onClick={() => setView('events')}
               className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
                 view === 'events'
-                  ? 'bg-orange-500/20 text-orange-300'
+                  ? 'bg-blue-500/20 text-blue-300'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
@@ -147,7 +147,7 @@ export function Hooks() {
                   value={filterEvent}
                   onChange={(e) => setFilterEvent(e.target.value)}
                   aria-label="Filtrar por evento"
-                  className="h-9 cursor-pointer rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 text-xs text-zinc-300 outline-none transition-all focus:border-orange-500/50"
+                  className="h-9 cursor-pointer rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 text-xs text-zinc-300 outline-none transition-all focus:border-blue-500/50"
                 >
                   <option value="">Todos os eventos</option>
                   {events
@@ -161,7 +161,7 @@ export function Hooks() {
                 {filterEvent && (
                   <button
                     onClick={() => setFilterEvent('')}
-                    className="cursor-pointer text-xs text-orange-400 hover:text-orange-300 transition-colors"
+                    className="cursor-pointer text-xs text-blue-400 hover:text-blue-300 transition-colors"
                   >
                     Limpar filtro
                   </button>
@@ -172,8 +172,8 @@ export function Hooks() {
             {/* Lista de hooks */}
             <div className="mt-6">
               <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/10">
-                  <Zap className="h-4.5 w-4.5 text-orange-400" />
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10">
+                  <Zap className="h-4.5 w-4.5 text-blue-400" />
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-white">Hooks registrados</h2>
@@ -234,7 +234,7 @@ export function Hooks() {
             <code className="text-zinc-400">user_prompt_submit</code>), o primeiro hook que
             bloquear impede a operação.
           </p>
-          <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-500/5 px-3 py-2 ring-1 ring-amber-500/10">
+          <div className="mt-3 flex items-start gap-2 rounded-lg bg-blue-500/5 px-3 py-2 ring-1 ring-blue-500/10">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
             <p className="text-xs text-amber-400/80">
               Desativar hooks do sistema pode afetar funcionalidades essenciais. Use com cautela.
@@ -399,7 +399,7 @@ function EventCard({
 
         <div className="flex items-center gap-2">
           {hasHooks ? (
-            <span className="rounded-full bg-orange-500/10 px-2.5 py-0.5 text-[11px] font-medium text-orange-400">
+            <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-medium text-blue-400">
               {event.hooks.length} hook{event.hooks.length > 1 ? 's' : ''}
             </span>
           ) : (
@@ -419,7 +419,7 @@ function EventCard({
                 <span className="text-xs font-mono text-zinc-300">{hookName}</span>
                 <button
                   onClick={() => onFilterByEvent(event.event)}
-                  className="cursor-pointer text-[11px] text-orange-400/60 hover:text-orange-400 transition-colors"
+                  className="cursor-pointer text-[11px] text-blue-400/60 hover:text-blue-400 transition-colors"
                 >
                   Ver na lista
                 </button>

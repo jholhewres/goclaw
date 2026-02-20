@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Globe,
   Server,
@@ -19,10 +20,10 @@ import { api } from '@/lib/api'
 import type { DomainConfig } from '@/lib/api'
 
 /**
- * Página de configuração de domínio e rede.
- * Gerencia WebUI, Gateway API, Tailscale e CORS.
+ * Domain and network configuration page.
  */
 export function Domain() {
+  const { t } = useTranslation()
   const [config, setConfig] = useState<DomainConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -57,9 +58,9 @@ export function Domain() {
         setTailscaleFunnel(data.tailscale_funnel)
         setTailscalePort(data.tailscale_port || 8085)
       })
-      .catch(() => setMessage({ type: 'error', text: 'Erro ao carregar configuração' }))
+      .catch(() => setMessage({ type: 'error', text: t('common.error') }))
       .finally(() => setLoading(false))
-  }, [])
+  }, [t])
 
   const handleSave = async () => {
     setSaving(true)
@@ -77,11 +78,11 @@ export function Domain() {
         tailscale_funnel: tailscaleFunnel,
         tailscale_port: tailscalePort,
       })
-      setMessage({ type: 'success', text: 'Salvo. Reinicie para aplicar alterações de porta.' })
+      setMessage({ type: 'success', text: t('common.success') })
       setWebuiToken('')
       setGatewayToken('')
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao salvar' })
+      setMessage({ type: 'error', text: t('common.error') })
     } finally {
       setSaving(false)
     }
@@ -98,7 +99,7 @@ export function Domain() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-10 w-10 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-10 w-10 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -115,7 +116,7 @@ export function Domain() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-orange-500/15 transition-all hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-blue-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/15 transition-all hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? 'Salvando...' : 'Salvar'}
@@ -305,8 +306,8 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 function CardHeader({ icon: Icon, title }: { icon: React.FC<{ className?: string }>; title: string }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/10">
-        <Icon className="h-4 w-4 text-orange-400" />
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+        <Icon className="h-4 w-4 text-blue-400" />
       </div>
       <h2 className="text-sm font-bold text-white">{title}</h2>
     </div>
@@ -339,7 +340,7 @@ function Input({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+      className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
     />
   )
 }
@@ -364,7 +365,7 @@ function PasswordInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 pr-9 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+        className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 pr-9 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
       />
       <button
         type="button"
@@ -385,7 +386,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
       aria-checked={value}
       onClick={() => onChange(!value)}
       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-        value ? 'bg-orange-500' : 'bg-zinc-700'
+        value ? 'bg-blue-500' : 'bg-zinc-700'
       }`}
     >
       <span
@@ -456,7 +457,7 @@ function Endpoint({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-1 flex items-center gap-1 text-[11px] font-mono text-zinc-400 hover:text-orange-400 transition-colors truncate"
+          className="mt-1 flex items-center gap-1 text-[11px] font-mono text-zinc-400 hover:text-blue-400 transition-colors truncate"
         >
           {url.replace(/^https?:\/\//, '')}
           <ExternalLink className="h-2.5 w-2.5 shrink-0" />

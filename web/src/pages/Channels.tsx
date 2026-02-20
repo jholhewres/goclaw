@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
   Radio,
@@ -15,11 +16,12 @@ import { api, type ChannelHealth } from '@/lib/api'
 import { timeAgo } from '@/lib/utils'
 
 /**
- * Página de gerenciamento de canais.
- * Mostra status de todos os canais configurados e permite
- * conectar/reconectar WhatsApp via QR code.
+ * Channel management page.
+ * Shows status of all configured channels and allows
+ * connecting/reconnecting WhatsApp via QR code.
  */
 export function Channels() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [channels, setChannels] = useState<ChannelHealth[]>([])
   const [loading, setLoading] = useState(true)
@@ -37,7 +39,7 @@ export function Channels() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-8 w-8 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-8 w-8 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -46,8 +48,8 @@ export function Channels() {
     <div className="flex-1 overflow-y-auto bg-dc-darker">
       <div className="mx-auto max-w-3xl px-8 py-10">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">Comunicação</p>
-          <h1 className="mt-1 text-2xl font-black text-white tracking-tight">Canais</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">{t('channels.subtitle')}</p>
+          <h1 className="mt-1 text-2xl font-black text-white tracking-tight">{t('channels.title')}</h1>
         </div>
 
         {channels.length === 0 ? (
@@ -75,9 +77,9 @@ function WhatsAppCard({ channel, onNavigate }: { channel: ChannelHealth; onNavig
     }`}>
       <div className="flex items-start gap-4">
         <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-          connected ? 'bg-emerald-500/10' : 'bg-orange-500/10'
+          connected ? 'bg-emerald-500/10' : 'bg-blue-500/10'
         }`}>
-          <WhatsAppIcon className={`h-5 w-5 ${connected ? 'text-emerald-400' : 'text-orange-400'}`} />
+          <WhatsAppIcon className={`h-5 w-5 ${connected ? 'text-emerald-400' : 'text-blue-400'}`} />
         </div>
 
         <div className="min-w-0 flex-1">
@@ -89,9 +91,9 @@ function WhatsAppCard({ channel, onNavigate }: { channel: ChannelHealth; onNavig
           <p className="mt-0.5 text-[11px] text-zinc-500">
             {connected
               ? hasLastMsg
-                ? `Última mensagem ${timeAgo(channel.last_msg_at)}`
-                : 'Conectado — aguardando mensagens'
-              : 'Escaneie o QR code para conectar'}
+                ? `Last message ${timeAgo(channel.last_msg_at)}`
+                : 'Connected — waiting for messages'
+              : 'Scan QR code to connect'}
           </p>
 
           <div className="mt-3 flex items-center gap-2">
@@ -100,27 +102,27 @@ function WhatsAppCard({ channel, onNavigate }: { channel: ChannelHealth; onNavig
               className={`flex cursor-pointer items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
                 connected
                   ? 'bg-zinc-800 text-zinc-300 ring-1 ring-zinc-700/30 hover:bg-zinc-700'
-                  : 'bg-orange-500 text-white shadow-lg shadow-orange-500/15 hover:bg-orange-400'
+                  : 'bg-blue-500 text-white shadow-lg shadow-blue-500/15 hover:bg-blue-400'
               }`}
             >
               {connected ? (
                 <>
                   <Smartphone className="h-3.5 w-3.5" />
-                  Gerenciar
+                  Manage
                 </>
               ) : (
                 <>
                   <QrCode className="h-3.5 w-3.5" />
-                  Conectar via QR Code
+                  Connect via QR Code
                   <ArrowRight className="h-3 w-3" />
                 </>
               )}
             </button>
 
             {channel.error_count > 0 && (
-              <span className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-400 ring-1 ring-amber-500/15">
+              <span className="flex items-center gap-1 rounded-lg bg-blue-500/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-400 ring-1 ring-blue-500/15">
                 <AlertTriangle className="h-3 w-3" />
-                {channel.error_count} erro{channel.error_count !== 1 ? 's' : ''}
+                {channel.error_count} error{channel.error_count !== 1 ? 's' : ''}
               </span>
             )}
           </div>
@@ -161,9 +163,9 @@ function ChannelCard({ channel }: { channel: ChannelHealth }) {
           <p className="text-[11px] text-zinc-500">
             {connected
               ? hasLastMsg
-                ? `Última mensagem ${timeAgo(channel.last_msg_at)}`
-                : 'Conectado'
-              : 'Desconectado'}
+                ? `Last message ${timeAgo(channel.last_msg_at)}`
+                : 'Connected'
+              : 'Disconnected'}
           </p>
         </div>
 
@@ -192,17 +194,17 @@ function EmptyChannels() {
   return (
     <div className="mt-8 rounded-2xl border border-white/6 bg-(--color-dc-dark)/80 px-6 py-12">
       <div className="flex flex-col items-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500/10">
-          <MessageCircle className="h-6 w-6 text-orange-400" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10">
+          <MessageCircle className="h-6 w-6 text-blue-400" />
         </div>
-        <h3 className="mt-4 text-sm font-bold text-zinc-300">Nenhum canal configurado</h3>
+        <h3 className="mt-4 text-sm font-bold text-zinc-300">No channels configured</h3>
         <p className="mt-1.5 max-w-sm text-center text-xs text-zinc-500">
-          Canais permitem que o DevClaw receba e envie mensagens por WhatsApp, Discord, Telegram e Slack.
+          Channels allow DevClaw to send and receive messages via WhatsApp, Discord, Telegram, and Slack.
         </p>
       </div>
 
       <div className="mt-6 mx-auto max-w-md rounded-xl bg-zinc-800/30 px-4 py-3 ring-1 ring-zinc-700/20">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Exemplo no config.yaml</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Example in config.yaml</p>
         <pre className="mt-2 overflow-x-auto font-mono text-xs leading-relaxed text-zinc-400">
 {`channels:
   whatsapp:
@@ -219,7 +221,7 @@ function EmptyChannels() {
           WhatsApp, Discord, Telegram, Slack
         </span>
         <span className="h-3 w-px bg-zinc-700/50" />
-        <span>Tokens ficam no vault</span>
+        <span>Tokens are stored in the vault</span>
       </div>
     </div>
   )

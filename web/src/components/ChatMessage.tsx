@@ -112,11 +112,11 @@ export const ChatMessage = memo(function ChatMessage({
   if (role === 'user') {
     return (
       <div className="flex gap-4 py-5 animate-fade-in">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 ring-1 ring-orange-500/15">
-          <User className="h-5 w-5 text-orange-400" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/15">
+          <User className="h-5 w-5 text-blue-400" />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
-          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-orange-400/70">Você</p>
+          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-blue-400/70">Você</p>
           <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-200">{content}</p>
         </div>
       </div>
@@ -154,7 +154,7 @@ export const ChatMessage = memo(function ChatMessage({
           <div className={cn(
             'prose prose-sm max-w-none text-[15px] leading-relaxed text-zinc-300',
             'prose-headings:text-white prose-headings:font-bold prose-strong:text-white',
-            'prose-code:text-orange-400 prose-a:text-orange-400',
+            'prose-code:text-blue-400 prose-a:text-blue-400',
             'prose-pre:bg-transparent prose-pre:p-0',
             'prose-p:text-[15px] prose-li:text-[15px]',
             isStreaming && 'stream-shimmer',
@@ -190,12 +190,12 @@ function ToolMessage({ toolName, toolInput, content }: { toolName?: string; tool
   )
   return (
     <div className="ml-14 animate-fade-in py-2">
-      <div className="rounded-lg border-l-2 border-orange-500/40 bg-zinc-800/30">
+      <div className="rounded-lg border-l-2 border-blue-500/40 bg-zinc-800/30">
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2.5 text-left text-xs text-zinc-400 transition-colors hover:bg-zinc-800/50"
         >
-          <Icon className="h-3.5 w-3.5 shrink-0 text-orange-500/80" />
+          <Icon className="h-3.5 w-3.5 shrink-0 text-blue-500/80" />
           <span className="min-w-0 flex-1 font-medium text-zinc-300">{summary}</span>
           {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
         </button>
@@ -224,7 +224,7 @@ function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLE
 
   if (isInline) {
     return (
-      <code className="rounded-md bg-zinc-800 px-1.5 py-0.5 text-[13px] text-orange-400" {...props}>
+      <code className="rounded-md bg-zinc-800 px-1.5 py-0.5 text-[13px] text-blue-400" {...props}>
         {children}
       </code>
     )

@@ -12,9 +12,9 @@
   --color-dc-gray-light: #374151;
   --color-dc-light: #e5e7eb;
 
-  /* Accent — warm orange */
-  --color-dc-accent: #f97316;
-  --color-dc-accent-soft: #f9731620;
+  /* Accent — modern blue */
+  --color-dc-accent: #3b82f6;
+  --color-dc-accent-soft: #3b82f620;
 
   /* Semantic tokens */
   --color-primary: #f9fafb;
@@ -22,7 +22,7 @@
   --color-muted: #1f2937;
   --color-muted-foreground: #9ca3af;
   --color-border: #1f2937;
-  --color-accent: #f97316;
+  --color-accent: #3b82f6;
   --color-accent-foreground: #ffffff;
   --color-destructive: #ef4444;
   --color-success: #22c55e;
@@ -49,7 +49,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
   color: #e5e7eb;
   background: #0b0f1a;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 /* ── Scrollbar ── */
@@ -72,7 +72,7 @@ body {
 
 /* ── Focus ── */
 *:focus-visible {
-  outline: 2px solid #f97316;
+  outline: 2px solid #3b82f6;
   outline-offset: 2px;
 }
 
@@ -121,7 +121,7 @@ body {
 
 /* Shimmer bar on streaming messages */
 .stream-shimmer {
-  background: linear-gradient(90deg, transparent 30%, rgba(249,115,22,0.06) 50%, transparent 70%);
+  background: linear-gradient(90deg, transparent 30%, rgba(59,130,246,0.06) 50%, transparent 70%);
   background-size: 200% 100%;
   animation: stream-shimmer 2s ease-in-out infinite;
 }
@@ -152,11 +152,11 @@ body {
   padding: 0.125rem 0.375rem;
   border-radius: var(--radius-sm);
   font-size: 0.875em;
-  color: #f97316;
+  color: #3b82f6;
 }
 
 /* ── Selection ── */
 ::selection {
-  background: #f9731640;
+  background: #3b82f640;
   color: #fff;
 }

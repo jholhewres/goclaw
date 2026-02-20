@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Search, MessageSquare, Trash2, MessageCircle } from 'lucide-react'
 import { api, type SessionInfo } from '@/lib/api'
 import { timeAgo } from '@/lib/utils'
 
 export function Sessions() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [search, setSearch] = useState('')
@@ -40,7 +42,7 @@ export function Sessions() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-10 w-10 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-10 w-10 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -48,13 +50,13 @@ export function Sessions() {
   return (
     <div className="flex-1 overflow-y-auto bg-dc-darker">
       <div className="mx-auto max-w-5xl px-8 py-10">
-        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">Histórico</p>
-        <h1 className="mt-1 text-2xl font-black text-white tracking-tight">Sessões</h1>
-        <p className="mt-2 text-base text-zinc-500">{sessions.length} conversas</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">{t('sidebar.sessions')}</p>
+        <h1 className="mt-1 text-2xl font-black text-white tracking-tight">{t('sessions.title')}</h1>
+        <p className="mt-2 text-base text-zinc-500">{sessions.length} {t('sessions.subtitle')}</p>
 
         {loadError && (
           <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
-            Erro ao carregar sessões
+            {t('common.error')}
           </div>
         )}
 
@@ -64,8 +66,8 @@ export function Sessions() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar sessões..."
-            className="w-full rounded-2xl border border-white/8 bg-dc-dark px-5 py-4 pl-14 text-base text-white outline-none placeholder:text-zinc-600 transition-all focus:border-orange-500/30 focus:ring-2 focus:ring-orange-500/10"
+            placeholder={t('sessions.searchPlaceholder')}
+            className="w-full rounded-2xl border border-white/8 bg-dc-dark px-5 py-4 pl-14 text-base text-white outline-none placeholder:text-zinc-600 transition-all focus:border-blue-500/30 focus:ring-2 focus:ring-blue-500/10"
           />
         </div>
 
@@ -74,13 +76,13 @@ export function Sessions() {
           {filtered.map((session) => (
             <div
               key={session.id}
-              className="group flex items-center rounded-2xl border border-white/6 bg-dc-dark transition-all hover:border-orange-500/20"
+              className="group flex items-center rounded-2xl border border-white/6 bg-dc-dark transition-all hover:border-blue-500/20"
             >
               <button
                 onClick={() => navigate(`/chat/${encodeURIComponent(session.id)}`)}
                 className="flex flex-1 cursor-pointer items-center gap-5 px-6 py-5 text-left"
               >
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-zinc-500 group-hover:bg-orange-500/15 group-hover:text-orange-400 transition-colors">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 text-zinc-500 group-hover:bg-blue-500/15 group-hover:text-blue-400 transition-colors">
                   <MessageSquare className="h-6 w-6" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -88,7 +90,7 @@ export function Sessions() {
                     {session.chat_id || session.id}
                   </p>
                   <p className="mt-1 text-sm text-zinc-500">
-                    {session.message_count} mensagens · {timeAgo(session.last_message_at)}
+                    {session.message_count} {t('sessions.messages')} · {timeAgo(session.last_message_at)}
                   </p>
                 </div>
                 <span className="rounded-full bg-white/4 px-3 py-1 text-xs font-bold uppercase tracking-wider text-zinc-500">
@@ -104,7 +106,7 @@ export function Sessions() {
                   }}
                   className="mr-4 flex cursor-pointer items-center gap-1 rounded-xl bg-red-500/10 px-3 py-2 text-xs font-medium text-red-400 transition-all hover:bg-red-500/20"
                 >
-                  Confirmar
+                  {t('common.confirm')}
                 </button>
               ) : (
                 <button
@@ -113,7 +115,7 @@ export function Sessions() {
                     setConfirmingDelete(session.id)
                     setTimeout(() => setConfirmingDelete(null), 3000)
                   }}
-                  aria-label="Excluir sessão"
+                  aria-label="Delete session"
                   className="mr-4 cursor-pointer rounded-xl p-3 text-zinc-600 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
                 >
                   <Trash2 className="h-5 w-5" />
@@ -128,7 +130,7 @@ export function Sessions() {
                 <MessageCircle className="h-8 w-8 text-zinc-700" />
               </div>
               <p className="mt-4 text-lg font-semibold text-zinc-500">
-                {search ? 'Nenhuma sessão encontrada' : 'Nenhuma sessão ativa'}
+                {search ? t('sessions.noResults') : t('sessions.noSessions')}
               </p>
             </div>
           )}

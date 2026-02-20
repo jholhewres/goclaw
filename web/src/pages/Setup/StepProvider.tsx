@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CheckCircle2, XCircle, Loader2, Key, Cpu, ExternalLink, Link } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { SetupData } from './SetupWizard'
@@ -195,6 +196,7 @@ const PROVIDERS: ProviderDef[] = [
 ]
 
 export function StepProvider({ data, updateData }: Props) {
+  const { t } = useTranslation()
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null)
 
@@ -213,7 +215,7 @@ export function StepProvider({ data, updateData }: Props) {
       const result = await api.setup.testProvider(data.provider, data.apiKey, data.model, data.baseUrl)
       setTestResult(result)
     } catch (err) {
-      setTestResult({ success: false, error: err instanceof Error ? err.message : 'Connection test failed' })
+      setTestResult({ success: false, error: err instanceof Error ? err.message : t('setupPage.connectionFailed') })
     } finally {
       setTesting(false)
     }
@@ -222,9 +224,9 @@ export function StepProvider({ data, updateData }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-white">AI Provider</h2>
+        <h2 className="text-lg font-semibold text-white">{t('setupPage.providerTitle')}</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Choose the language model that will power your assistant
+          {t('setupPage.providerDesc')}
         </p>
       </div>
 
@@ -233,7 +235,7 @@ export function StepProvider({ data, updateData }: Props) {
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <Cpu className="h-3.5 w-3.5 text-zinc-500" />
-            Provider
+            {t('setupPage.provider')}
           </label>
           <div className="grid grid-cols-3 gap-2">
             {PROVIDERS.map((p) => {
@@ -248,11 +250,11 @@ export function StepProvider({ data, updateData }: Props) {
                   }}
                   className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center transition-all ${
                     isActive
-                      ? 'border-orange-500/50 bg-orange-500/10 ring-1 ring-orange-500/20'
+                      ? 'border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20'
                       : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/60'
                   }`}
                 >
-                  <div className={isActive ? 'text-orange-400' : 'text-zinc-400'}>
+                  <div className={isActive ? 'text-blue-400' : 'text-zinc-400'}>
                     <Icon />
                   </div>
                   <span className="text-[11px] font-medium text-zinc-300">{p.label}</span>
@@ -267,7 +269,7 @@ export function StepProvider({ data, updateData }: Props) {
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
               <Link className="h-3.5 w-3.5 text-zinc-500" />
-              Endpoint
+              {t('setupPage.endpoint')}
             </label>
             <div className="grid grid-cols-2 gap-2">
               {provider.baseUrls.map((ep) => {
@@ -278,7 +280,7 @@ export function StepProvider({ data, updateData }: Props) {
                     onClick={() => updateData({ baseUrl: ep.value })}
                     className={`cursor-pointer rounded-lg border px-3 py-2 text-left text-xs transition-all ${
                       isActive
-                        ? 'border-orange-500/50 bg-orange-500/10 ring-1 ring-orange-500/20'
+                        ? 'border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20'
                         : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/60'
                     }`}
                   >
@@ -306,7 +308,7 @@ export function StepProvider({ data, updateData }: Props) {
               value={data.baseUrl}
               onChange={(e) => updateData({ baseUrl: e.target.value })}
               placeholder="https://api.example.com/v1"
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 font-mono text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 font-mono text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
             />
             <p className="mt-1.5 text-xs text-zinc-500">
               OpenAI-compatible endpoint (<code className="text-zinc-400">/v1/chat/completions</code>)
@@ -319,7 +321,7 @@ export function StepProvider({ data, updateData }: Props) {
           <div>
             <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
               <Key className="h-3.5 w-3.5 text-zinc-500" />
-              API Key
+              {t('setupPage.apiKey')}
             </label>
             <input
               type="password"
@@ -328,11 +330,11 @@ export function StepProvider({ data, updateData }: Props) {
                 updateData({ apiKey: e.target.value })
                 setTestResult(null)
               }}
-              placeholder={provider?.keyPlaceholder || 'Your API key'}
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+              placeholder={provider?.keyPlaceholder || t('setupPage.apiKey')}
+              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
             />
             <p className="mt-1.5 text-xs text-zinc-500">
-              Encrypted with AES-256-GCM and stored in the local vault
+              {t('setupPage.apiKeyHint')}
             </p>
           </div>
         )}
@@ -341,15 +343,15 @@ export function StepProvider({ data, updateData }: Props) {
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <Cpu className="h-3.5 w-3.5 text-zinc-500" />
-            Model
+            {t('setupPage.model')}
           </label>
           {visibleModels.length > 0 ? (
             <select
               value={data.model}
               onChange={(e) => updateData({ model: e.target.value })}
-              className="flex h-11 w-full cursor-pointer rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+              className="flex h-11 w-full cursor-pointer rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
             >
-              <option value="">Select a model</option>
+              <option value="">{t('setupPage.selectModel')}</option>
               {activeEndpoint?.extraModels && activeEndpoint.extraModels.length > 0 && (
                 <optgroup label={activeEndpoint.label}>
                   {activeEndpoint.extraModels.map((m) => (
@@ -369,8 +371,8 @@ export function StepProvider({ data, updateData }: Props) {
             <input
               value={data.model}
               onChange={(e) => updateData({ model: e.target.value })}
-              placeholder="Model name (e.g. provider/model-name)"
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+              placeholder={t('setupPage.modelName')}
+              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
             />
           )}
         </div>
@@ -387,14 +389,14 @@ export function StepProvider({ data, updateData }: Props) {
             ) : (
               <ExternalLink className="h-3.5 w-3.5" />
             )}
-            Test connection
+            {t('setupPage.testConnection')}
           </button>
 
           {testResult && (
             <div className="flex items-center gap-1.5 text-sm">
               {testResult.success ? (
                 <span className="flex items-center gap-1.5 text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4" /> Connected
+                  <CheckCircle2 className="h-4 w-4" /> {t('setupPage.connected')}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-red-400">

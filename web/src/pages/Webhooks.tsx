@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Webhook,
   Plus,
@@ -16,25 +17,25 @@ import { api } from '@/lib/api'
 import type { WebhookInfo } from '@/lib/api'
 
 const inputClass =
-  'flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10'
+  'flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10'
 
 /**
- * Página de gerenciamento de Webhooks.
- * Permite criar, listar, ativar/desativar e excluir webhooks do Gateway.
+ * Webhook management page.
  */
 export function Webhooks() {
+  const { t } = useTranslation()
   const [webhooks, setWebhooks] = useState<WebhookInfo[]>([])
   const [validEvents, setValidEvents] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  /* Formulário de criação */
+  /* Create form */
   const [showForm, setShowForm] = useState(false)
   const [newUrl, setNewUrl] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
 
-  /* ID copiado (para feedback visual) */
+  /* Copied ID (for visual feedback) */
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const loadWebhooks = useCallback(async () => {
@@ -43,17 +44,17 @@ export function Webhooks() {
       setWebhooks(data.webhooks || [])
       setValidEvents(data.valid_events || [])
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao carregar webhooks' })
+      setMessage({ type: 'error', text: t('common.error') })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadWebhooks()
   }, [loadWebhooks])
 
-  /** Cria um novo webhook */
+  /** Create a new webhook */
   const handleCreate = async () => {
     if (!newUrl.trim()) return
     setCreating(true)
@@ -63,39 +64,39 @@ export function Webhooks() {
       setNewUrl('')
       setSelectedEvents([])
       setShowForm(false)
-      setMessage({ type: 'success', text: 'Webhook criado com sucesso' })
+      setMessage({ type: 'success', text: t('common.success') })
       await loadWebhooks()
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao criar webhook' })
+      setMessage({ type: 'error', text: t('common.error') })
     } finally {
       setCreating(false)
     }
   }
 
-  /** Exclui um webhook */
+  /** Delete a webhook */
   const handleDelete = async (id: string) => {
     setMessage(null)
     try {
       await api.webhooks.delete(id)
-      setMessage({ type: 'success', text: 'Webhook removido' })
+      setMessage({ type: 'success', text: t('common.success') })
       await loadWebhooks()
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao remover webhook' })
+      setMessage({ type: 'error', text: t('common.error') })
     }
   }
 
-  /** Ativa/desativa um webhook */
+  /** Toggle webhook active status */
   const handleToggle = async (id: string, active: boolean) => {
     setMessage(null)
     try {
       await api.webhooks.toggle(id, active)
       await loadWebhooks()
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao atualizar webhook' })
+      setMessage({ type: 'error', text: t('common.error') })
     }
   }
 
-  /** Alterna seleção de evento no formulário */
+  /** Toggle event selection in form */
   const toggleEvent = (event: string) => {
     setSelectedEvents((prev) =>
       prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event]
@@ -116,7 +117,7 @@ export function Webhooks() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-10 w-10 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-10 w-10 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -137,7 +138,7 @@ export function Webhooks() {
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-orange-500 to-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition-all hover:shadow-orange-500/30"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-blue-500 to-blue-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition-all hover:shadow-blue-500/30"
           >
             <Plus className="h-4 w-4" />
             Novo Webhook
@@ -174,7 +175,7 @@ export function Webhooks() {
                   className={inputClass}
                 />
                 <p className="mt-1.5 text-xs text-zinc-500">
-                  O DevClaw enviará um POST com o payload JSON do evento
+                  DevClaw will send a POST with the event's JSON payload
                 </p>
               </div>
 
@@ -190,7 +191,7 @@ export function Webhooks() {
                         onClick={() => toggleEvent(event)}
                         className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
                           isSelected
-                            ? 'bg-orange-500/20 text-orange-300 ring-1 ring-orange-500/30'
+                            ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30'
                             : 'bg-zinc-800/50 text-zinc-400 ring-1 ring-zinc-700/30 hover:ring-zinc-600 hover:text-zinc-300'
                         }`}
                       >
@@ -222,7 +223,7 @@ export function Webhooks() {
                 <button
                   onClick={handleCreate}
                   disabled={creating || !newUrl.trim()}
-                  className="flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex cursor-pointer items-center gap-2 rounded-xl bg-blue-500 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {creating ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -239,8 +240,8 @@ export function Webhooks() {
         {/* Lista de webhooks */}
         <div className="mt-8">
           <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/10">
-              <Webhook className="h-4.5 w-4.5 text-orange-400" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10">
+              <Webhook className="h-4.5 w-4.5 text-blue-400" />
             </div>
             <div>
               <h2 className="text-base font-bold text-white">Webhooks registrados</h2>
@@ -260,7 +261,7 @@ export function Webhooks() {
               </p>
               <button
                 onClick={() => setShowForm(true)}
-                className="mt-4 cursor-pointer text-sm font-medium text-orange-400 hover:text-orange-300 transition-colors"
+                className="mt-4 cursor-pointer text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors"
               >
                 Criar primeiro webhook
               </button>
@@ -287,7 +288,7 @@ export function Webhooks() {
           <div className="grid grid-cols-2 gap-y-2 gap-x-4">
             {validEvents.map((event) => (
               <div key={event} className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-orange-400/60" />
+                <div className="h-1.5 w-1.5 rounded-full bg-blue-400/60" />
                 <code className="text-xs font-mono text-zinc-400">{event}</code>
               </div>
             ))}
@@ -418,8 +419,8 @@ function WebhookCard({
       <div className="mt-3 flex items-center gap-4 text-[11px] text-zinc-600">
         <span>ID: {webhook.id}</span>
         <span>
-          Criado em{' '}
-          {new Date(webhook.created_at).toLocaleDateString('pt-BR', {
+          Created on{' '}
+          {new Date(webhook.created_at).toLocaleDateString('en-US', {
             day: '2-digit',
             month: 'short',
             year: 'numeric',

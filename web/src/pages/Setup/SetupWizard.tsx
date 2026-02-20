@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CheckCircle2, ArrowRight, ArrowLeft, Sparkles, Loader2 } from 'lucide-react'
 import { StepIdentity } from './StepIdentity'
 import { StepProvider } from './StepProvider'
@@ -47,23 +48,24 @@ const INITIAL_DATA: SetupData = {
   enabledSkills: [],
 }
 
-const STEPS = [
-  { id: 1, label: 'Identity' },
-  { id: 2, label: 'Provider' },
-  { id: 3, label: 'Security' },
-  { id: 4, label: 'Channels' },
-  { id: 5, label: 'Skills' },
-]
-
 /**
  * 5-step setup wizard with modern visual stepper.
  */
 export function SetupWizard() {
+  const { t } = useTranslation()
   const [step, setStep] = useState(1)
   const [data, setData] = useState<SetupData>(INITIAL_DATA)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
+
+  const STEPS = [
+    { id: 1, label: t('setupPage.steps.identity') },
+    { id: 2, label: t('setupPage.steps.provider') },
+    { id: 3, label: t('setupPage.steps.security') },
+    { id: 4, label: t('setupPage.steps.channels') },
+    { id: 5, label: t('setupPage.steps.skills') },
+  ]
 
   const updateData = (partial: Partial<SetupData>) => {
     setData((prev) => ({ ...prev, ...partial }))
@@ -85,10 +87,10 @@ export function SetupWizard() {
         setDone(true)
       } else {
         const body = await res.json().catch(() => ({}))
-        setError(body.error || 'Failed to save configuration')
+        setError(body.error || t('setupPage.errorFailed'))
       }
     } catch {
-      setError('Connection error')
+      setError(t('setupPage.errorConnection'))
     } finally {
       setSubmitting(false)
     }
@@ -113,7 +115,7 @@ export function SetupWizard() {
                   disabled={id > step}
                   className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold transition-all duration-300 ${
                     id === step
-                      ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25 ring-4 ring-orange-500/10'
+                      ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25 ring-4 ring-blue-500/10'
                       : id < step
                         ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20 cursor-pointer hover:bg-emerald-500/25'
                         : 'bg-zinc-800/60 text-zinc-600 ring-1 ring-zinc-700/50'
@@ -127,7 +129,7 @@ export function SetupWizard() {
                 </button>
                 <span className={`text-[11px] font-medium transition-colors ${
                   id === step
-                    ? 'text-orange-400'
+                    ? 'text-blue-400'
                     : id < step
                       ? 'text-emerald-400/70'
                       : 'text-zinc-600'
@@ -177,7 +179,7 @@ export function SetupWizard() {
           className="flex cursor-pointer items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-300 disabled:pointer-events-none disabled:opacity-0"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back
+          {t('setupPage.back')}
         </button>
 
         <div className="flex items-center gap-4">
@@ -188,7 +190,7 @@ export function SetupWizard() {
                 key={id}
                 className={`h-1.5 rounded-full transition-all duration-300 ${
                   id === step
-                    ? 'w-6 bg-orange-500'
+                    ? 'w-6 bg-blue-500'
                     : id < step
                       ? 'w-1.5 bg-emerald-500/50'
                       : 'w-1.5 bg-zinc-700'
@@ -200,9 +202,9 @@ export function SetupWizard() {
           {step < 5 ? (
             <button
               onClick={next}
-              className="group flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-orange-500/20 transition-all hover:bg-orange-400 hover:shadow-orange-500/30"
+              className="group flex cursor-pointer items-center gap-2 rounded-xl bg-blue-500 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-400 hover:shadow-blue-500/30"
             >
-              Next
+              {t('setupPage.next')}
               <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </button>
           ) : (
@@ -214,12 +216,12 @@ export function SetupWizard() {
               {submitting ? (
                 <>
                   <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Setting up...
+                  {t('setupPage.settingUp')}
                 </>
               ) : (
                 <>
                   <Sparkles className="h-3.5 w-3.5" />
-                  Finish
+                  {t('setupPage.finish')}
                 </>
               )}
             </button>
@@ -235,6 +237,7 @@ export function SetupWizard() {
  * then auto-redirects to the dashboard.
  */
 function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
+  const { t } = useTranslation()
   const [phase, setPhase] = useState<'restarting' | 'ready'>('restarting')
 
   useEffect(() => {
@@ -271,19 +274,19 @@ function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
     <div className="flex flex-col items-center gap-5 py-6 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 ring-1 ring-emerald-500/20">
         {phase === 'restarting' ? (
-          <Loader2 className="h-8 w-8 animate-spin text-orange-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
         ) : (
           <CheckCircle2 className="h-8 w-8 text-emerald-400" />
         )}
       </div>
       <div>
         <h2 className="text-xl font-semibold text-white">
-          {phase === 'restarting' ? 'Starting up...' : 'All set!'}
+          {phase === 'restarting' ? t('setupPage.startingUp') : t('setupPage.allSet')}
         </h2>
         <p className="mt-2 text-sm text-zinc-400 max-w-sm">
           {phase === 'restarting'
-            ? 'The server is restarting with the new configuration. Please wait...'
-            : 'Redirecting to dashboard...'
+            ? t('setupPage.restartingDesc')
+            : t('setupPage.redirecting')
           }
         </p>
       </div>
@@ -292,14 +295,14 @@ function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
       <div className="w-48 h-1 rounded-full bg-zinc-800 overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-1000 ${
           phase === 'restarting'
-            ? 'w-2/3 bg-orange-500 animate-pulse'
+            ? 'w-2/3 bg-blue-500 animate-pulse'
             : 'w-full bg-emerald-500'
         }`} />
       </div>
 
       {hasPassword && phase === 'ready' && (
         <p className="text-xs text-zinc-500">
-          Use the password you set in the Security step to log in.
+          {t('setupPage.usePasswordHint')}
         </p>
       )}
     </div>

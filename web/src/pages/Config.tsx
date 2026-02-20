@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Save, RotateCcw, Image, Mic, Eye, EyeOff, ChevronDown } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Save, RotateCcw, Image, Mic, Eye, EyeOff, ChevronDown, Cpu } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface MediaConfig {
@@ -21,7 +22,51 @@ interface ConfigData {
   timezone: string
   provider: string
   base_url: string
+  api_key_configured: boolean
   media: MediaConfig
+}
+
+const LLM_MODELS: Record<string, { label: string; models: string[] }> = {
+  'openai': {
+    label: 'OpenAI',
+    models: ['gpt-5.3-codex', 'gpt-5.2-instant', 'gpt-5.2-thinking', 'o3', 'o4-mini', 'o3-pro', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano'],
+  },
+  'anthropic': {
+    label: 'Anthropic',
+    models: ['claude-opus-4.6', 'claude-opus-4.5', 'claude-sonnet-4.5', 'claude-haiku-4.5', 'claude-sonnet-4-20250514'],
+  },
+  'google': {
+    label: 'Google',
+    models: ['gemini-3-pro', 'gemini-3-flash', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
+  },
+  'zai': {
+    label: 'Z.AI',
+    models: ['glm-5', 'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx'],
+  },
+  'xai': {
+    label: 'xAI',
+    models: ['grok-4', 'grok-4.1-fast', 'grok-3', 'grok-3-mini'],
+  },
+  'groq': {
+    label: 'Groq',
+    models: ['llama-4-scout-17b-16e-instruct', 'llama-4-maverick-17b-128e-instruct', 'deepseek-r1-distill-llama-70b', 'qwen-qwq-32b'],
+  },
+  'openrouter': {
+    label: 'OpenRouter',
+    models: [],
+  },
+  'minimax': {
+    label: 'MiniMax',
+    models: ['MiniMax-M2.5', 'MiniMax-M2.5-Lightning', 'MiniMax-M2.1', 'MiniMax-VL-01'],
+  },
+  'ollama': {
+    label: 'Ollama',
+    models: [],
+  },
+  'custom': {
+    label: 'Custom',
+    models: [],
+  },
 }
 
 const VISION_MODELS: Record<string, { label: string; models: { value: string; label: string }[] }> = {
@@ -77,7 +122,7 @@ function Toggle({ enabled, onChange, label }: { enabled: boolean; onChange: (v: 
       onClick={() => onChange(!enabled)}
       className="flex items-center gap-3 group cursor-pointer"
     >
-      <div className={`relative h-6 w-11 rounded-full transition-colors ${enabled ? 'bg-orange-500' : 'bg-zinc-700'}`}>
+      <div className={`relative h-6 w-11 rounded-full transition-colors ${enabled ? 'bg-blue-500' : 'bg-zinc-700'}`}>
         <div className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : ''}`} />
       </div>
       <span className="text-sm text-zinc-300 group-hover:text-white transition-colors">{label}</span>
@@ -96,7 +141,7 @@ function Select({ value, onChange, options, placeholder }: {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full appearance-none rounded-xl border border-white/8 bg-dc-dark px-4 py-3 pr-10 text-sm text-zinc-200 outline-none transition-colors hover:border-white/15 focus:border-orange-500/50"
+        className="w-full appearance-none rounded-xl border border-white/8 bg-dc-dark px-4 py-3 pr-10 text-sm text-zinc-200 outline-none transition-colors hover:border-white/15 focus:border-blue-500/50"
       >
         {placeholder && <option value="">{placeholder}</option>}
         {options.map((opt) => (
@@ -124,7 +169,7 @@ function Input({ value, onChange, placeholder, type = 'text' }: {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full rounded-xl border border-white/8 bg-dc-dark px-4 py-3 pr-10 text-sm text-zinc-200 outline-none transition-colors placeholder:text-zinc-600 hover:border-white/15 focus:border-orange-500/50"
+          className="w-full rounded-xl border border-white/8 bg-dc-dark px-4 py-3 pr-10 text-sm text-zinc-200 outline-none transition-colors placeholder:text-zinc-600 hover:border-white/15 focus:border-blue-500/50"
         />
         <button
           type="button"
@@ -143,12 +188,13 @@ function Input({ value, onChange, placeholder, type = 'text' }: {
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-xl border border-white/8 bg-dc-dark px-4 py-3 text-sm text-zinc-200 outline-none transition-colors placeholder:text-zinc-600 hover:border-white/15 focus:border-orange-500/50"
+      className="w-full rounded-xl border border-white/8 bg-dc-dark px-4 py-3 text-sm text-zinc-200 outline-none transition-colors placeholder:text-zinc-600 hover:border-white/15 focus:border-blue-500/50"
     />
   )
 }
 
 export function Config() {
+  const { t } = useTranslation()
   const [config, setConfig] = useState<ConfigData | null>(null)
   const [original, setOriginal] = useState<ConfigData | null>(null)
   const [saving, setSaving] = useState(false)
@@ -156,6 +202,7 @@ export function Config() {
   const [loadError, setLoadError] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [transcriptionApiKey, setTranscriptionApiKey] = useState('')
+  const [mainApiKey, setMainApiKey] = useState('')
 
   useEffect(() => {
     api.config.get()
@@ -168,7 +215,7 @@ export function Config() {
       .finally(() => setLoading(false))
   }, [])
 
-  const hasChanges = JSON.stringify(config) !== JSON.stringify(original) || transcriptionApiKey !== ''
+  const hasChanges = JSON.stringify(config) !== JSON.stringify(original) || transcriptionApiKey !== '' || mainApiKey !== ''
 
   const updateMedia = useCallback((key: keyof MediaConfig, value: unknown) => {
     setConfig((prev) => prev ? { ...prev, media: { ...prev.media, [key]: value } } : prev)
@@ -194,18 +241,25 @@ export function Config() {
     setMessage(null)
     try {
       const payload: Record<string, unknown> = {
+        provider: config.provider,
+        model: config.model,
+        base_url: config.base_url,
         media: {
           ...config.media,
           transcription_api_key: transcriptionApiKey || undefined,
         },
       }
+      if (mainApiKey) {
+        payload.api_key = mainApiKey
+      }
       const result = await api.config.update(payload) as unknown as ConfigData
       setConfig(result)
       setOriginal(JSON.parse(JSON.stringify(result)))
       setTranscriptionApiKey('')
-      setMessage({ type: 'success', text: 'Configuração salva com sucesso' })
+      setMainApiKey('')
+      setMessage({ type: 'success', text: t('common.success') })
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao salvar configuração' })
+      setMessage({ type: 'error', text: t('common.error') })
     } finally {
       setSaving(false)
     }
@@ -215,6 +269,7 @@ export function Config() {
     if (original) {
       setConfig(JSON.parse(JSON.stringify(original)))
       setTranscriptionApiKey('')
+      setMainApiKey('')
     }
     setMessage(null)
   }
@@ -222,7 +277,7 @@ export function Config() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-10 w-10 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-10 w-10 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -230,9 +285,9 @@ export function Config() {
   if (loadError || !config) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center bg-dc-darker">
-        <p className="text-sm text-red-400">Erro ao carregar configuração</p>
-        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-orange-400 hover:text-orange-300 transition-colors cursor-pointer">
-          Tentar novamente
+        <p className="text-sm text-red-400">{t('common.error')}</p>
+        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors cursor-pointer">
+          {t('common.loading')}
         </button>
       </div>
     )
@@ -242,16 +297,19 @@ export function Config() {
     group.models.map((m) => ({ ...m, group: group.label }))
   )
 
+  const currentProviderDef = LLM_MODELS[config.provider]
+  const availableModels = currentProviderDef?.models || []
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-dc-darker">
       <div className="mx-auto w-full max-w-4xl flex-1 overflow-y-auto px-8 py-10">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">Sistema</p>
-            <h1 className="mt-1 text-2xl font-black text-white tracking-tight">Configuração</h1>
+            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">{t('config.subtitle')}</p>
+            <h1 className="mt-1 text-2xl font-black text-white tracking-tight">{t('config.title')}</h1>
             <p className="mt-2 text-base text-zinc-500">
-              {config.name} &middot; {config.provider} &middot; {config.model}
+              {config.name}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -267,7 +325,7 @@ export function Config() {
             <button
               onClick={handleSave}
               disabled={!hasChanges || saving}
-              className="flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-orange-500 to-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition-all hover:shadow-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-blue-500 to-blue-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition-all hover:shadow-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4" />
               {saving ? 'Salvando...' : 'Salvar'}
@@ -284,6 +342,82 @@ export function Config() {
             {message.text}
           </div>
         )}
+
+        {/* Provider & Model Section */}
+        <section className="mt-10">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20">
+              <Cpu className="h-5 w-5 text-blue-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-white">Provider & Modelo LLM</h2>
+              <p className="text-sm text-zinc-500">Configuração do modelo de linguagem principal</p>
+            </div>
+          </div>
+
+          <div className="space-y-5 rounded-2xl border border-white/6 bg-dc-dark p-6">
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Provider
+              </label>
+              <Select
+                value={config.provider}
+                onChange={(v) => setConfig((prev) => prev ? { ...prev, provider: v, model: '' } : prev)}
+                options={Object.entries(LLM_MODELS).map(([key, val]) => ({ value: key, label: val.label }))}
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Modelo
+              </label>
+              {availableModels.length > 0 ? (
+                <Select
+                  value={config.model}
+                  onChange={(v) => setConfig((prev) => prev ? { ...prev, model: v } : prev)}
+                  options={availableModels.map((m) => ({ value: m, label: m }))}
+                  placeholder="Selecione um modelo"
+                />
+              ) : (
+                <Input
+                  value={config.model}
+                  onChange={(v) => setConfig((prev) => prev ? { ...prev, model: v } : prev)}
+                  placeholder="Nome do modelo (ex: provider/model-name)"
+                />
+              )}
+            </div>
+
+            {(config.provider === 'custom' || config.provider === 'zai') && (
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Base URL
+                </label>
+                <Input
+                  value={config.base_url}
+                  onChange={(v) => setConfig((prev) => prev ? { ...prev, base_url: v } : prev)}
+                  placeholder="https://api.example.com/v1"
+                />
+              </div>
+            )}
+
+            {config.provider !== 'ollama' && (
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  API Key
+                </label>
+                <Input
+                  value={mainApiKey}
+                  onChange={setMainApiKey}
+                  placeholder={config.api_key_configured ? '••••••• (configurada)' : 'Sua API key'}
+                  type="password"
+                />
+                <p className="mt-2 text-xs text-zinc-600">
+                  Criptografada com AES-256-GCM e armazenada no vault local
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
 
         {/* Vision Section */}
         <section className="mt-10">

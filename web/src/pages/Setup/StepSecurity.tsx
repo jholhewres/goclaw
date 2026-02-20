@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Shield, ShieldCheck, ShieldAlert, Lock, KeyRound, Eye, EyeOff, Info } from 'lucide-react'
 import type { SetupData } from './SetupWizard'
 
@@ -6,30 +7,6 @@ interface Props {
   data: SetupData
   updateData: (partial: Partial<SetupData>) => void
 }
-
-const MODES = [
-  {
-    value: 'relaxed' as const,
-    label: 'Relaxed',
-    description: 'Tools run without asking permission. Ideal for personal use.',
-    icon: Shield,
-    color: 'emerald',
-  },
-  {
-    value: 'strict' as const,
-    label: 'Strict',
-    description: 'Potentially dangerous commands require approval before running.',
-    icon: ShieldCheck,
-    color: 'blue',
-  },
-  {
-    value: 'paranoid' as const,
-    label: 'Paranoid',
-    description: 'All external actions require approval. Maximum security.',
-    icon: ShieldAlert,
-    color: 'amber',
-  },
-]
 
 const COLOR_MAP = {
   emerald: {
@@ -50,16 +27,41 @@ const COLOR_MAP = {
 }
 
 export function StepSecurity({ data, updateData }: Props) {
+  const { t } = useTranslation()
   const [showPassword, setShowPassword] = useState(false)
   const [showVault, setShowVault] = useState(false)
   const [customVaultEnabled, setCustomVaultEnabled] = useState(false)
 
+  const MODES = [
+    {
+      value: 'relaxed' as const,
+      label: t('setupPage.modeRelaxed'),
+      description: t('setupPage.modeRelaxedDesc'),
+      icon: Shield,
+      color: 'emerald',
+    },
+    {
+      value: 'strict' as const,
+      label: t('setupPage.modeStrict'),
+      description: t('setupPage.modeStrictDesc'),
+      icon: ShieldCheck,
+      color: 'blue',
+    },
+    {
+      value: 'paranoid' as const,
+      label: t('setupPage.modeParanoid'),
+      description: t('setupPage.modeParanoidDesc'),
+      icon: ShieldAlert,
+      color: 'amber',
+    },
+  ]
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-white">Security</h2>
+        <h2 className="text-lg font-semibold text-white">{t('setupPage.securityTitle')}</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Protect access and set the tool permission level
+          {t('setupPage.securityDesc')}
         </p>
       </div>
 
@@ -68,7 +70,7 @@ export function StepSecurity({ data, updateData }: Props) {
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <Lock className="h-3.5 w-3.5 text-zinc-500" />
-            Web UI Password
+            {t('setupPage.webuiPassword')}
           </label>
           <div className="relative">
             <input
@@ -81,8 +83,8 @@ export function StepSecurity({ data, updateData }: Props) {
                   ...(!customVaultEnabled ? { vaultPassword: val } : {}),
                 })
               }}
-              placeholder="Set a password for the dashboard"
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+              placeholder={t('setupPage.webuiPassword')}
+              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
             />
             <button
               type="button"
@@ -94,26 +96,26 @@ export function StepSecurity({ data, updateData }: Props) {
             </button>
           </div>
           <p className="mt-1.5 text-xs text-zinc-500">
-            Optional for local access. Recommended if exposed to the internet.
+            {t('setupPage.webuiPasswordHint')}
           </p>
         </div>
 
         {/* Vault Password */}
         <div className="rounded-xl border border-zinc-700/30 bg-zinc-800/20 p-4">
           <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500/10">
-              <KeyRound className="h-4 w-4 text-orange-400" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+              <KeyRound className="h-4 w-4 text-blue-400" />
             </div>
             <div className="flex-1">
-              <h3 className="text-sm font-medium text-white">Vault</h3>
+              <h3 className="text-sm font-medium text-white">{t('setupPage.vault')}</h3>
               <p className="mt-1 text-xs text-zinc-400">
-                Your credentials are encrypted (AES-256). Uses the same password as the Web UI by default.
+                {t('setupPage.vaultDesc')}
               </p>
 
               <div className="mt-3 flex items-center gap-2">
                 <button
                   type="button"
-                  aria-label="Use a different password for the vault"
+                  aria-label={t('setupPage.vaultDifferent')}
                   onClick={() => {
                     const next = !customVaultEnabled
                     setCustomVaultEnabled(next)
@@ -122,14 +124,14 @@ export function StepSecurity({ data, updateData }: Props) {
                     }
                   }}
                   className={`relative h-5 w-9 rounded-full transition-colors ${
-                    customVaultEnabled ? 'bg-orange-500' : 'bg-zinc-700'
+                    customVaultEnabled ? 'bg-blue-500' : 'bg-zinc-700'
                   }`}
                 >
                   <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
                     customVaultEnabled ? 'translate-x-4' : 'translate-x-0.5'
                   }`} />
                 </button>
-                <span className="text-xs text-zinc-400">Use a different password for the vault</span>
+                <span className="text-xs text-zinc-400">{t('setupPage.vaultDifferent')}</span>
               </div>
 
               {customVaultEnabled && (
@@ -139,8 +141,8 @@ export function StepSecurity({ data, updateData }: Props) {
                       type={showVault ? 'text' : 'password'}
                       value={data.vaultPassword}
                       onChange={(e) => updateData({ vaultPassword: e.target.value })}
-                      placeholder="Vault password (AES-256 + Argon2id)"
-                      className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/10"
+                      placeholder={t('setupPage.vaultPasswordHint')}
+                      className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
                     />
                     <button
                       type="button"
@@ -158,7 +160,7 @@ export function StepSecurity({ data, updateData }: Props) {
                 <div className="mt-2 flex items-start gap-1.5">
                   <Info className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400/60" />
                   <p className="text-[11px] text-emerald-400/60">
-                    API key will be saved to the vault automatically.
+                    {t('setupPage.vaultAutoSave')}
                   </p>
                 </div>
               )}
@@ -170,7 +172,7 @@ export function StepSecurity({ data, updateData }: Props) {
         <div>
           <label className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <Shield className="h-3.5 w-3.5 text-zinc-500" />
-            Access mode
+            {t('setupPage.accessMode')}
           </label>
           <div className="space-y-2.5">
             {MODES.map((mode) => {

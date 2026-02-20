@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Search, ToggleLeft, ToggleRight, Zap, Package, Wrench, Plus, Download, X, Loader2, CheckCircle2 } from 'lucide-react'
 import { api, type SkillInfo } from '@/lib/api'
 
@@ -12,6 +13,7 @@ interface AvailableSkill {
 }
 
 export function Skills() {
+  const { t } = useTranslation()
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -43,7 +45,7 @@ export function Skills() {
 
   const handleInstalled = (name: string) => {
     if (!skills.find((s) => s.name === name)) {
-      setSkills((prev) => [...prev, { name, description: 'Recém instalada', enabled: false, tool_count: 0 }])
+      setSkills((prev) => [...prev, { name, description: t('skills.noSkills'), enabled: false, tool_count: 0 }])
     }
   }
 
@@ -52,7 +54,7 @@ export function Skills() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-10 w-10 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin" />
+        <div className="h-10 w-10 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
       </div>
     )
   }
@@ -60,9 +62,9 @@ export function Skills() {
   if (loadError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center bg-dc-darker">
-        <p className="text-sm text-red-400">Erro ao carregar skills</p>
-        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-orange-400 hover:text-orange-300 transition-colors">
-          Tentar novamente
+        <p className="text-sm text-red-400">{t('common.error')}</p>
+        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+          {t('common.loading')}
         </button>
       </div>
     )
@@ -74,15 +76,15 @@ export function Skills() {
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">Gerenciar</p>
-            <h1 className="mt-1 text-2xl font-black text-white tracking-tight">Skills</h1>
+            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">{t('skills.subtitle')}</p>
+            <h1 className="mt-1 text-2xl font-black text-white tracking-tight">{t('skills.title')}</h1>
             <p className="mt-2 text-base text-zinc-500">
-              {enabledCount} ativas de {skills.length} disponíveis
+              {enabledCount} {t('skills.enabled').toLowerCase()} / {skills.length}
             </p>
           </div>
           <button
             onClick={() => setShowInstall(true)}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-orange-500/20 transition-all hover:bg-orange-400 hover:shadow-orange-500/30"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-400 hover:shadow-blue-500/30"
           >
             <Plus className="h-4 w-4" />
             Instalar Skill
@@ -96,7 +98,7 @@ export function Skills() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar skills..."
-            className="w-full rounded-2xl border border-white/8 bg-dc-dark px-5 py-4 pl-14 text-base text-white outline-none placeholder:text-zinc-600 transition-all focus:border-orange-500/30 focus:ring-2 focus:ring-orange-500/10"
+            className="w-full rounded-2xl border border-white/8 bg-dc-dark px-5 py-4 pl-14 text-base text-white outline-none placeholder:text-zinc-600 transition-all focus:border-blue-500/30 focus:ring-2 focus:ring-blue-500/10"
           />
         </div>
 
@@ -107,18 +109,18 @@ export function Skills() {
               key={skill.name}
               className={`group relative overflow-hidden rounded-2xl border p-6 transition-all ${
                 skill.enabled
-                  ? 'border-orange-500/25 bg-orange-500/4'
-                  : 'border-white/6 bg-dc-dark hover:border-orange-500/15'
+                  ? 'border-blue-500/25 bg-blue-500/4'
+                  : 'border-white/6 bg-dc-dark hover:border-blue-500/15'
               }`}
             >
               {skill.enabled && (
                 <div className="absolute right-4 top-4">
-                  <span className="rounded-full bg-orange-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-lg shadow-orange-500/30">ativa</span>
+                  <span className="rounded-full bg-blue-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-lg shadow-blue-500/30">ativa</span>
                 </div>
               )}
 
                 <div className={`flex h-14 w-14 items-center justify-center rounded-xl ${
-                skill.enabled ? 'bg-orange-500/15 text-orange-400' : 'bg-white/5 text-zinc-500 group-hover:text-orange-400'
+                skill.enabled ? 'bg-blue-500/15 text-blue-400' : 'bg-white/5 text-zinc-500 group-hover:text-blue-400'
               } transition-colors`}>
                 <Package className="h-7 w-7" />
               </div>
@@ -139,7 +141,7 @@ export function Skills() {
                   className="cursor-pointer text-zinc-500 transition-colors hover:text-white"
                 >
                   {skill.enabled ? (
-                    <ToggleRight className="h-7 w-7 text-orange-400" />
+                    <ToggleRight className="h-7 w-7 text-blue-400" />
                   ) : (
                     <ToggleLeft className="h-7 w-7" />
                   )}
@@ -262,7 +264,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
               <button
                 onClick={() => setTab('catalog')}
                 className={`cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  tab === 'catalog' ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:text-white'
+                  tab === 'catalog' ? 'bg-blue-500 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 Catálogo
@@ -270,7 +272,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
               <button
                 onClick={() => setTab('manual')}
                 className={`cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  tab === 'manual' ? 'bg-orange-500 text-white' : 'text-zinc-400 hover:text-white'
+                  tab === 'manual' ? 'bg-blue-500 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 Manual
@@ -294,7 +296,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
                   onChange={(e) => { setSearch(e.target.value); setActiveCategory(null) }}
                   placeholder="Buscar skills..."
                   autoFocus
-                  className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5 pl-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50"
+                  className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5 pl-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50"
                 />
               </div>
               {categories.length > 0 && !search && (
@@ -305,7 +307,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
                       onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
                       className={`cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
                         activeCategory === cat
-                          ? 'bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30'
+                          ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30'
                           : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white'
                       }`}
                     >
@@ -320,7 +322,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
             <div className="overflow-y-auto px-6 py-4" style={{ maxHeight: 'calc(85vh - 200px)' }}>
               {loading ? (
                 <div className="flex flex-col items-center gap-3 py-16">
-                  <Loader2 className="h-6 w-6 animate-spin text-orange-400" />
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
                   <p className="text-xs text-zinc-500">Carregando catálogo do GitHub...</p>
                 </div>
               ) : fetchError ? (
@@ -328,7 +330,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
                   <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10">
                     <X className="h-7 w-7 text-red-400" />
                   </div>
-                  <p className="mt-4 text-sm font-medium text-zinc-300">Não foi possível carregar o catálogo</p>
+                  <p className="mt-4 text-sm font-medium text-zinc-300">Could not load the catalog</p>
                   <p className="mt-1 text-xs text-zinc-500 text-center max-w-xs">
                     Verifique a conexão com a internet. O catálogo é baixado de github.com/jholhewres/devclaw-skills.
                   </p>
@@ -357,7 +359,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
                       </p>
                       <button
                         onClick={() => setTab('manual')}
-                        className="mt-3 cursor-pointer text-xs font-medium text-orange-400 hover:text-orange-300 transition-colors"
+                        className="mt-3 cursor-pointer text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors"
                       >
                         Instalar manualmente →
                       </button>
@@ -408,7 +410,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
                             <button
                               onClick={() => handleInstall(skill.name)}
                               disabled={isInstalling}
-                              className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-400 transition-colors hover:bg-orange-500/20 disabled:opacity-50"
+                              className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20 disabled:opacity-50"
                             >
                               {isInstalling ? (
                                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -439,7 +441,7 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
                     href="https://github.com/jholhewres/devclaw-skills"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-orange-400 hover:text-orange-300 transition-colors"
+                    className="text-blue-400 hover:text-blue-300 transition-colors"
                   >
                     devclaw-skills
                   </a>.
@@ -456,12 +458,12 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
                     onChange={(e) => setManualName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleManualInstall()}
                     placeholder="ex: docker-manager, api-tester, aws-tools"
-                    className="flex-1 rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-orange-500/50"
+                    className="flex-1 rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50"
                   />
                   <button
                     onClick={handleManualInstall}
                     disabled={!manualName.trim() || installing !== null}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex cursor-pointer items-center gap-2 rounded-lg bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {installing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     Instalar
@@ -484,15 +486,15 @@ function InstallModal({ onClose, onInstalled }: { onClose: () => void; onInstall
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Como funciona</p>
                 <ul className="mt-2 space-y-1.5 text-xs text-zinc-400">
                   <li className="flex items-start gap-2">
-                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500/60" />
-                    O DevClaw baixa o <code className="text-orange-400/80">SKILL.md</code> do repositório no GitHub
+                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500/60" />
+                    O DevClaw baixa o <code className="text-blue-400/80">SKILL.md</code> do repositório no GitHub
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500/60" />
-                    O arquivo é salvo em <code className="text-orange-400/80">./skills/{'{nome}'}/SKILL.md</code>
+                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500/60" />
+                    O arquivo é salvo em <code className="text-blue-400/80">./skills/{'{nome}'}/SKILL.md</code>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500/60" />
+                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500/60" />
                     Reinicie o servidor para que a skill fique disponível
                   </li>
                 </ul>
