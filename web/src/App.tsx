@@ -17,7 +17,6 @@ import { Login } from '@/pages/Login'
 import { SetupWizard } from '@/pages/Setup/SetupWizard'
 import { WhatsAppConnect } from '@/pages/WhatsAppConnect'
 import { System } from '@/pages/System'
-import { Integrations } from '@/pages/Integrations'
 
 /** Estado global de autenticação obtido de /api/auth/status */
 interface AuthState {
@@ -113,7 +112,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
  * - /domain → Domínio & Rede
  * - /webhooks → Webhooks
  * - /hooks → Hooks
- * - /integrations → Integrações OAuth
  * - /security → Painel de segurança
  * - /jobs → Cron jobs
  */
@@ -143,7 +141,6 @@ export function App() {
           <Route path="/domain" element={<Domain />} />
           <Route path="/webhooks" element={<Webhooks />} />
           <Route path="/hooks" element={<Hooks />} />
-          <Route path="/integrations" element={<Integrations />} />
           <Route path="/security" element={<Security />} />
           <Route path="/jobs" element={<Jobs />} />
         </Route>

@@ -18,7 +18,6 @@ import {
   ChevronRight,
   Cpu,
   Bot,
-  Link2,
   MessagesSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -43,7 +42,6 @@ const configLinkDefs = [
   { to: '/domain', icon: Globe, labelKey: 'sidebar.domainNetwork' },
   { to: '/webhooks', icon: Webhook, labelKey: 'sidebar.webhooks' },
   { to: '/hooks', icon: Zap, labelKey: 'sidebar.hooks' },
-  { to: '/integrations', icon: Link2, labelKey: 'sidebar.integrations' },
 ] as const
 
 function NavButton({
