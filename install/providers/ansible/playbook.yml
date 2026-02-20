@@ -1,0 +1,170 @@
+---
+# DevClaw Ansible Playbook
+# Deploy DevClaw to a Linux server with systemd
+#
+# Usage:
+#   ansible-playbook -i inventory playbook.yml
+#
+# Requirements:
+#   - Target server with SSH access
+#   - Python 3 on target server
+
+- name: Deploy DevClaw
+  hosts: devclaw_servers
+  become: true
+  vars:
+    # Configuration
+    devclaw_version: "latest"
+    devclaw_user: "devclaw"
+    devclaw_group: "devclaw"
+    devclaw_home: "/home/devclaw"
+    devclaw_bin: "/usr/local/bin/devclaw"
+
+    # Ports
+    devclaw_port_api: 8085
+    devclaw_port_web: 8090
+
+    # Environment variables (add to .env file)
+    devclaw_env: {}
+
+  tasks:
+    - name: Gather facts
+      ansible.builtin.setup:
+        gather_subset:
+          - os_family
+          - distribution
+          - architecture
+
+    - name: Install dependencies (Debian/Ubuntu)
+      when: ansible_os_family == "Debian"
+      ansible.builtin.apt:
+        name:
+          - curl
+          - ca-certificates
+          - git
+        state: present
+        update_cache: true
+
+    - name: Install dependencies (RHEL/CentOS/Fedora)
+      when: ansible_os_family == "RedHat"
+      ansible.builtin.yum:
+        name:
+          - curl
+          - ca-certificates
+          - git
+        state: present
+
+    - name: Create devclaw group
+      ansible.builtin.group:
+        name: "{{ devclaw_group }}"
+        state: present
+
+    - name: Create devclaw user
+      ansible.builtin.user:
+        name: "{{ devclaw_user }}"
+        group: "{{ devclaw_group }}"
+        home: "{{ devclaw_home }}"
+        shell: /bin/bash
+        system: true
+        create_home: true
+
+    - name: Detect architecture
+      ansible.builtin.set_fact:
+        devclaw_arch: "{{ 'amd64' if ansible_architecture in ['x86_64', 'amd64'] else 'arm64' }}"
+
+    - name: Get latest version
+      when: devclaw_version == "latest"
+      block:
+        - name: Fetch latest release info
+          ansible.builtin.uri:
+            url: https://api.github.com/repos/jholhewres/devclaw/releases/latest
+            method: GET
+            return_content: true
+          register: release_info
+          changed_when: false
+
+        - name: Set version from release
+          ansible.builtin.set_fact:
+            devclaw_version: "{{ release_info.json.tag_name }}"
+
+    - name: Download DevClaw binary
+      ansible.builtin.get_url:
+        url: "https://github.com/jholhewres/devclaw/releases/download/{{ devclaw_version }}/devclaw_{{ devclaw_version | regex_replace('^v', '') }}_linux_{{ devclaw_arch }}.tar.gz"
+        dest: /tmp/devclaw.tar.gz
+        mode: "0644"
+      register: download_result
+      until: download_result is succeeded
+      retries: 3
+      delay: 5
+
+    - name: Extract DevClaw binary
+      ansible.builtin.unarchive:
+        src: /tmp/devclaw.tar.gz
+        dest: /tmp
+        remote_src: true
+
+    - name: Install DevClaw binary
+      ansible.builtin.copy:
+        src: /tmp/devclaw
+        dest: "{{ devclaw_bin }}"
+        mode: "0755"
+        owner: root
+        group: root
+        remote_src: true
+
+    - name: Create directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ devclaw_user }}"
+        group: "{{ devclaw_group }}"
+        mode: "0755"
+      loop:
+        - "{{ devclaw_home }}"
+        - "{{ devclaw_home }}/skills"
+        - "{{ devclaw_home }}/workspace"
+
+    - name: Create .env file
+      ansible.builtin.copy:
+        dest: "{{ devclaw_home }}/.env"
+        content: |
+          # DevClaw environment
+          {% for key, value in devclaw_env.items() %}
+          {{ key }}={{ value }}
+          {% endfor %}
+        owner: "{{ devclaw_user }}"
+        group: "{{ devclaw_group }}"
+        mode: "0600"
+
+    - name: Install systemd service
+      ansible.builtin.copy:
+        src: files/devclaw.service
+        dest: /etc/systemd/system/devclaw.service
+        mode: "0644"
+      notify: Reload and restart devclaw
+
+    - name: Enable devclaw service
+      ansible.builtin.systemd:
+        name: devclaw
+        enabled: true
+        daemon_reload: true
+
+    - name: Start devclaw service
+      ansible.builtin.systemd:
+        name: devclaw
+        state: started
+
+    - name: Cleanup temp files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/devclaw.tar.gz
+        - /tmp/devclaw
+
+  handlers:
+    - name: Reload and restart devclaw
+      ansible.builtin.systemd:
+        name: devclaw
+        state: restarted
+        daemon_reload: true

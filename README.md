@@ -17,7 +17,21 @@ Open-source AI agent for tech teams — devs, DevOps, QA, PMs, designers, and ev
 
 ## Quick Start
 
-### Docker (recommended)
+### One-Command Install (Recommended)
+
+**Linux/macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/jholhewres/devclaw/master/install/unix/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+iwr -useb https://raw.githubusercontent.com/jholhewres/devclaw/master/install/windows/install.ps1 | iex
+```
+
+The installer downloads the pre-built binary from GitHub Releases. If unavailable, it falls back to `go install` or building from source.
+
+### Docker
 
 No Go, Node, or build tools required — just Docker:
 
@@ -40,7 +54,7 @@ make build                  # builds frontend + Go binary
 ./bin/devclaw serve         # starts server
 ```
 
-Open **http://localhost:8090/setup** for the setup wizard, or run `./bin/devclaw setup` for the CLI wizard.
+See [install/source/README.md](install/source/README.md) for detailed build instructions.
 
 ### Go Install
 
@@ -52,14 +66,6 @@ devclaw serve
 ```
 
 > **Note:** This builds without the WebUI. For full functionality (dashboard, setup wizard), use Docker or build from source.
-
-### Install Script (macOS/Linux)
-
-Tries binary download, then `go install`, then source build:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jholhewres/devclaw/master/scripts/install/install.sh | bash
-```
 
 ### Setup Wizard
 
@@ -356,12 +362,12 @@ See [docs/security.md](docs/security.md) for details.
 
 ## Deployment
 
-**Docker Compose (recommended):**
+**Docker Compose:**
 
 ```bash
-docker compose up -d             # start
-docker compose logs -f devclaw   # view logs
-docker compose down              # stop
+cd install/docker
+docker compose up -d
+docker compose logs -f devclaw
 ```
 
 Data is persisted in a Docker volume (`devclaw-state`). Rebuilds (`docker compose build`) preserve all sessions, memory, and configuration.
@@ -375,6 +381,19 @@ volumes:
   - /path/to/projects:/home/devclaw/projects  # custom mount
 ```
 
+**Ansible (production):**
+
+Deploy to Linux servers with a single playbook:
+
+```bash
+cd install/providers/ansible
+cp inventory.example inventory
+# Edit inventory with your server details
+ansible-playbook -i inventory playbook.yml
+```
+
+See [install/providers/ansible/README.md](install/providers/ansible/README.md) for details.
+
 **systemd (bare metal):**
 
 ```bash
@@ -386,11 +405,11 @@ make build
 sudo cp bin/devclaw /usr/local/bin/
 
 # Copy config and vault to user home
-sudo cp config.yaml .env .devclaw.vault /home/devclaw/
+sudo cp config.yaml .devclaw.vault /home/devclaw/
 sudo chown -R devclaw:devclaw /home/devclaw/
 
 # Install and start service
-sudo cp devclaw.service /etc/systemd/system/
+sudo cp install/providers/ansible/files/devclaw.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now devclaw
 

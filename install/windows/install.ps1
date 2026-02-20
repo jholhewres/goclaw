@@ -1,5 +1,5 @@
 # DevClaw installer — Windows PowerShell
-# Usage: iwr -useb https://raw.githubusercontent.com/jholhewres/devclaw/main/scripts/install/install.ps1 | iex
+# Usage: iwr -useb https://raw.githubusercontent.com/jholhewres/devclaw/master/install/windows/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
 $Repo = "jholhewres/devclaw"

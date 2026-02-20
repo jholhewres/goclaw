@@ -1,0 +1,33 @@
+services:
+  devclaw:
+    build:
+      context: ../..
+      dockerfile: install/docker/Dockerfile
+      args:
+        VERSION: dev
+    image: ghcr.io/jholhewres/devclaw:latest
+    container_name: devclaw
+    restart: unless-stopped
+    volumes:
+      - devclaw-state:/home/devclaw
+      - ../../skills:/home/devclaw/skills
+      - ../../workspace:/home/devclaw/workspace
+    environment:
+      - TZ=America/Sao_Paulo
+    ports:
+      - "8085:8085"
+      - "8090:8090"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  devclaw-state:

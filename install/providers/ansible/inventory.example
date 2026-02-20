@@ -1,0 +1,23 @@
+# DevClaw Ansible Inventory
+# Copy this file to 'inventory' and customize
+
+[devclaw_servers]
+# Replace with your server's IP or hostname
+devclaw-server ansible_host=192.168.1.100
+
+[devclaw_servers:vars]
+# SSH connection
+ansible_user=root
+ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+# DevClaw version (use 'latest' or specific version like 'v1.0.0')
+devclaw_version=latest
+
+# Ports (optional, defaults shown)
+# devclaw_port_api=8085
+# devclaw_port_web=8090
+
+# Environment variables (optional)
+# devclaw_env:
+#   TZ: "America/Sao_Paulo"
+#   LOG_LEVEL: "info"
