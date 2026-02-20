@@ -95,7 +95,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// WhatsApp (core channel).
 	var wa *whatsapp.WhatsApp
 	if shouldEnable("whatsapp", channelFilter, true) {
-		wa = whatsapp.New(cfg.Channels.WhatsApp, logger)
+		// Use the main devclaw database for WhatsApp sessions.
+		// This stores whatsmeow tables alongside other devclaw data.
+		waCfg := cfg.Channels.WhatsApp
+		if waCfg.DatabasePath == "" && cfg.Database.Path != "" {
+			waCfg.DatabasePath = cfg.Database.Path
+		}
+		wa = whatsapp.New(waCfg, logger)
 		if err := assistant.ChannelManager().Register(wa); err != nil {
 			logger.Error("failed to register WhatsApp", "error", err)
 		} else {
@@ -260,6 +266,7 @@ func resolveConfig(cmd *cobra.Command) (*copilot.Config, string, error) {
 
 // runWebSetupMode starts a minimal webui server in setup-only mode.
 // Blocks until the setup wizard completes or the user cancels.
+// After setup, it automatically reloads the process.
 func runWebSetupMode() error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -319,12 +326,34 @@ func runWebSetupMode() error {
 		webServer.Stop()
 		fmt.Println()
 		fmt.Println("Setup complete! config.yaml saved.")
-		fmt.Println("Restarting...")
-		return nil
+		fmt.Println("Reloading...")
+		// Small delay to ensure server is fully stopped
+		time.Sleep(500 * time.Millisecond)
+		return reloadProcess()
 	case <-sigChan:
 		webServer.Stop()
 		return nil
 	}
+}
+
+// reloadProcess replaces the current process with a new instance.
+// This is used after setup to start the service with the new config.
+func reloadProcess() error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Get the original arguments (skip the program name)
+	args := os.Args[1:]
+
+	// Replace current process with a new instance
+	err = syscall.Exec(executable, append([]string{executable}, args...), os.Environ())
+	if err != nil {
+		return fmt.Errorf("failed to reload process: %w", err)
+	}
+
+	return nil
 }
 
 // shouldEnable checks if a channel should be enabled.
@@ -640,10 +669,15 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 
 				// Stream text tokens to the SSE channel.
 				agent.SetStreamCallback(func(chunk string) {
+					// Strip internal tags like [[reply_to_current]] before sending to UI
+					cleanChunk := copilot.StripInternalTags(chunk)
+					if cleanChunk == "" {
+						return // Skip empty chunks after stripping
+					}
 					select {
 					case events <- webui.StreamEvent{
 						Type: "delta",
-						Data: map[string]string{"content": chunk},
+						Data: map[string]string{"content": cleanChunk},
 					}:
 					case <-runCtx.Done():
 					}

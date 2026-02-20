@@ -51,6 +51,17 @@ func TestNew(t *testing.T) {
 			t.Errorf("expected default backoff 5s, got %v", w.cfg.ReconnectBackoff)
 		}
 	})
+
+	t.Run("accepts DatabasePath for shared database", func(t *testing.T) {
+		cfg := Config{
+			DatabasePath: "./data/devclaw.db",
+		}
+		w := New(cfg, logger)
+
+		if w.cfg.DatabasePath != "./data/devclaw.db" {
+			t.Errorf("expected DatabasePath './data/devclaw.db', got %q", w.cfg.DatabasePath)
+		}
+	})
 }
 
 func TestStateManagement(t *testing.T) {

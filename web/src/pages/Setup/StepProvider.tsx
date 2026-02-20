@@ -49,6 +49,26 @@ const ProviderIcons = {
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l6-8v4h4l-6 8z"/>
     </svg>
   ),
+  cerebras: (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+      <path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.5L19 8v8l-7 3.5L5 16V8l7-3.5z"/>
+      <path d="M12 7l-4 2v6l4 2 4-2V9l-4-2zm0 2l2 1v4l-2 1-2-1v-4l2-1z"/>
+    </svg>
+  ),
+  mistral: (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+      <rect x="2" y="2" width="4" height="4" rx="0.5"/>
+      <rect x="8" y="2" width="4" height="4" rx="0.5"/>
+      <rect x="14" y="2" width="4" height="4" rx="0.5"/>
+      <rect x="2" y="8" width="4" height="4" rx="0.5"/>
+      <rect x="8" y="8" width="4" height="4" rx="0.5"/>
+      <rect x="14" y="8" width="4" height="4" rx="0.5"/>
+      <rect x="8" y="14" width="4" height="4" rx="0.5"/>
+      <rect x="2" y="18" width="4" height="4" rx="0.5"/>
+      <rect x="8" y="18" width="4" height="4" rx="0.5"/>
+      <rect x="14" y="18" width="4" height="4" rx="0.5"/>
+    </svg>
+  ),
   openrouter: (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
       <circle cx="12" cy="12" r="3"/>
@@ -67,6 +87,21 @@ const ProviderIcons = {
       <circle cx="9" cy="10" r="1.5"/>
       <circle cx="15" cy="10" r="1.5"/>
       <path d="M12 17.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
+    </svg>
+  ),
+  huggingface: (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1.5 6c.83 0 1.5.67 1.5 1.5S11.33 11 10.5 11 9 10.33 9 9.5 9.67 8 10.5 8zm3 0c.83 0 1.5.67 1.5 1.5S14.33 11 13.5 11 12 10.33 12 9.5 12.67 8 13.5 8zM12 18c-2.33 0-4.31-1.46-5.11-3.5h10.22c-.8 2.04-2.78 3.5-5.11 3.5z"/>
+    </svg>
+  ),
+  lmstudio: (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l4.59-4.58L18 11l-6 6z"/>
+    </svg>
+  ),
+  vllm: (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+      <path d="M12 2L2 19h20L12 2zm0 4l6.5 11h-13L12 6z"/>
     </svg>
   ),
   custom: (
@@ -94,15 +129,97 @@ interface ProviderDef {
   noKey?: boolean
   baseUrls?: BaseUrlOption[]
   customBaseUrl?: boolean
+  freeUrl?: string
+  freeNote?: string
+  isFree?: boolean
+  isLocal?: boolean
 }
 
 const PROVIDERS: ProviderDef[] = [
+  // ── Free Online Providers ──
+  {
+    value: 'google',
+    label: 'Google',
+    models: [
+      'gemini-2.5-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite',
+      'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-thinking',
+      'gemini-1.5-pro', 'gemini-1.5-flash',
+    ],
+    description: '1M tokens/min',
+    keyPlaceholder: 'AIza...',
+    isFree: true,
+    freeUrl: 'https://aistudio.google.com/apikey',
+    freeNote: '1M tokens/min, 1.5K req/day',
+  },
+  {
+    value: 'groq',
+    label: 'Groq',
+    models: [
+      'llama-3.3-70b-versatile', 'llama-3.3-70b-specdec',
+      'llama-3.1-8b-instant', 'llama-3.1-70b-versatile',
+      'llama-3.2-1b-preview', 'llama-3.2-3b-preview', 'llama-3.2-11b-vision-preview', 'llama-3.2-90b-vision-preview',
+      'mixtral-8x7b-32768', 'gemma2-9b-it',
+      'deepseek-r1-distill-llama-70b',
+    ],
+    description: 'Fastest inference',
+    keyPlaceholder: 'gsk_...',
+    isFree: true,
+    freeUrl: 'https://console.groq.com/keys',
+    freeNote: '6K tokens/min, ultra fast',
+  },
+  {
+    value: 'cerebras',
+    label: 'Cerebras',
+    models: [
+      'llama-4-maverick-17b-128e-instruct', 'llama-4-scout-17b-16e-instruct',
+      'llama-3.3-70b', 'llama-3.1-8b',
+      'deepseek-r1-distill-llama-70b',
+    ],
+    description: '1M tokens/day',
+    keyPlaceholder: 'csk-...',
+    isFree: true,
+    freeUrl: 'https://cloud.cerebras.ai',
+    freeNote: '1M tokens/day, 30 req/min',
+  },
+  {
+    value: 'mistral',
+    label: 'Mistral',
+    models: [
+      'mistral-large-latest', 'mistral-medium-latest',
+      'codestral-latest', 'codestral-mamba',
+      'ministral-8b-latest', 'ministral-3b-latest',
+      'open-mistral-7b', 'open-mixtral-8x7b', 'open-mixtral-8x22b',
+    ],
+    description: '1M tokens/month',
+    keyPlaceholder: 'API key',
+    isFree: true,
+    freeUrl: 'https://console.mistral.ai/api-keys',
+    freeNote: '1M tokens/month',
+  },
+  {
+    value: 'openrouter',
+    label: 'OpenRouter',
+    models: [
+      'openrouter/free', 'openrouter/auto',
+      'meta-llama/llama-3.3-70b-instruct:free',
+      'deepseek/deepseek-r1:free',
+      'google/gemma-3-27b-it:free',
+      'qwen/qwen-2.5-72b-instruct:free',
+    ],
+    description: '50 req/day, 400+ models',
+    keyPlaceholder: 'sk-or-...',
+    isFree: true,
+    freeUrl: 'https://openrouter.ai/keys',
+    freeNote: '50 req/day free tier',
+  },
+  // ── Paid Providers ──
   {
     value: 'openai',
     label: 'OpenAI',
     models: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.2', 'gpt-5.2-instant', 'gpt-5.2-thinking', 'o3', 'o3-pro', 'o4-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano'],
     description: 'GPT-5, o3',
     keyPlaceholder: 'sk-...',
+    freeUrl: 'https://platform.openai.com/api-keys',
   },
   {
     value: 'anthropic',
@@ -114,13 +231,7 @@ const PROVIDERS: ProviderDef[] = [
       { value: '', label: 'Anthropic (default)' },
       { value: 'https://api.z.ai/api/anthropic', label: 'Z.Ai Proxy', extraModels: ['glm-5', 'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx'] },
     ],
-  },
-  {
-    value: 'google',
-    label: 'Google',
-    models: ['gemini-3-pro', 'gemini-3-flash', 'gemini-3-flash-thinking', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'],
-    description: 'Gemini 3, 2.5',
-    keyPlaceholder: 'AIza...',
+    freeUrl: 'https://console.anthropic.com/settings/keys',
   },
   {
     value: 'zai',
@@ -132,6 +243,7 @@ const PROVIDERS: ProviderDef[] = [
       { value: 'https://api.z.ai/api/paas/v4', label: 'Global' },
       { value: 'https://open.bigmodel.cn/api/paas/v4', label: 'China' },
     ],
+    freeUrl: 'https://open.bigmodel.cn',
   },
   {
     value: 'xai',
@@ -139,20 +251,7 @@ const PROVIDERS: ProviderDef[] = [
     models: ['grok-4-0709', 'grok-4.1-fast', 'grok-3', 'grok-3-mini'],
     description: 'Grok 4, 4.1',
     keyPlaceholder: 'xai-...',
-  },
-  {
-    value: 'groq',
-    label: 'Groq',
-    models: ['llama-4-scout-17b-16e-instruct', 'llama-4-maverick-17b-128e-instruct', 'llama-3.3-70b-versatile', 'deepseek-r1-distill-llama-70b', 'mixtral-8x7b-32768'],
-    description: 'Llama 4, DeepSeek',
-    keyPlaceholder: 'gsk_...',
-  },
-  {
-    value: 'openrouter',
-    label: 'OpenRouter',
-    models: [],
-    description: '400+ models',
-    keyPlaceholder: 'sk-or-...',
+    freeUrl: 'https://console.x.ai',
   },
   {
     value: 'minimax',
@@ -160,21 +259,61 @@ const PROVIDERS: ProviderDef[] = [
     models: ['MiniMax-Text-01', 'MiniMax-M2.5', 'MiniMax-M2.5-Lightning', 'MiniMax-VL-01'],
     description: 'Text-01, M2.5',
     keyPlaceholder: 'API key',
+    freeUrl: 'https://www.minimaxi.com',
   },
+  // ── Local / Self-Hosted ──
   {
     value: 'ollama',
     label: 'Ollama',
     models: [],
-    description: 'Local models',
+    description: 'Run models locally',
     keyPlaceholder: '',
     noKey: true,
+    isLocal: true,
+    freeUrl: 'https://ollama.com/download',
+    freeNote: 'No API key needed, runs on your machine',
+  },
+  {
+    value: 'huggingface',
+    label: 'HuggingFace',
+    models: [],
+    description: 'Inference API (use org/model format)',
+    keyPlaceholder: 'hf_...',
+    isLocal: true,
+    freeUrl: 'https://huggingface.co/settings/tokens',
+    freeNote: 'Use model format: organization/model-name',
+  },
+  {
+    value: 'lmstudio',
+    label: 'LM Studio',
+    models: [],
+    description: 'Local GUI for LLMs',
+    keyPlaceholder: '',
+    noKey: true,
+    isLocal: true,
+    customBaseUrl: true,
+    freeUrl: 'https://lmstudio.ai',
+    freeNote: 'Runs locally, any model from HuggingFace',
+  },
+  {
+    value: 'vllm',
+    label: 'vLLM',
+    models: [],
+    description: 'High-performance serving',
+    keyPlaceholder: '',
+    noKey: true,
+    isLocal: true,
+    customBaseUrl: true,
+    freeUrl: 'https://github.com/vllm-project/vllm',
+    freeNote: 'Self-hosted, GPU required',
   },
   {
     value: 'custom',
     label: 'Custom',
     models: [],
-    description: 'OpenAI-compatible',
-    keyPlaceholder: 'API key',
+    description: 'OpenAI-compatible API',
+    keyPlaceholder: 'API key (optional)',
+    isLocal: true,
     customBaseUrl: true,
   },
 ]
@@ -211,6 +350,11 @@ export function StepProvider({ data, updateData }: Props) {
     setTestResult(null)
   }
 
+  // Separate free, paid, and local providers
+  const freeProviders = PROVIDERS.filter(p => p.isFree && !p.isLocal)
+  const paidProviders = PROVIDERS.filter(p => !p.isFree && !p.isLocal)
+  const localProviders = PROVIDERS.filter(p => p.isLocal)
+
   return (
     <StepContainer>
       <StepHeader
@@ -219,10 +363,35 @@ export function StepProvider({ data, updateData }: Props) {
       />
 
       <FieldGroup>
-        {/* Provider selector */}
-        <Field label={t('setupPage.provider')} icon={Cpu}>
+        {/* Free Providers */}
+        <Field label={t('setupPage.freeProviders')} icon={Cpu}>
           <div className="grid grid-cols-5 gap-1.5">
-            {PROVIDERS.map((p) => (
+            {freeProviders.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => handleProviderChange(p.value)}
+                className={`flex cursor-pointer flex-col items-center gap-1 rounded-xl border px-2 py-2.5 text-center transition-all ${
+                  data.provider === p.value
+                    ? 'border-[#22c55e]/50 bg-[#22c55e]/10'
+                    : 'border-white/10 bg-[#0c1222] hover:border-white/20 hover:bg-[#111827]'
+                }`}
+                title={p.description}
+              >
+                <div className={data.provider === p.value ? 'text-[#22c55e]' : 'text-[#64748b]'}>
+                  {ProviderIcons[p.value as keyof typeof ProviderIcons]}
+                </div>
+                <span className={`text-[10px] font-medium ${data.provider === p.value ? 'text-[#f8fafc]' : 'text-[#94a3b8]'}`}>
+                  {p.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {/* Paid Providers */}
+        <Field label={t('setupPage.paidProviders')} icon={Cpu}>
+          <div className="grid grid-cols-5 gap-1.5">
+            {paidProviders.map((p) => (
               <button
                 key={p.value}
                 onClick={() => handleProviderChange(p.value)}
@@ -243,6 +412,51 @@ export function StepProvider({ data, updateData }: Props) {
             ))}
           </div>
         </Field>
+
+        {/* Local / Self-Hosted Providers */}
+        <Field label={t('setupPage.localProviders')} icon={Cpu}>
+          <div className="grid grid-cols-5 gap-1.5">
+            {localProviders.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => handleProviderChange(p.value)}
+                className={`flex cursor-pointer flex-col items-center gap-1 rounded-xl border px-2 py-2.5 text-center transition-all ${
+                  data.provider === p.value
+                    ? 'border-[#a855f7]/50 bg-[#a855f7]/10'
+                    : 'border-white/10 bg-[#0c1222] hover:border-white/20 hover:bg-[#111827]'
+                }`}
+                title={p.description}
+              >
+                <div className={data.provider === p.value ? 'text-[#a855f7]' : 'text-[#64748b]'}>
+                  {ProviderIcons[p.value as keyof typeof ProviderIcons]}
+                </div>
+                <span className={`text-[10px] font-medium ${data.provider === p.value ? 'text-[#f8fafc]' : 'text-[#94a3b8]'}`}>
+                  {p.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {/* Provider info with link */}
+        {provider && provider.freeUrl && (
+          <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0c1222] px-3 py-2">
+            <div className="flex-1">
+              <p className="text-xs text-[#94a3b8]">
+                {provider.freeNote || provider.description}
+              </p>
+            </div>
+            <a
+              href={provider.freeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-[#3b82f6] hover:text-[#60a5fa] transition-colors"
+            >
+              {t('setupPage.getApiKey')}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        )}
 
         {/* Endpoint selector */}
         {provider?.baseUrls && (

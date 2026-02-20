@@ -7,6 +7,7 @@ interface ChatState {
   streamingContent: string
   isStreaming: boolean
   error: string | null
+  isLoadingHistory: boolean
 }
 
 /**
@@ -19,6 +20,7 @@ export function useChat(sessionId: string | null) {
     streamingContent: '',
     isStreaming: false,
     error: null,
+    isLoadingHistory: false,
   })
   const cleanupRef = useRef<(() => void) | null>(null)
   const streamContentRef = useRef('')
@@ -32,16 +34,17 @@ export function useChat(sessionId: string | null) {
     streamContentRef.current = ''
 
     if (!sessionId) {
-      setState({ messages: [], streamingContent: '', isStreaming: false, error: null })
+      setState({ messages: [], streamingContent: '', isStreaming: false, error: null, isLoadingHistory: false })
       return
     }
 
-    setState({ messages: [], streamingContent: '', isStreaming: false, error: null })
+    setState({ messages: [], streamingContent: '', isStreaming: false, error: null, isLoadingHistory: true })
 
     api.chat.history(sessionId).then((messages) => {
-      setState((s) => ({ ...s, messages, error: null }))
+      setState((s) => ({ ...s, messages, error: null, isLoadingHistory: false }))
     }).catch(() => {
-      // Sessão nova, sem histórico
+      // Sessão nova, sem histórico - stop loading
+      setState((s) => ({ ...s, isLoadingHistory: false }))
     })
   }, [sessionId])
 
@@ -216,6 +219,7 @@ export function useChat(sessionId: string | null) {
     streamingContent: state.streamingContent,
     isStreaming: state.isStreaming,
     error: state.error,
+    isLoadingHistory: state.isLoadingHistory,
     sendMessage,
     abort,
   }

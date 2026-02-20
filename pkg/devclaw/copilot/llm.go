@@ -114,10 +114,28 @@ func detectProvider(baseURL string) string {
 		return "openrouter"
 	case strings.Contains(baseURL, "api.x.ai"):
 		return "xai"
+	case strings.Contains(baseURL, "api.groq.com"):
+		return "groq"
+	case strings.Contains(baseURL, "cerebras.ai"):
+		return "cerebras"
+	case strings.Contains(baseURL, "mistral.ai"):
+		return "mistral"
+	case strings.Contains(baseURL, "generativelanguage.googleapis.com"):
+		return "google"
 	case strings.Contains(baseURL, "localhost:11434"),
 		strings.Contains(baseURL, "127.0.0.1:11434"),
 		strings.Contains(baseURL, "ollama"):
 		return "ollama"
+	case strings.Contains(baseURL, "localhost:1234"),
+		strings.Contains(baseURL, "127.0.0.1:1234"),
+		strings.Contains(baseURL, "lmstudio"):
+		return "lmstudio"
+	case strings.Contains(baseURL, "localhost:8000"),
+		strings.Contains(baseURL, "127.0.0.1:8000"),
+		strings.Contains(baseURL, "vllm"):
+		return "vllm"
+	case strings.Contains(baseURL, "huggingface.co"):
+		return "huggingface"
 	default:
 		return "openai" // assume OpenAI-compatible
 	}
@@ -215,13 +233,14 @@ type chatMessage struct {
 
 // chatRequest is the OpenAI-compatible chat completions request.
 type chatRequest struct {
-	Model       string           `json:"model"`
-	Messages    []chatMessage    `json:"messages"`
-	Tools       []ToolDefinition `json:"tools,omitempty"`
-	Stream      bool             `json:"stream,omitempty"`
-	Temperature *float64         `json:"temperature,omitempty"`
-	MaxTokens   *int             `json:"max_tokens,omitempty"`
-	ToolStream  *bool            `json:"tool_stream,omitempty"` // Z.AI: real-time tool call streaming
+	Model              string           `json:"model"`
+	Messages           []chatMessage    `json:"messages"`
+	Tools              []ToolDefinition `json:"tools,omitempty"`
+	Stream             bool             `json:"stream,omitempty"`
+	Temperature        *float64         `json:"temperature,omitempty"`
+	MaxTokens          *int             `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int            `json:"max_completion_tokens,omitempty"` // OpenAI o1/o3/o4/gpt-5 models
+	ToolStream         *bool            `json:"tool_stream,omitempty"`           // Z.AI: real-time tool call streaming
 }
 
 // modelDefaults holds per-model/provider behavior overrides.
@@ -234,6 +253,8 @@ type modelDefaults struct {
 	MaxOutputTokens int
 	// SupportsTools indicates if the model supports function/tool calling.
 	SupportsTools bool
+	// UsesMaxCompletionTokens indicates the model requires max_completion_tokens instead of max_tokens.
+	UsesMaxCompletionTokens bool
 }
 
 // getModelDefaults returns the known defaults for a given model and provider.
@@ -248,9 +269,19 @@ func getModelDefaults(model, provider string) modelDefaults {
 
 	switch {
 	// ── OpenAI models ──
+	// gpt-5-mini and gpt-5-nano only support default temperature (1.0)
+	case strings.HasPrefix(model, "gpt-5-mini"), strings.HasPrefix(model, "gpt-5-nano"):
+		d.SupportsTemperature = false // only default (1.0) supported
+		d.MaxOutputTokens = 16384
+		d.UsesMaxCompletionTokens = true
 	case strings.HasPrefix(model, "gpt-5"):
 		d.DefaultTemperature = 0.7
 		d.MaxOutputTokens = 16384
+		d.UsesMaxCompletionTokens = true
+	case strings.HasPrefix(model, "o1"), strings.HasPrefix(model, "o3"), strings.HasPrefix(model, "o4"):
+		d.SupportsTemperature = false // o-series only supports default (1.0)
+		d.MaxOutputTokens = 100000
+		d.UsesMaxCompletionTokens = true
 	case strings.HasPrefix(model, "gpt-4o"):
 		d.DefaultTemperature = 0.7
 		d.MaxOutputTokens = 16384
@@ -322,8 +353,17 @@ func (c *LLMClient) applyModelDefaults(req *chatRequest) {
 		t := d.DefaultTemperature
 		req.Temperature = &t
 	}
-	if d.MaxOutputTokens > 0 && req.MaxTokens == nil {
-		req.MaxTokens = &d.MaxOutputTokens
+	// Set max output tokens - use max_completion_tokens for newer OpenAI models
+	if d.MaxOutputTokens > 0 {
+		if d.UsesMaxCompletionTokens {
+			if req.MaxCompletionTokens == nil {
+				req.MaxCompletionTokens = &d.MaxOutputTokens
+			}
+		} else {
+			if req.MaxTokens == nil {
+				req.MaxTokens = &d.MaxOutputTokens
+			}
+		}
 	}
 	// Strip tools if the model doesn't support them.
 	if !d.SupportsTools {

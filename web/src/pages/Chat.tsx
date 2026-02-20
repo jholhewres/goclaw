@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, MessageSquare, Clock } from 'lucide-react'
+import { Plus, MessageSquare, Clock, Loader2 } from 'lucide-react'
 import { ChatMessage } from '@/components/ChatMessage'
 import { ChatInput } from '@/components/ChatInput'
 import { useChat } from '@/hooks/useChat'
@@ -31,19 +31,27 @@ function friendlyError(raw: string, t: (key: string) => string): string {
   return raw
 }
 
-// Global pending message storage (survives remounts)
-let globalPendingMessage: string | null = null
-
 export function Chat() {
   const { t } = useTranslation()
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
-  const resolvedId = sessionId ? decodeURIComponent(sessionId) : null
-  const { messages, streamingContent, isStreaming, error, sendMessage: chatSend, abort } = useChat(resolvedId)
+
+  // URL session ID (when navigating to existing sessions)
+  const urlSessionId = sessionId ? decodeURIComponent(sessionId) : null
+
+  // Local chat state (for new chats without navigation)
+  const [localSessionId, setLocalSessionId] = useState<string | null>(null)
+  const [initialMessage, setInitialMessage] = useState<string | null>(null)
+
+  // Effective session ID: either from URL or from local state
+  const resolvedId = urlSessionId || localSessionId
+
+  // Chat hook
+  const { messages, streamingContent, isStreaming, error, isLoadingHistory, sendMessage: chatSend, abort } = useChat(resolvedId)
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const [recentSessions, setRecentSessions] = useState<SessionInfo[]>([])
   const [showSidebar, setShowSidebar] = useState(false)
-  const hasSentPendingRef = useRef(false)
 
   // Keep chatSend in a ref to avoid stale closures
   const chatSendRef = useRef(chatSend)
@@ -51,57 +59,74 @@ export function Chat() {
     chatSendRef.current = chatSend
   }, [chatSend])
 
-  // Send pending message when we have a sessionId
-  useEffect(() => {
-    if (resolvedId && globalPendingMessage && !hasSentPendingRef.current) {
-      hasSentPendingRef.current = true
-      const content = globalPendingMessage
-      globalPendingMessage = null
-      // Use requestAnimationFrame to ensure we're after React's render cycle
-      requestAnimationFrame(() => {
-        chatSendRef.current(content)
-      })
-    }
-  }, [resolvedId])
+  // Track if initial message has been sent
+  const initialMessageSentRef = useRef(false)
 
-  // Reset the sent flag when navigating away
+  // Send initial message when we have a sessionId and an initial message
+  // Use a small delay to ensure useChat has processed the sessionId change
   useEffect(() => {
-    if (!resolvedId) {
-      hasSentPendingRef.current = false
+    if (resolvedId && initialMessage && !initialMessageSentRef.current) {
+      initialMessageSentRef.current = true
+      // Small delay to ensure useChat's useEffect has run and cleared/initialized state
+      const timeoutId = setTimeout(() => {
+        chatSendRef.current(initialMessage)
+      }, 50)
+      return () => clearTimeout(timeoutId)
     }
-  }, [resolvedId])
+  }, [resolvedId, initialMessage])
+
+  // Reset state when navigating to a different URL session
+  useEffect(() => {
+    if (urlSessionId) {
+      // URL changed to a specific session - reset local state
+      setLocalSessionId(null)
+      setInitialMessage(null)
+      initialMessageSentRef.current = false
+    }
+  }, [urlSessionId])
 
   // Load recent sessions
   useEffect(() => {
     api.sessions.list().then((sessions) => {
-      // Filter to webui sessions and limit to 10
       const webuiSessions = sessions
         .filter(s => s.channel === 'webui' || s.id.startsWith('webui:'))
         .slice(0, 10)
       setRecentSessions(webuiSessions)
     }).catch(() => {})
-  }, [messages.length]) // Refresh when messages change
+  }, [messages.length])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent])
 
-  const hasMessages = messages.length > 0 || streamingContent
+  // Determine if we should show the chat view (vs hero)
+  const hasMessages = messages.length > 0 || streamingContent || isStreaming
+  const showChatView = hasMessages || !!resolvedId
 
   const friendlyErrorLocal = (raw: string) => friendlyError(raw, t)
 
-  // Wrapper for sendMessage that creates a new session if needed
-  const sendMessage = async (content: string) => {
-    if (!resolvedId) {
-      // Store in global and navigate
-      globalPendingMessage = content
-      hasSentPendingRef.current = false
-      const newSessionId = generateSessionId()
-      navigate(`/chat/${encodeURIComponent(newSessionId)}`, { replace: true })
-    } else {
+  // Handle sending a message
+  const sendMessage = useCallback((content: string) => {
+    if (resolvedId) {
+      // Already have a session - send directly
       chatSend(content)
+    } else {
+      // No session yet - create one locally and set initial message
+      // This will trigger the chat view and send the message
+      const newSessionId = generateSessionId()
+      initialMessageSentRef.current = false
+      setInitialMessage(content)
+      setLocalSessionId(newSessionId)
     }
-  }
+  }, [resolvedId, chatSend])
+
+  // Update URL after conversation starts (non-blocking)
+  useEffect(() => {
+    if (localSessionId && hasMessages && !urlSessionId) {
+      // Update URL to reflect the session without navigation
+      window.history.replaceState({}, '', `/chat/${encodeURIComponent(localSessionId)}`)
+    }
+  }, [localSessionId, hasMessages, urlSessionId])
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -109,7 +134,7 @@ export function Chat() {
         {/* Main chat area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto">
-            {!hasMessages ? (
+            {!showChatView ? (
               <div className="flex flex-col h-full items-center justify-center px-6">
                 <div className="w-full max-w-2xl space-y-6">
                   {/* Branding */}
@@ -148,6 +173,12 @@ export function Chat() {
               /* Messages */
               <div className="py-6">
                 <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 space-y-4">
+                  {/* Loading indicator when history is loading */}
+                  {isLoadingHistory && (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-[#64748b]" />
+                    </div>
+                  )}
                   {messages.map((msg, i) => (
                     <ChatMessage
                       key={`${msg.role}-${msg.timestamp}-${i}`}
@@ -193,7 +224,7 @@ export function Chat() {
           </div>
 
           {/* Input when messages exist */}
-          {hasMessages && (
+          {showChatView && (
             <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:px-8 pb-4">
               <ChatInput onSend={sendMessage} onAbort={abort} isStreaming={isStreaming} />
             </div>
@@ -201,13 +232,19 @@ export function Chat() {
         </div>
 
         {/* Recent sessions sidebar */}
-        {(showSidebar || hasMessages) && recentSessions.length > 0 && (
+        {(showSidebar || showChatView) && recentSessions.length > 0 && (
           <div className="w-64 border-l border-white/10 bg-[#111827] overflow-y-auto hidden lg:block">
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-[#f8fafc]">Conversas</h3>
                 <button
-                  onClick={() => navigate('/')}
+                  onClick={() => {
+                    // Reset local state to start a new chat
+                    setLocalSessionId(null)
+                    setInitialMessage(null)
+                    initialMessageSentRef.current = false
+                    navigate('/')
+                  }}
                   className="flex items-center gap-1 text-xs text-[#64748b] hover:text-[#3b82f6] transition-colors"
                 >
                   <Plus className="h-3 w-3" />
@@ -220,7 +257,13 @@ export function Chat() {
                   return (
                     <button
                       key={session.id}
-                      onClick={() => navigate(`/chat/${encodeURIComponent(session.id)}`)}
+                      onClick={() => {
+                        // Navigate to existing session
+                        setLocalSessionId(null)
+                        setInitialMessage(null)
+                        initialMessageSentRef.current = false
+                        navigate(`/chat/${encodeURIComponent(session.id)}`)
+                      }}
                       className={cn(
                         'w-full flex items-start gap-3 px-3 py-2.5 rounded-lg transition-all text-left',
                         isActive

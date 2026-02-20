@@ -92,7 +92,7 @@ func (s *Server) handleSetupTestProvider(w http.ResponseWriter, r *http.Request)
 	if baseURL == "" {
 		baseURL = providerBaseURL(body.Provider)
 	}
-	if err := testProviderConnection(baseURL, body.APIKey, body.Model); err != nil {
+	if err := testProviderConnection(body.Provider, baseURL, body.APIKey, body.Model); err != nil {
 		s.logger.Debug("provider test failed", "provider", body.Provider, "error", err)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"success": false,
@@ -408,26 +408,41 @@ func providerBaseURL(provider string) string {
 	case "anthropic":
 		return "https://api.anthropic.com/v1"
 	case "google":
-		return "https://generativelanguage.googleapis.com/v1beta"
+		return "https://generativelanguage.googleapis.com/v1beta/openai"
 	case "zai":
 		return "https://api.z.ai/api/paas/v4"
 	case "xai":
 		return "https://api.x.ai/v1"
 	case "groq":
 		return "https://api.groq.com/openai/v1"
+	case "cerebras":
+		return "https://api.cerebras.ai/v1"
+	case "mistral":
+		return "https://api.mistral.ai/v1"
 	case "openrouter":
 		return "https://openrouter.ai/api/v1"
 	case "minimax":
 		return "https://api.minimax.io/anthropic"
 	case "ollama":
 		return "http://localhost:11434/v1"
+	case "huggingface":
+		return "https://api-inference.huggingface.co/models"
+	case "lmstudio":
+		return "http://localhost:1234/v1"
+	case "vllm":
+		return "http://localhost:8000/v1"
 	default:
 		return "https://api.openai.com/v1"
 	}
 }
 
 // testProviderConnection makes a minimal chat completion request to verify credentials.
-func testProviderConnection(baseURL, apiKey, model string) error {
+func testProviderConnection(provider, baseURL, apiKey, model string) error {
+	// HuggingFace uses a different API format - model is in the URL path
+	if strings.ToLower(provider) == "huggingface" {
+		return testHuggingFaceConnection(baseURL, apiKey, model)
+	}
+
 	// Newer OpenAI models (o1, o3, o4, gpt-5) require max_completion_tokens instead of max_tokens
 	usesMaxCompletionTokens := strings.HasPrefix(model, "o1") ||
 		strings.HasPrefix(model, "o3") ||
@@ -484,6 +499,59 @@ func testProviderConnection(baseURL, apiKey, model string) error {
 			msg = resp.Status
 		}
 		return fmt.Errorf("API retornou %d: %s", resp.StatusCode, msg)
+	}
+}
+
+// testHuggingFaceConnection tests HuggingFace Inference API which uses a different format.
+func testHuggingFaceConnection(baseURL, apiKey, model string) error {
+	// HuggingFace uses model in the URL path: /models/{model_id}
+	// The baseURL already contains the base, we append the model
+	url := strings.TrimSuffix(baseURL, "/") + "/" + model
+
+	payload := map[string]any{
+		"inputs": "Hi",
+	}
+	jsonBody, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connection failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+
+	switch resp.StatusCode {
+	case 401:
+		return fmt.Errorf("invalid API key")
+	case 403:
+		return fmt.Errorf("access denied — check your API key permissions")
+	case 404:
+		return fmt.Errorf("model '%s' not found on HuggingFace", model)
+	case 429:
+		return fmt.Errorf("rate limit exceeded — try again in a few seconds")
+	case 503:
+		return fmt.Errorf("model is loading — try again in a few moments")
+	default:
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("API returned %d: %s", resp.StatusCode, msg)
 	}
 }
 

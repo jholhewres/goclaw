@@ -1,36 +1,21 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Shield, ShieldCheck, ShieldAlert, Lock, KeyRound, Eye, EyeOff, Info } from 'lucide-react'
+import { Shield, ShieldCheck, ShieldAlert, Lock } from 'lucide-react'
 import type { SetupData } from './SetupWizard'
+import {
+  StepContainer, StepHeader, FieldGroup, Field,
+  PasswordInput, Toggle, SelectableCard,
+} from './SetupComponents'
 
 interface Props {
   data: SetupData
   updateData: (partial: Partial<SetupData>) => void
 }
 
-const COLOR_MAP = {
-  emerald: {
-    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
-    icon: 'text-zinc-200',
-    dot: 'bg-zinc-300',
-  },
-  blue: {
-    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
-    icon: 'text-zinc-200',
-    dot: 'bg-zinc-300',
-  },
-  amber: {
-    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
-    icon: 'text-zinc-200',
-    dot: 'bg-zinc-300',
-  },
-}
-
 export function StepSecurity({ data, updateData }: Props) {
   const { t } = useTranslation()
-  const [showPassword, setShowPassword] = useState(false)
-  const [showVault, setShowVault] = useState(false)
-  const [customVaultEnabled, setCustomVaultEnabled] = useState(false)
+
+  // Derive toggle state from data: different passwords = custom vault enabled
+  const hasCustomVault = data.vaultPassword !== data.webuiPassword
 
   const MODES = [
     {
@@ -38,178 +23,89 @@ export function StepSecurity({ data, updateData }: Props) {
       label: t('setupPage.modeRelaxed'),
       description: t('setupPage.modeRelaxedDesc'),
       icon: Shield,
-      color: 'emerald',
     },
     {
       value: 'strict' as const,
       label: t('setupPage.modeStrict'),
       description: t('setupPage.modeStrictDesc'),
       icon: ShieldCheck,
-      color: 'blue',
     },
     {
       value: 'paranoid' as const,
       label: t('setupPage.modeParanoid'),
       description: t('setupPage.modeParanoidDesc'),
       icon: ShieldAlert,
-      color: 'amber',
     },
   ]
 
+  const handlePasswordChange = (val: string) => {
+    if (hasCustomVault) {
+      // Custom vault enabled - only update webui password
+      updateData({ webuiPassword: val })
+    } else {
+      // Sync both passwords
+      updateData({ webuiPassword: val, vaultPassword: val })
+    }
+  }
+
+  const handleToggleVault = (enabled: boolean) => {
+    if (enabled) {
+      // Clear vault password so it becomes different from webui password
+      updateData({ vaultPassword: '' })
+    } else {
+      // Sync vault password to webui password
+      updateData({ vaultPassword: data.webuiPassword })
+    }
+  }
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-white">{t('setupPage.securityTitle')}</h2>
-        <p className="mt-1 text-sm text-zinc-400">
-          {t('setupPage.securityDesc')}
-        </p>
-      </div>
+    <StepContainer>
+      <StepHeader
+        title={t('setupPage.securityTitle')}
+        description={t('setupPage.securityDesc')}
+      />
 
-      <div className="space-y-5">
-        {/* Web UI Password */}
-        <div>
-          <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
-            <Lock className="h-3.5 w-3.5 text-zinc-500" />
-            {t('setupPage.webuiPassword')}
-          </label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={data.webuiPassword}
-              onChange={(e) => {
-                const val = e.target.value
-                updateData({
-                  webuiPassword: val,
-                  ...(!customVaultEnabled ? { vaultPassword: val } : {}),
-                })
-              }}
-              placeholder={t('setupPage.webuiPassword')}
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
+      <FieldGroup>
+        <Field label={t('setupPage.password')} icon={Lock} hint={t('setupPage.passwordHint')}>
+          <PasswordInput
+            value={data.webuiPassword}
+            onChange={handlePasswordChange}
+            placeholder={t('setupPage.password')}
+          />
+        </Field>
+
+        <Toggle
+          enabled={hasCustomVault}
+          onChange={handleToggleVault}
+          label={t('setupPage.vaultDifferent')}
+        />
+
+        {hasCustomVault && (
+          <Field label={t('setupPage.vaultPassword')} icon={Lock}>
+            <PasswordInput
+              value={data.vaultPassword}
+              onChange={(val) => updateData({ vaultPassword: val })}
+              placeholder={t('setupPage.vaultPassword')}
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
+          </Field>
+        )}
+
+        <Field label={t('setupPage.accessMode')} icon={Shield}>
+          <div className="space-y-2">
+            {MODES.map((mode) => (
+              <SelectableCard
+                key={mode.value}
+                selected={data.accessMode === mode.value}
+                onClick={() => updateData({ accessMode: mode.value })}
+                icon={mode.icon}
+                iconColor="text-[#3b82f6]"
+                title={mode.label}
+                description={mode.description}
+              />
+            ))}
           </div>
-          <p className="mt-1.5 text-xs text-zinc-500">
-            {t('setupPage.webuiPasswordHint')}
-          </p>
-        </div>
-
-        {/* Vault Password */}
-        <div className="rounded-xl border border-zinc-700/30 bg-zinc-800/20 p-4">
-          <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-800">
-              <KeyRound className="h-4 w-4 text-zinc-400" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-white">{t('setupPage.vault')}</h3>
-              <p className="mt-1 text-xs text-zinc-400">
-                {t('setupPage.vaultDesc')}
-              </p>
-
-              <div className="mt-3 flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label={t('setupPage.vaultDifferent')}
-                  onClick={() => {
-                    const next = !customVaultEnabled
-                    setCustomVaultEnabled(next)
-                    if (!next) {
-                      updateData({ vaultPassword: data.webuiPassword })
-                    }
-                  }}
-                  className={`relative h-5 w-9 rounded-full transition-colors ${
-                    customVaultEnabled ? 'bg-zinc-500' : 'bg-zinc-700'
-                  }`}
-                >
-                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                    customVaultEnabled ? 'translate-x-4' : 'translate-x-0.5'
-                  }`} />
-                </button>
-                <span className="text-xs text-zinc-400">{t('setupPage.vaultDifferent')}</span>
-              </div>
-
-              {customVaultEnabled && (
-                <div className="mt-3">
-                  <div className="relative">
-                    <input
-                      type={showVault ? 'text' : 'password'}
-                      value={data.vaultPassword}
-                      onChange={(e) => updateData({ vaultPassword: e.target.value })}
-                      placeholder={t('setupPage.vaultPasswordHint')}
-                      className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowVault(!showVault)}
-                      aria-label={showVault ? 'Hide vault password' : 'Show vault password'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
-                    >
-                      {showVault ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {data.webuiPassword && (
-                <div className="mt-2 flex items-start gap-1.5">
-                  <Info className="mt-0.5 h-3 w-3 shrink-0 text-zinc-400" />
-                  <p className="text-[11px] text-zinc-400">
-                    {t('setupPage.vaultAutoSave')}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Access mode */}
-        <div>
-          <label className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-300">
-            <Shield className="h-3.5 w-3.5 text-zinc-500" />
-            {t('setupPage.accessMode')}
-          </label>
-          <div className="space-y-2.5">
-            {MODES.map((mode) => {
-              const colors = COLOR_MAP[mode.color as keyof typeof COLOR_MAP]
-              const isActive = data.accessMode === mode.value
-              const Icon = mode.icon
-
-              return (
-                <button
-                  key={mode.value}
-                  onClick={() => updateData({ accessMode: mode.value })}
-                  className={`flex w-full items-start gap-4 rounded-xl border px-4 py-3.5 text-left transition-all ${
-                    isActive
-                      ? colors.active
-                      : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/60'
-                  }`}
-                >
-                  <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                    isActive ? 'bg-white/5' : 'bg-zinc-800'
-                  }`}>
-                    <Icon className={`h-4 w-4 ${isActive ? colors.icon : 'text-zinc-500'}`} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white">{mode.label}</span>
-                      {isActive && (
-                        <div className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} />
-                      )}
-                    </div>
-                    <p className="mt-0.5 text-xs text-zinc-400">{mode.description}</p>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
+        </Field>
+      </FieldGroup>
+    </StepContainer>
   )
 }

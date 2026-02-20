@@ -37,7 +37,14 @@ import (
 // Config holds WhatsApp channel configuration.
 type Config struct {
 	// SessionDir is the directory for session persistence (SQLite).
+	// Ignored if DatabasePath is set.
 	SessionDir string `yaml:"session_dir"`
+
+	// DatabasePath is the path to the SQLite database file for session storage.
+	// If set, the WhatsApp session tables (prefixed with whatsmeow_) will be
+	// stored in this database alongside other devclaw data.
+	// If empty, defaults to {SessionDir}/whatsapp.db.
+	DatabasePath string `yaml:"database_path"`
 
 	// Trigger is the keyword that activates the bot (e.g. "@devclaw").
 	Trigger string `yaml:"trigger"`
@@ -301,7 +308,14 @@ func (w *WhatsApp) Connect(ctx context.Context) error {
 	w.logger.Info("whatsapp: initializing connection...")
 
 	// Initialize session store (SQLite).
-	dbPath := w.cfg.SessionDir + "/whatsapp.db"
+	// Use DatabasePath if provided, otherwise fall back to SessionDir/whatsapp.db.
+	dbPath := w.cfg.DatabasePath
+	if dbPath == "" {
+		dbPath = w.cfg.SessionDir + "/whatsapp.db"
+		w.logger.Info("whatsapp: using standalone session database", "path", dbPath)
+	} else {
+		w.logger.Info("whatsapp: using shared devclaw database for sessions", "path", dbPath)
+	}
 	container, err := sqlstore.New(w.ctx, "sqlite3",
 		fmt.Sprintf("file:%s?_foreign_keys=1&_journal_mode=WAL", dbPath),
 		waLog.Noop)
