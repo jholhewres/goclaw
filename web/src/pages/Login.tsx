@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Lock, ArrowRight, Loader2, Terminal } from 'lucide-react'
+import { Lock, ArrowRight, Loader2, Bot } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 
 export function Login() {
@@ -57,7 +57,7 @@ export function Login() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex h-14 w-14 items-center justify-center rounded-xl bg-[#3b82f6] shadow-lg shadow-blue-500/20">
-            <Terminal className="h-7 w-7 text-white" />
+            <Bot className="h-7 w-7 text-white" />
           </div>
           <h1 className="mt-4 text-2xl font-bold text-[#f8fafc]">
             Dev<span className="text-[#64748b]">Claw</span>
@@ -79,6 +79,7 @@ export function Login() {
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError('') }}
                 placeholder={t('login.passwordPlaceholder')}
+                autoComplete="current-password"
                 autoFocus
                 className="w-full rounded-xl border border-white/10 bg-[#1e293b] px-4 py-3 text-sm text-[#f8fafc] placeholder:text-[#475569] outline-none transition-all focus:border-[#3b82f6]/50 focus:ring-1 focus:ring-[#3b82f6]/20"
               />

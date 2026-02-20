@@ -31,6 +31,9 @@ function friendlyError(raw: string, t: (key: string) => string): string {
   return raw
 }
 
+// Global pending message storage (survives remounts)
+let globalPendingMessage: string | null = null
+
 export function Chat() {
   const { t } = useTranslation()
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -40,6 +43,33 @@ export function Chat() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [recentSessions, setRecentSessions] = useState<SessionInfo[]>([])
   const [showSidebar, setShowSidebar] = useState(false)
+  const hasSentPendingRef = useRef(false)
+
+  // Keep chatSend in a ref to avoid stale closures
+  const chatSendRef = useRef(chatSend)
+  useEffect(() => {
+    chatSendRef.current = chatSend
+  }, [chatSend])
+
+  // Send pending message when we have a sessionId
+  useEffect(() => {
+    if (resolvedId && globalPendingMessage && !hasSentPendingRef.current) {
+      hasSentPendingRef.current = true
+      const content = globalPendingMessage
+      globalPendingMessage = null
+      // Use requestAnimationFrame to ensure we're after React's render cycle
+      requestAnimationFrame(() => {
+        chatSendRef.current(content)
+      })
+    }
+  }, [resolvedId])
+
+  // Reset the sent flag when navigating away
+  useEffect(() => {
+    if (!resolvedId) {
+      hasSentPendingRef.current = false
+    }
+  }, [resolvedId])
 
   // Load recent sessions
   useEffect(() => {
@@ -63,13 +93,11 @@ export function Chat() {
   // Wrapper for sendMessage that creates a new session if needed
   const sendMessage = async (content: string) => {
     if (!resolvedId) {
-      // Generate new session ID and navigate
+      // Store in global and navigate
+      globalPendingMessage = content
+      hasSentPendingRef.current = false
       const newSessionId = generateSessionId()
       navigate(`/chat/${encodeURIComponent(newSessionId)}`, { replace: true })
-      // Wait for navigation then send - we'll use a setTimeout hack
-      setTimeout(() => {
-        chatSend(content)
-      }, 50)
     } else {
       chatSend(content)
     }

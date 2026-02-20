@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Settings, LogOut, ChevronDown } from 'lucide-react'
+import { Settings, LogOut, ChevronDown, Terminal } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -44,8 +44,8 @@ export function Navbar({ sidebarCompact }: NavbarProps) {
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
               className="flex items-center gap-2 hover:bg-white/5 rounded-lg px-2 py-1.5 transition-all"
             >
-              <div className="w-9 h-9 rounded-lg bg-[#3b82f6] flex items-center justify-center text-white font-semibold text-sm">
-                D
+              <div className="w-9 h-9 rounded-lg bg-[#3b82f6] flex items-center justify-center text-white">
+                <Terminal className="h-4 w-4" />
               </div>
               <div className="text-left hidden md:block">
                 <div className="text-sm font-medium text-[#f8fafc]">DevClaw</div>

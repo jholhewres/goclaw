@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { User, Globe, Clock } from 'lucide-react'
 import type { SetupData } from './SetupWizard'
+import { StepContainer, StepHeader, FieldGroup, Field, Input, Select } from './SetupComponents'
 
 interface Props {
   data: SetupData
@@ -11,68 +12,84 @@ const LANGUAGES = [
   { value: 'pt-BR', label: 'Português (Brasil)', flag: '🇧🇷' },
   { value: 'en', label: 'English', flag: '🇺🇸' },
   { value: 'es', label: 'Español', flag: '🇪🇸' },
-  { value: 'fr', label: 'Français', flag: '🇫🇷' },
-  { value: 'de', label: 'Deutsch', flag: '🇩🇪' },
+]
+
+// Common timezones organized by region
+const TIMEZONES = [
+  { value: 'UTC', label: 'UTC' },
+  { value: 'America/Sao_Paulo', label: 'Brasília (GMT-3)' },
+  { value: 'America/Manaus', label: 'Manaus (GMT-4)' },
+  { value: 'America/Belem', label: 'Belém (GMT-3)' },
+  { value: 'America/Fortaleza', label: 'Fortaleza (GMT-3)' },
+  { value: 'America/New_York', label: 'New York (EST)' },
+  { value: 'America/Los_Angeles', label: 'Los Angeles (PST)' },
+  { value: 'America/Chicago', label: 'Chicago (CST)' },
+  { value: 'America/Denver', label: 'Denver (MST)' },
+  { value: 'America/Toronto', label: 'Toronto (EST)' },
+  { value: 'America/Mexico_City', label: 'Cidade do México' },
+  { value: 'Europe/London', label: 'Londres (GMT)' },
+  { value: 'Europe/Paris', label: 'Paris (CET)' },
+  { value: 'Europe/Berlin', label: 'Berlim (CET)' },
+  { value: 'Europe/Madrid', label: 'Madrid (CET)' },
+  { value: 'Europe/Lisbon', label: 'Lisboa (WET)' },
+  { value: 'Asia/Tokyo', label: 'Tóquio (JST)' },
+  { value: 'Asia/Shanghai', label: 'Shanghai (CST)' },
+  { value: 'Asia/Dubai', label: 'Dubai (GST)' },
+  { value: 'Asia/Singapore', label: 'Singapura (SGT)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST)' },
 ]
 
 export function StepIdentity({ data, updateData }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+
+  const handleLanguageChange = (lang: string) => {
+    updateData({ language: lang })
+    i18n.changeLanguage(lang)
+  }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-white">{t('setupPage.identityTitle')}</h2>
-        <p className="mt-1 text-sm text-zinc-400">
-          {t('setupPage.identityDesc')}
-        </p>
-      </div>
+    <StepContainer>
+      <StepHeader
+        title={t('setupPage.identityTitle')}
+        description={t('setupPage.identityDesc')}
+      />
 
-      <div className="space-y-4">
-        <div>
-          <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
-            <User className="h-3.5 w-3.5 text-zinc-500" />
-            {t('setupPage.assistantName')}
-          </label>
-          <input
+      <FieldGroup>
+        <Field label={t('setupPage.assistantName')} icon={User}>
+          <Input
             value={data.name}
-            onChange={(e) => updateData({ name: e.target.value })}
+            onChange={(val) => updateData({ name: val })}
             placeholder="DevClaw"
-            className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
-            <Globe className="h-3.5 w-3.5 text-zinc-500" />
-            {t('setupPage.language')}
-          </label>
-          <select
-            value={data.language}
-            onChange={(e) => updateData({ language: e.target.value })}
-            className="h-11 w-full cursor-pointer rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
-          >
+        <Field label={t('setupPage.language')} icon={Globe}>
+          <div className="grid grid-cols-3 gap-2">
             {LANGUAGES.map((lang) => (
-              <option key={lang.value} value={lang.value}>
-                {lang.flag} {lang.label}
-              </option>
+              <button
+                key={lang.value}
+                onClick={() => handleLanguageChange(lang.value)}
+                className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                  data.language === lang.value
+                    ? 'border-[#3b82f6]/50 bg-[#3b82f6]/10 text-[#f8fafc]'
+                    : 'border-white/10 bg-[#0c1222] text-[#94a3b8] hover:border-white/20 hover:bg-[#111827]'
+                }`}
+              >
+                <span className="text-base">{lang.flag}</span>
+                <span className="text-xs font-medium">{lang.label}</span>
+              </button>
             ))}
-          </select>
-        </div>
+          </div>
+        </Field>
 
-        <div>
-          <label className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-300">
-            <Clock className="h-3.5 w-3.5 text-zinc-500" />
-            {t('setupPage.timezone')}
-          </label>
-          <input
+        <Field label={t('setupPage.timezone')} icon={Clock} hint={t('setupPage.timezoneHint')}>
+          <Select
             value={data.timezone}
-            onChange={(e) => updateData({ timezone: e.target.value })}
-            placeholder="America/Sao_Paulo"
-            className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
+            onChange={(val) => updateData({ timezone: val })}
+            options={TIMEZONES}
           />
-          <p className="mt-1.5 text-xs text-zinc-500">{t('setupPage.timezoneHint')}</p>
-        </div>
-      </div>
-    </div>
+        </Field>
+      </FieldGroup>
+    </StepContainer>
   )
 }

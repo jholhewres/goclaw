@@ -1,80 +1,56 @@
 import { useTranslation } from 'react-i18next'
-import { MessageSquare, Check, Phone } from 'lucide-react'
+import { Check, Phone, Globe } from 'lucide-react'
 import type { SetupData } from './SetupWizard'
+import {
+  StepContainer, StepHeader, FieldGroup, Field, Input, Card, InfoBox,
+} from './SetupComponents'
 
 interface Props {
   data: SetupData
   updateData: (partial: Partial<SetupData>) => void
 }
 
-const COLOR_MAP: Record<string, { active: string; icon: string }> = {
-  emerald: {
-    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
-    icon: 'text-zinc-200',
+const CHANNELS = [
+  {
+    id: 'whatsapp',
+    color: '#22c55e',
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+      </svg>
+    ),
   },
-  blue: {
-    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
-    icon: 'text-zinc-200',
+  {
+    id: 'telegram',
+    color: '#3b82f6',
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+      </svg>
+    ),
   },
-  violet: {
-    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
-    icon: 'text-zinc-200',
+  {
+    id: 'discord',
+    color: '#8b5cf6',
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+        <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189z"/>
+      </svg>
+    ),
   },
-  pink: {
-    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
-    icon: 'text-zinc-200',
+  {
+    id: 'slack',
+    color: '#ec4899',
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+        <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/>
+      </svg>
+    ),
   },
-}
+]
 
 export function StepChannels({ data, updateData }: Props) {
   const { t } = useTranslation()
-
-  const CHANNELS = [
-    {
-      id: 'whatsapp',
-      name: t('setupPage.channelWhatsapp'),
-      description: t('setupPage.channelWhatsappDesc'),
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-        </svg>
-      ),
-      color: 'emerald',
-    },
-    {
-      id: 'telegram',
-      name: t('setupPage.channelTelegram'),
-      description: t('setupPage.channelTelegramDesc'),
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
-        </svg>
-      ),
-      color: 'blue',
-    },
-    {
-      id: 'discord',
-      name: t('setupPage.channelDiscord'),
-      description: t('setupPage.channelDiscordDesc'),
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189z"/>
-        </svg>
-      ),
-      color: 'violet',
-    },
-    {
-      id: 'slack',
-      name: t('setupPage.channelSlack'),
-      description: t('setupPage.channelSlackDesc'),
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/>
-        </svg>
-      ),
-      color: 'pink',
-    },
-  ]
 
   const toggleChannel = (id: string) => {
     updateData({
@@ -86,80 +62,67 @@ export function StepChannels({ data, updateData }: Props) {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-white">{t('setupPage.channelsTitle')}</h2>
-        <p className="mt-1 text-sm text-zinc-400">
-          {t('setupPage.channelsDesc')}
-        </p>
-      </div>
+    <StepContainer>
+      <StepHeader
+        title={t('setupPage.channelsTitle')}
+        description={t('setupPage.channelsDesc')}
+      />
 
-      <div className="space-y-2.5">
-        {CHANNELS.map((ch) => {
-          const isActive = !!data.channels[ch.id]
-          const colors = COLOR_MAP[ch.color]
-
-          return (
-            <button
-              key={ch.id}
-              onClick={() => toggleChannel(ch.id)}
-              className={`flex w-full items-center gap-4 rounded-xl border px-4 py-3.5 text-left transition-all ${
-                isActive
-                  ? colors.active
-                  : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/60'
-              }`}
-            >
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                isActive ? 'bg-white/5' : 'bg-zinc-800'
-              }`}>
-                <div className={isActive ? colors.icon : 'text-zinc-500'}>
-                  {ch.icon}
+      <FieldGroup>
+        <div className="space-y-2">
+          {CHANNELS.map((ch) => {
+            const isActive = !!data.channels[ch.id]
+            return (
+              <button
+                key={ch.id}
+                onClick={() => toggleChannel(ch.id)}
+                className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
+                  isActive
+                    ? 'border-transparent bg-[#1e293b]'
+                    : 'border-white/[0.06] bg-[#0c1222]/50 hover:border-white/10 hover:bg-[#111827]'
+                }`}
+                style={isActive ? { borderLeftWidth: '3px', borderLeftColor: ch.color } : {}}
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#1e293b]">
+                  <div style={{ color: isActive ? ch.color : '#64748b' }}>{ch.icon}</div>
                 </div>
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <span className="text-sm font-medium text-white">{ch.name}</span>
-                <p className="text-xs text-zinc-400">{ch.description}</p>
-              </div>
-
-              <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all ${
-                isActive
-                  ? 'border-transparent bg-zinc-500 text-white'
-                  : 'border-zinc-600 bg-zinc-800'
-              }`}>
-                {isActive && <Check className="h-3 w-3" />}
-              </div>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Owner phone — only shown when WhatsApp is enabled */}
-      {data.channels['whatsapp'] && (
-        <div className="rounded-xl border border-zinc-600 bg-zinc-800/50 p-4 space-y-3">
-          <label className="flex items-center gap-2 text-sm font-medium text-zinc-300">
-            <Phone className="h-3.5 w-3.5 text-zinc-400" />
-            {t('setupPage.ownerPhone')}
-          </label>
-          <input
-            type="tel"
-            value={data.ownerPhone}
-            onChange={(e) => updateData({ ownerPhone: e.target.value.replace(/\D/g, '') })}
-            placeholder="5511999999999"
-            className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
-          />
-          <p className="text-xs text-zinc-500">
-            {t('setupPage.ownerPhoneHint')}
-          </p>
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-medium text-[#f8fafc]">
+                    {t(`setupPage.channel${ch.id.charAt(0).toUpperCase() + ch.id.slice(1)}`)}
+                  </span>
+                  <p className="text-xs text-[#94a3b8]">
+                    {t(`setupPage.channel${ch.id.charAt(0).toUpperCase() + ch.id.slice(1)}Desc`)}
+                  </p>
+                </div>
+                <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all ${
+                  isActive
+                    ? 'border-transparent bg-[#22c55e] text-white'
+                    : 'border-white/20 bg-[#1e293b]'
+                }`}>
+                  {isActive && <Check className="h-3 w-3" />}
+                </div>
+              </button>
+            )
+          })}
         </div>
-      )}
 
-      <div className="flex items-center gap-2.5 rounded-xl bg-zinc-800/40 px-4 py-3 ring-1 ring-zinc-700/30">
-        <MessageSquare className="h-4 w-4 shrink-0 text-zinc-400" />
-        <p className="text-xs text-zinc-400">
+        {data.channels['whatsapp'] && (
+          <Card highlight="green">
+            <Field label={t('setupPage.ownerPhone')} icon={Phone} hint={t('setupPage.ownerPhoneHint')}>
+              <Input
+                value={data.ownerPhone}
+                onChange={(val) => updateData({ ownerPhone: val.replace(/\D/g, '') })}
+                placeholder="5511999999999"
+                type="tel"
+              />
+            </Field>
+          </Card>
+        )}
+
+        <InfoBox icon={Globe}>
           {t('setupPage.webchatAlways')}
-        </p>
-      </div>
-    </div>
+        </InfoBox>
+      </FieldGroup>
+    </StepContainer>
   )
 }

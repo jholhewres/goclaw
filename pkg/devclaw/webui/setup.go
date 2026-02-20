@@ -428,12 +428,22 @@ func providerBaseURL(provider string) string {
 
 // testProviderConnection makes a minimal chat completion request to verify credentials.
 func testProviderConnection(baseURL, apiKey, model string) error {
+	// Newer OpenAI models (o1, o3, o4, gpt-5) require max_completion_tokens instead of max_tokens
+	usesMaxCompletionTokens := strings.HasPrefix(model, "o1") ||
+		strings.HasPrefix(model, "o3") ||
+		strings.HasPrefix(model, "o4") ||
+		strings.HasPrefix(model, "gpt-5")
+
 	payload := map[string]any{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "user", "content": "Hi"},
 		},
-		"max_tokens": 5,
+	}
+	if usesMaxCompletionTokens {
+		payload["max_completion_tokens"] = 5
+	} else {
+		payload["max_tokens"] = 5
 	}
 	jsonBody, _ := json.Marshal(payload)
 
