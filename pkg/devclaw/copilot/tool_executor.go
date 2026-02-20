@@ -34,6 +34,9 @@ type ctxKeyCallerLevel struct{}
 // ctxKeyCallerJID is the context key for passing caller JID per-request.
 type ctxKeyCallerJID struct{}
 
+// ctxKeyToolProfile is the context key for passing the active tool profile.
+type ctxKeyToolProfile struct{}
+
 // DeliveryTarget holds the channel and chatID for message delivery.
 type DeliveryTarget struct {
 	Channel string
@@ -78,6 +81,21 @@ func CallerJIDFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+// ContextWithToolProfile returns a new context carrying a tool profile.
+// The profile is used for CheckWithProfile to apply allow/deny lists.
+func ContextWithToolProfile(ctx context.Context, profile *ToolProfile) context.Context {
+	return context.WithValue(ctx, ctxKeyToolProfile{}, profile)
+}
+
+// ToolProfileFromContext extracts the tool profile from context.
+// Returns nil if no profile is set.
+func ToolProfileFromContext(ctx context.Context) *ToolProfile {
+	if v, ok := ctx.Value(ctxKeyToolProfile{}).(*ToolProfile); ok {
+		return v
+	}
+	return nil
 }
 
 // SessionIDFromContext extracts the session ID from a context.
@@ -523,7 +541,9 @@ func (e *ToolExecutor) executeSingle(ctx context.Context, call ToolCall) ToolRes
 	// Security check: verify the caller has permission.
 	var check ToolCheckResult
 	if guard != nil {
-		check = guard.Check(name, callerLevel, args)
+		// Extract profile from context (workspace may override global profile).
+		profile := ToolProfileFromContext(ctx)
+		check = guard.CheckWithProfile(name, callerLevel, args, profile)
 		if !check.Allowed {
 			result.Content = formatToolError(name, fmt.Errorf("access denied: %s", check.Reason))
 			result.Error = fmt.Errorf("access denied: %s", check.Reason)

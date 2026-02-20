@@ -1024,6 +1024,11 @@ func (a *Assistant) handleMessage(msg *channels.IncomingMessage) {
 	agentCtx = ContextWithDelivery(agentCtx, msg.Channel, msg.ChatID)
 	agentCtx = ContextWithCaller(agentCtx, accessResult.Level, msg.From)
 
+	// Resolve tool profile for this workspace (workspace can override global).
+	if profile := a.resolveToolProfile(workspace); profile != nil {
+		agentCtx = ContextWithToolProfile(agentCtx, profile)
+	}
+
 	// Inject ProgressSender with per-channel cooldown.
 	// WhatsApp doesn't support editing messages, so we rate-limit progress
 	// to avoid flooding the chat with dozens of "still working..." messages.
@@ -1190,6 +1195,25 @@ func (a *Assistant) matchesTrigger(content, trigger string, isGroup bool) bool {
 	content = strings.TrimSpace(content)
 	return len(content) >= len(trigger) &&
 		strings.EqualFold(content[:len(trigger)], trigger)
+}
+
+// resolveToolProfile returns the effective tool profile for a workspace.
+// Workspace profile takes precedence over global profile.
+// Returns nil if no profile is configured.
+func (a *Assistant) resolveToolProfile(ws *Workspace) *ToolProfile {
+	// Workspace profile takes precedence.
+	if ws.ToolProfile != "" {
+		if profile := GetProfile(ws.ToolProfile, a.config.Security.ToolGuard.CustomProfiles); profile != nil {
+			return profile
+		}
+	}
+
+	// Fall back to global profile.
+	if a.config.Security.ToolGuard.Profile != "" {
+		return GetProfile(a.config.Security.ToolGuard.Profile, a.config.Security.ToolGuard.CustomProfiles)
+	}
+
+	return nil
 }
 
 // composeWorkspacePrompt builds the prompt using workspace overrides.

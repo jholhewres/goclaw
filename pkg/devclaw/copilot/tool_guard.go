@@ -39,6 +39,14 @@ type ToolGuardConfig struct {
 	// AuditLog path for recording all tool executions.
 	AuditLogPath string `yaml:"audit_log"`
 
+	// Profile selects a predefined tool profile.
+	// Options: minimal, coding, messaging, full, or custom profile name.
+	// Empty = use ToolPermissions directly (backward compatibility).
+	Profile string `yaml:"profile"`
+
+	// CustomProfiles allows defining custom tool profiles.
+	CustomProfiles map[string]ToolProfile `yaml:"custom_profiles"`
+
 	// ToolPermissions overrides per-tool permission levels.
 	// key = tool name, value = "owner"/"admin"/"user"/"public".
 	ToolPermissions map[string]string `yaml:"tool_permissions"`
@@ -222,6 +230,76 @@ type ToolCheckResult struct {
 	Allowed               bool
 	Reason                string
 	RequiresConfirmation  bool // true if tool needs user approval before execution
+}
+
+// CheckWithProfile evaluates tool access considering a profile's allow/deny lists.
+// The profile check runs before the standard permission checks.
+// If no profile is provided (nil), delegates directly to Check().
+func (g *ToolGuard) CheckWithProfile(toolName string, callerLevel AccessLevel, args map[string]any, profile *ToolProfile) ToolCheckResult {
+	// If no profile, use standard check.
+	if profile == nil {
+		return g.Check(toolName, callerLevel, args)
+	}
+
+	// Get all known tools for expansion.
+	allTools := g.GetAllToolNames()
+
+	// Create a profile checker.
+	checker := NewProfileChecker(profile.Allow, profile.Deny, allTools)
+
+	// Check deny first (takes precedence).
+	if checker.IsDenied(toolName) {
+		return ToolCheckResult{
+			Allowed: false,
+			Reason:  fmt.Sprintf("tool '%s' is denied by profile '%s'", toolName, profile.Name),
+		}
+	}
+
+	// Check allow list.
+	if !checker.IsAllowed(toolName) {
+		return ToolCheckResult{
+			Allowed: false,
+			Reason:  fmt.Sprintf("tool '%s' is not in profile '%s' allow list", toolName, profile.Name),
+		}
+	}
+
+	// Profile allows it, continue with standard permission checks.
+	return g.Check(toolName, callerLevel, args)
+}
+
+// GetAllToolNames returns all known tool names from permissions and groups.
+func (g *ToolGuard) GetAllToolNames() []string {
+	seen := make(map[string]bool)
+	var tools []string
+
+	// Add tools from permissions config.
+	for name := range g.cfg.ToolPermissions {
+		if !seen[name] {
+			seen[name] = true
+			tools = append(tools, name)
+		}
+	}
+
+	// Add tools from groups.
+	for _, groupTools := range ToolGroups {
+		for _, name := range groupTools {
+			if !seen[name] {
+				seen[name] = true
+				tools = append(tools, name)
+			}
+		}
+	}
+
+	return tools
+}
+
+// GetActiveProfile returns the active profile based on config.
+// Returns nil if no profile is configured or if profile is not found.
+func (g *ToolGuard) GetActiveProfile() *ToolProfile {
+	if g.cfg.Profile == "" {
+		return nil
+	}
+	return GetProfile(g.cfg.Profile, g.cfg.CustomProfiles)
 }
 
 // Check evaluates whether a tool call is permitted for the given access level.

@@ -241,6 +241,10 @@ func (a *Assistant) HandleCommand(msg *channels.IncomingMessage) CommandResult {
 		}
 		return CommandResult{Response: a.systemCommands.MetricsCommand(args), Handled: true}
 
+	// Tool profile commands.
+	case "/profile":
+		return CommandResult{Response: a.profileCommand(args, msg, isAdmin), Handled: true}
+
 	default:
 		return CommandResult{Handled: false}
 	}
@@ -281,7 +285,8 @@ func (a *Assistant) helpCommand(isAdmin bool) string {
 		b.WriteString("/maintenance [on|off] [msg] - Maintenance mode\n")
 		b.WriteString("/logs [level] [lines] - View audit logs\n")
 		b.WriteString("/health - Health check\n")
-		b.WriteString("/metrics [period] - Usage metrics\n\n")
+		b.WriteString("/metrics [period] - Usage metrics\n")
+		b.WriteString("/profile [list|set <name>] - View or set tool profile\n\n")
 
 		b.WriteString("/status - Bot status (legacy)\n")
 	}
@@ -970,5 +975,100 @@ func (a *Assistant) groupCommand(args []string, msg *channels.IncomingMessage) s
 
 	default:
 		return "Unknown group command. Use: allow, block, assign"
+	}
+}
+
+// profileCommand handles the /profile command for viewing and setting tool profiles.
+func (a *Assistant) profileCommand(args []string, msg *channels.IncomingMessage, isAdmin bool) string {
+	if len(args) == 0 {
+		// Show current profile.
+		resolved := a.workspaceMgr.Resolve(msg.Channel, msg.ChatID, msg.From, msg.IsGroup)
+		ws := resolved.Workspace
+
+		// Determine effective profile (workspace overrides global).
+		profileName := ws.ToolProfile
+		if profileName == "" {
+			profileName = a.config.Security.ToolGuard.Profile
+		}
+		if profileName == "" {
+			profileName = "(none - using permission levels)"
+		}
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("*Tool Profile: %s*\n\n", profileName))
+
+		// Show profile details if a profile is set.
+		if guard := a.toolExecutor.Guard(); guard != nil {
+			if profile := guard.GetActiveProfile(); profile != nil {
+				b.WriteString(fmt.Sprintf("Description: %s\n", profile.Description))
+				if len(profile.Allow) > 0 {
+					b.WriteString(fmt.Sprintf("Allowed: %s\n", strings.Join(profile.Allow, ", ")))
+				} else {
+					b.WriteString("Allowed: (all)\n")
+				}
+				if len(profile.Deny) > 0 {
+					b.WriteString(fmt.Sprintf("Denied: %s\n", strings.Join(profile.Deny, ", ")))
+				}
+			}
+		}
+
+		b.WriteString("\nUse /profile list to see available profiles.")
+		if isAdmin {
+			b.WriteString("\nUse /profile set <name> to change the workspace profile.")
+		}
+		return b.String()
+	}
+
+	sub := strings.ToLower(args[0])
+	subArgs := args[1:]
+
+	switch sub {
+	case "list":
+		// List all available profiles.
+		profiles := ListProfiles(a.config.Security.ToolGuard.CustomProfiles)
+
+		var b strings.Builder
+		b.WriteString("*Available Tool Profiles:*\n\n")
+
+		for _, name := range profiles {
+			profile := GetProfile(name, a.config.Security.ToolGuard.CustomProfiles)
+			if profile != nil {
+				b.WriteString(fmt.Sprintf("• *%s* - %s\n", name, profile.Description))
+			}
+		}
+
+		b.WriteString("\nBuilt-in: minimal, coding, messaging, full")
+		return b.String()
+
+	case "set":
+		if !isAdmin {
+			return "Permission denied. Only admins can set profiles."
+		}
+		if len(subArgs) < 1 {
+			return "Usage: /profile set <profile_name>"
+		}
+
+		profileName := subArgs[0]
+
+		// Validate profile exists.
+		if GetProfile(profileName, a.config.Security.ToolGuard.CustomProfiles) == nil {
+			return fmt.Sprintf("Profile '%s' not found. Use /profile list to see available profiles.", profileName)
+		}
+
+		// Update the workspace profile.
+		resolved := a.workspaceMgr.Resolve(msg.Channel, msg.ChatID, msg.From, msg.IsGroup)
+		wsID := resolved.Workspace.ID
+
+		err := a.workspaceMgr.Update(wsID, func(ws *Workspace) {
+			ws.ToolProfile = profileName
+		})
+		if err != nil {
+			return fmt.Sprintf("Error: %v", err)
+		}
+
+		return fmt.Sprintf("Tool profile set to '%s' for workspace '%s'.", profileName, wsID)
+
+	default:
+		return "Usage: /profile [list|set <name>]"
 	}
 }

@@ -69,6 +69,11 @@ type Workspace struct {
 	// 0 = use global default.
 	MaxMessages int `yaml:"max_messages"`
 
+	// ToolProfile specifies which tool profile to use for this workspace.
+	// Options: minimal, coding, messaging, full, or custom profile name.
+	// Empty = use global profile from tool_guard config.
+	ToolProfile string `yaml:"tool_profile"`
+
 	// Members lists the user JIDs assigned to this workspace.
 	Members []string `yaml:"members"`
 
