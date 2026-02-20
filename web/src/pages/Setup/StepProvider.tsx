@@ -250,11 +250,11 @@ export function StepProvider({ data, updateData }: Props) {
                   }}
                   className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center transition-all ${
                     isActive
-                      ? 'border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20'
-                      : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/60'
+                      ? 'border-zinc-500 bg-zinc-800 ring-1 ring-zinc-500/50'
+                      : 'border-zinc-700/50 bg-zinc-900 hover:border-zinc-600 hover:bg-zinc-800'
                   }`}
                 >
-                  <div className={isActive ? 'text-blue-400' : 'text-zinc-400'}>
+                  <div className={isActive ? 'text-zinc-200' : 'text-zinc-400'}>
                     <Icon />
                   </div>
                   <span className="text-[11px] font-medium text-zinc-300">{p.label}</span>
@@ -280,8 +280,8 @@ export function StepProvider({ data, updateData }: Props) {
                     onClick={() => updateData({ baseUrl: ep.value })}
                     className={`cursor-pointer rounded-lg border px-3 py-2 text-left text-xs transition-all ${
                       isActive
-                        ? 'border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20'
-                        : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-800/60'
+                        ? 'border-zinc-500 bg-zinc-800 ring-1 ring-zinc-500/50'
+                        : 'border-zinc-700/50 bg-zinc-900 hover:border-zinc-600 hover:bg-zinc-800'
                     }`}
                   >
                     <span className="font-medium text-zinc-200">{ep.label}</span>
@@ -308,7 +308,7 @@ export function StepProvider({ data, updateData }: Props) {
               value={data.baseUrl}
               onChange={(e) => updateData({ baseUrl: e.target.value })}
               placeholder="https://api.example.com/v1"
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 font-mono text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+              className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 font-mono text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
             />
             <p className="mt-1.5 text-xs text-zinc-500">
               OpenAI-compatible endpoint (<code className="text-zinc-400">/v1/chat/completions</code>)
@@ -331,7 +331,7 @@ export function StepProvider({ data, updateData }: Props) {
                 setTestResult(null)
               }}
               placeholder={provider?.keyPlaceholder || t('setupPage.apiKey')}
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+              className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
             />
             <p className="mt-1.5 text-xs text-zinc-500">
               {t('setupPage.apiKeyHint')}
@@ -349,7 +349,7 @@ export function StepProvider({ data, updateData }: Props) {
             <select
               value={data.model}
               onChange={(e) => updateData({ model: e.target.value })}
-              className="flex h-11 w-full cursor-pointer rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+              className="h-11 w-full cursor-pointer rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
             >
               <option value="">{t('setupPage.selectModel')}</option>
               {activeEndpoint?.extraModels && activeEndpoint.extraModels.length > 0 && (
@@ -372,7 +372,7 @@ export function StepProvider({ data, updateData }: Props) {
               value={data.model}
               onChange={(e) => updateData({ model: e.target.value })}
               placeholder={t('setupPage.modelName')}
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+              className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
             />
           )}
         </div>
@@ -382,7 +382,7 @@ export function StepProvider({ data, updateData }: Props) {
           <button
             onClick={handleTest}
             disabled={testing || (!data.apiKey && !provider?.noKey) || !data.model}
-            className="flex cursor-pointer items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 py-2.5 text-sm font-medium text-zinc-300 transition-all hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex cursor-pointer items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-300 transition-all hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {testing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -395,7 +395,7 @@ export function StepProvider({ data, updateData }: Props) {
           {testResult && (
             <div className="flex items-center gap-1.5 text-sm">
               {testResult.success ? (
-                <span className="flex items-center gap-1.5 text-emerald-400">
+                <span className="flex items-center gap-1.5 text-zinc-300">
                   <CheckCircle2 className="h-4 w-4" /> {t('setupPage.connected')}
                 </span>
               ) : (

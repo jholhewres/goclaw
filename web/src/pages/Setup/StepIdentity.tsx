@@ -37,7 +37,7 @@ export function StepIdentity({ data, updateData }: Props) {
             value={data.name}
             onChange={(e) => updateData({ name: e.target.value })}
             placeholder="DevClaw"
-            className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+            className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
           />
         </div>
 
@@ -49,7 +49,7 @@ export function StepIdentity({ data, updateData }: Props) {
           <select
             value={data.language}
             onChange={(e) => updateData({ language: e.target.value })}
-            className="flex h-11 w-full cursor-pointer rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+            className="h-11 w-full cursor-pointer rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
           >
             {LANGUAGES.map((lang) => (
               <option key={lang.value} value={lang.value}>
@@ -68,7 +68,7 @@ export function StepIdentity({ data, updateData }: Props) {
             value={data.timezone}
             onChange={(e) => updateData({ timezone: e.target.value })}
             placeholder="America/Sao_Paulo"
-            className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+            className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
           />
           <p className="mt-1.5 text-xs text-zinc-500">{t('setupPage.timezoneHint')}</p>
         </div>

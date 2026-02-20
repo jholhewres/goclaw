@@ -98,25 +98,25 @@ export function Domain() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-10 w-10 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
+      <div className="flex flex-1 items-center justify-center bg-[#0c1222]">
+        <div className="h-10 w-10 rounded-full border-4 border-[#1e293b] border-t-[#3b82f6] animate-spin" />
       </div>
     )
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-dc-darker">
-      <div className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-8 py-10">
+    <div className="flex flex-1 flex-col overflow-hidden bg-[#0c1222]">
+      <div className="mx-auto w-full max-w-4xl flex-1 overflow-y-auto px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">Rede</p>
-            <h1 className="mt-1 text-2xl font-black text-white tracking-tight">Domínio & Acesso</h1>
+            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#475569]">Rede</p>
+            <h1 className="mt-1 text-2xl font-bold text-[#f8fafc] tracking-tight">Domínio & Acesso</h1>
           </div>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-blue-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/15 transition-all hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-[#3b82f6] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#2563eb] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? 'Salvando...' : 'Salvar'}
@@ -125,10 +125,10 @@ export function Domain() {
 
         {/* Toast */}
         {message && (
-          <div className={`mt-5 flex items-center gap-2.5 rounded-xl px-4 py-3 text-sm ring-1 ${
+          <div className={`mt-5 flex items-center gap-2.5 rounded-xl px-4 py-3 text-sm border ${
             message.type === 'success'
-              ? 'bg-emerald-500/5 text-emerald-400 ring-emerald-500/20'
-              : 'bg-red-500/5 text-red-400 ring-red-500/20'
+              ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20'
+              : 'bg-[#ef4444]/10 text-[#f87171] border-[#ef4444]/20'
           }`}>
             {message.type === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
             {message.text}
@@ -208,12 +208,12 @@ export function Domain() {
                   {corsOrigins.map((origin) => (
                     <span
                       key={origin}
-                      className="group flex items-center gap-1.5 rounded-lg bg-zinc-800 px-2.5 py-1.5 text-xs font-mono text-zinc-300 ring-1 ring-zinc-700/50"
+                      className="group flex items-center gap-1.5 rounded-lg bg-[#1e293b] px-2.5 py-1.5 text-xs font-mono text-[#f8fafc]"
                     >
                       {origin}
                       <button
                         onClick={() => setCorsOrigins(corsOrigins.filter((o) => o !== origin))}
-                        className="cursor-pointer text-zinc-600 transition-colors hover:text-red-400"
+                        className="cursor-pointer text-[#64748b] transition-colors hover:text-[#f87171]"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -225,7 +225,7 @@ export function Domain() {
                     onKeyDown={(e) => e.key === 'Enter' && addCorsOrigin()}
                     onBlur={addCorsOrigin}
                     placeholder="+ adicionar origem"
-                    className="min-w-[140px] flex-1 rounded-lg bg-transparent px-2 py-1.5 text-xs text-zinc-400 outline-none placeholder:text-zinc-600"
+                    className="min-w-[140px] flex-1 rounded-lg bg-transparent px-2 py-1.5 text-xs text-[#94a3b8] outline-none placeholder:text-[#475569]"
                   />
                 </div>
               </Field>
@@ -267,16 +267,16 @@ export function Domain() {
               </div>
 
               {config?.tailscale_hostname && (
-                <div className="flex items-center gap-3 rounded-xl bg-emerald-500/5 px-4 py-3 ring-1 ring-emerald-500/15">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                <div className="flex items-center gap-3 rounded-xl bg-[#22c55e]/10 px-4 py-3 border border-[#22c55e]/20">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-[#22c55e]" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-zinc-200 truncate">{config.tailscale_hostname}</p>
+                    <p className="text-sm font-medium text-[#f8fafc] truncate">{config.tailscale_hostname}</p>
                     {config.tailscale_url && (
                       <a
                         href={config.tailscale_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-xs text-emerald-400/70 hover:text-emerald-400 transition-colors"
+                        className="flex items-center gap-1 text-xs text-[#64748b] hover:text-[#f8fafc] transition-colors"
                       >
                         {config.tailscale_url}
                         <ArrowUpRight className="h-3 w-3" />
@@ -297,7 +297,7 @@ export function Domain() {
 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`rounded-2xl border border-white/6 bg-(--color-dc-dark)/80 p-5 ${className}`}>
+    <div className={`rounded-2xl border border-white/10 bg-[#111827] p-5 ${className}`}>
       {children}
     </div>
   )
@@ -306,10 +306,10 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
 function CardHeader({ icon: Icon, title }: { icon: React.FC<{ className?: string }>; title: string }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
-        <Icon className="h-4 w-4 text-blue-400" />
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1e293b]">
+        <Icon className="h-4 w-4 text-[#64748b]" />
       </div>
-      <h2 className="text-sm font-bold text-white">{title}</h2>
+      <h2 className="text-sm font-semibold text-[#f8fafc]">{title}</h2>
     </div>
   )
 }
@@ -317,7 +317,7 @@ function CardHeader({ icon: Icon, title }: { icon: React.FC<{ className?: string
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</label>
+      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-[#64748b]">{label}</label>
       {children}
     </div>
   )
@@ -340,7 +340,7 @@ function Input({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+      className="flex h-10 w-full rounded-lg border border-white/10 bg-[#0c1222] px-3 text-sm text-[#f8fafc] placeholder:text-[#475569] outline-none transition-all hover:border-white/20 focus:border-[#3b82f6]/50 focus:ring-1 focus:ring-[#3b82f6]/20"
     />
   )
 }
@@ -365,12 +365,12 @@ function PasswordInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 pr-9 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+        className="flex h-10 w-full rounded-lg border border-white/10 bg-[#0c1222] px-3 pr-9 text-sm text-[#f8fafc] placeholder:text-[#475569] outline-none transition-all hover:border-white/20 focus:border-[#3b82f6]/50 focus:ring-1 focus:ring-[#3b82f6]/20"
       />
       <button
         type="button"
         onClick={onToggle}
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300 transition-colors"
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748b] hover:text-[#f8fafc] transition-colors"
       >
         {show ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
       </button>
@@ -386,7 +386,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
       aria-checked={value}
       onClick={() => onChange(!value)}
       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-        value ? 'bg-blue-500' : 'bg-zinc-700'
+        value ? 'bg-[#3b82f6]' : 'bg-[#1e293b]'
       }`}
     >
       <span
@@ -410,10 +410,10 @@ function ToggleRow({
   onChange: (v: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-zinc-800/30 px-4 py-3 ring-1 ring-zinc-700/20">
+    <div className="flex items-center justify-between rounded-xl bg-[#0c1222] px-4 py-3 border border-white/5">
       <div>
-        <span className="text-sm font-medium text-zinc-200">{label}</span>
-        <p className="text-[11px] text-zinc-500">{description}</p>
+        <span className="text-sm font-medium text-[#f8fafc]">{label}</span>
+        <p className="text-[11px] text-[#64748b]">{description}</p>
       </div>
       <Toggle value={value} onChange={onChange} />
     </div>
@@ -432,23 +432,23 @@ function Endpoint({
   secure: boolean
 }) {
   return (
-    <div className={`rounded-xl px-3.5 py-2.5 ring-1 transition-colors ${
+    <div className={`rounded-xl px-3.5 py-2.5 border transition-colors ${
       active
-        ? 'bg-emerald-500/3 ring-emerald-500/15'
-        : 'bg-zinc-800/30 ring-zinc-700/20'
+        ? 'bg-[#111827] border-white/10'
+        : 'bg-[#111827] border-white/5'
     }`}>
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748b]">{label}</span>
         <div className="flex items-center gap-1">
           {active ? (
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[#22c55e]" />
           ) : (
-            <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[#475569]" />
           )}
           {active && (secure ? (
-            <Lock className="h-3 w-3 text-emerald-400/60" />
+            <Lock className="h-3 w-3 text-[#64748b]" />
           ) : (
-            <Unlock className="h-3 w-3 text-amber-400/60" />
+            <Unlock className="h-3 w-3 text-[#f59e0b]" />
           ))}
         </div>
       </div>
@@ -457,13 +457,13 @@ function Endpoint({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-1 flex items-center gap-1 text-[11px] font-mono text-zinc-400 hover:text-blue-400 transition-colors truncate"
+          className="mt-1 flex items-center gap-1 text-[11px] font-mono text-[#64748b] hover:text-[#f8fafc] transition-colors truncate"
         >
           {url.replace(/^https?:\/\//, '')}
           <ExternalLink className="h-2.5 w-2.5 shrink-0" />
         </a>
       ) : (
-        <p className="mt-1 text-[11px] text-zinc-600">{active ? 'Ativo' : 'Off'}</p>
+        <p className="mt-1 text-[11px] text-[#475569]">{active ? 'Ativo' : 'Off'}</p>
       )}
     </div>
   )

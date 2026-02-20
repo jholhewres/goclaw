@@ -12,269 +12,366 @@ import {
   Zap,
   MessageSquare,
   Terminal,
-  PanelLeftClose,
-  BarChart3,
-  ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Cpu,
   Bot,
-  MessagesSquare,
+  ChevronDown,
+  ChevronUp,
+  BarChart3,
+  Menu,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAppStore } from '@/stores/app'
-import { api, type SessionInfo } from '@/lib/api'
-import { timeAgo } from '@/lib/utils'
-import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 
-/** Navigation icons and routes - labels come from i18n */
-const mainLinkDefs = [
-  { to: '/', icon: MessageSquare, labelKey: 'sidebar.chat' },
-  { to: '/channels', icon: Radio, labelKey: 'sidebar.channels' },
-  { to: '/jobs', icon: Clock, labelKey: 'sidebar.jobs' },
-  { to: '/skills', icon: Puzzle, labelKey: 'sidebar.skills' },
-  { to: '/stats', icon: BarChart3, labelKey: 'sidebar.statistics' },
-] as const
-
-/** Configuration submenu items */
-const configLinkDefs = [
-  { to: '/config', icon: Cpu, labelKey: 'sidebar.llmProviders' },
-  { to: '/system', icon: Bot, labelKey: 'sidebar.system' },
-  { to: '/domain', icon: Globe, labelKey: 'sidebar.domainNetwork' },
-  { to: '/webhooks', icon: Webhook, labelKey: 'sidebar.webhooks' },
-  { to: '/hooks', icon: Zap, labelKey: 'sidebar.hooks' },
-] as const
-
-function NavButton({
-  icon: Icon,
-  label,
-  active,
-  onClick,
-}: {
+interface MenuItem {
+  nameKey: string
   icon: React.ElementType
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
+  route?: string
+  sectionKey: string
+  submenu?: { nameKey: string; icon: React.ElementType; route: string }[]
+}
+
+interface SidebarProps {
+  compact: boolean
+  setCompact: (value: boolean) => void
+}
+
+/** Navigation menu items organized by section */
+const menuItems: MenuItem[] = [
+  // Início
+  {
+    nameKey: 'sidebar.chat',
+    icon: MessageSquare,
+    route: '/',
+    sectionKey: 'sidebarSections.start',
+  },
+  // Gerenciar
+  {
+    nameKey: 'sidebar.channels',
+    icon: Radio,
+    route: '/channels',
+    sectionKey: 'sidebarSections.manage',
+  },
+  {
+    nameKey: 'sidebar.jobs',
+    icon: Clock,
+    route: '/jobs',
+    sectionKey: 'sidebarSections.manage',
+  },
+  {
+    nameKey: 'sidebar.skills',
+    icon: Puzzle,
+    route: '/skills',
+    sectionKey: 'sidebarSections.manage',
+  },
+  {
+    nameKey: 'sidebar.statistics',
+    icon: BarChart3,
+    route: '/stats',
+    sectionKey: 'sidebarSections.manage',
+  },
+  // Configurações
+  {
+    nameKey: 'sidebar.settings',
+    icon: Settings,
+    sectionKey: 'sidebarSections.settings',
+    submenu: [
+      { nameKey: 'sidebar.llmProviders', icon: Cpu, route: '/config' },
+      { nameKey: 'sidebar.system', icon: Bot, route: '/system' },
+      { nameKey: 'sidebar.domainNetwork', icon: Globe, route: '/domain' },
+      { nameKey: 'sidebar.webhooks', icon: Webhook, route: '/webhooks' },
+      { nameKey: 'sidebar.hooks', icon: Zap, route: '/hooks' },
+    ],
+  },
+  // Segurança
+  {
+    nameKey: 'sidebar.security',
+    icon: Shield,
+    route: '/security',
+    sectionKey: 'sidebarSections.security',
+  },
+]
+
+function SidebarTooltip({ children, label, show }: { children: React.ReactNode; label: string; show: boolean }) {
+  const [isHovered, setIsHovered] = useState(false)
+
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all',
-        active
-          ? 'bg-blue-500/10 text-blue-400'
-          : 'text-zinc-400 hover:bg-white/4 hover:text-zinc-200',
+    <div
+      className="relative"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {children}
+      {show && isHovered && (
+        <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 pointer-events-none">
+          <div className="bg-[#1e293b] text-[#f8fafc] text-xs font-medium px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg animate-fade-in border border-white/10">
+            {label}
+            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-[#1e293b]" />
+          </div>
+        </div>
       )}
-    >
-      <Icon className="h-4.5 w-4.5" />
-      {label}
-    </button>
+    </div>
   )
 }
 
-function SessionItem({ session, onClick }: { session: SessionInfo; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left transition-all hover:bg-white/4"
-    >
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/5 text-zinc-500">
-        <MessagesSquare className="h-3.5 w-3.5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium text-zinc-300">{session.chat_id || session.id}</p>
-        <p className="text-[10px] text-zinc-600">{timeAgo(session.last_message_at)}</p>
-      </div>
-      <span className="shrink-0 rounded-full bg-white/4 px-1.5 py-0.5 text-[9px] font-bold text-zinc-500">
-        {session.message_count}
-      </span>
-    </button>
-  )
-}
-
-export function Sidebar() {
+export function Sidebar({ compact, setCompact }: SidebarProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
-  const { sidebarOpen, toggleSidebar } = useAppStore()
-  const [sessionsOpen, setSessionsOpen] = useState(false)
-  const [configOpen, setConfigOpen] = useState(false)
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const [expandedMenus, setExpandedMenus] = useState<string[]>([])
 
-  // Build links with translations
-  const mainLinks = mainLinkDefs.map((l) => ({ ...l, label: t(l.labelKey) }))
-  const configLinks = configLinkDefs.map((l) => ({ ...l, label: t(l.labelKey) }))
+  const isActive = (route?: string) => {
+    if (!route) return false
+    if (location.pathname === route) return true
+    if (route !== '/' && location.pathname.startsWith(route)) return true
+    return false
+  }
 
-  // Load sessions when dropdown opens
+  const isAnySubmenuActive = (item: MenuItem): boolean => {
+    if (!item.submenu) return false
+    return item.submenu.some(sub => isActive(sub.route))
+  }
+
+  // Auto-expand submenu if child route is active
   useEffect(() => {
-    if (sessionsOpen && sessions.length === 0) {
-      setSessionsLoading(true)
-      api.sessions.list()
-        .then(setSessions)
-        .catch(() => {})
-        .finally(() => setSessionsLoading(false))
+    menuItems.forEach(item => {
+      if (item.submenu && item.submenu.some(sub => isActive(sub.route))) {
+        setExpandedMenus(prev => prev.includes(item.nameKey) ? prev : [...prev, item.nameKey])
+      }
+    })
+  }, [location.pathname])
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsMobileOpen(false)
+      }
     }
-  }, [sessionsOpen, sessions.length])
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
-  if (!sidebarOpen) return null
+  const showFullText = !compact || isMobileOpen
 
-  const isConfigActive = configLinkDefs.some((l) => location.pathname === l.to || location.pathname.startsWith(l.to + '/'))
+  // Group items by section
+  const sections: { [key: string]: MenuItem[] } = {}
+  menuItems.forEach(item => {
+    if (!sections[item.sectionKey]) {
+      sections[item.sectionKey] = []
+    }
+    sections[item.sectionKey].push(item)
+  })
 
   return (
-    <aside className="flex h-full w-64 flex-col border-r border-white/6 bg-dc-dark">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-4">
-        <button
-          onClick={() => navigate('/')}
-          className="flex cursor-pointer items-center gap-2.5 transition-opacity hover:opacity-80"
-        >
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/15">
-            <Terminal className="h-5 w-5 text-blue-400" />
-          </div>
-          <span className="text-base font-bold text-white">
-            Dev<span className="text-blue-400">Claw</span>
-          </span>
-        </button>
-        <button
-          onClick={toggleSidebar}
-          aria-label="Close sidebar"
-          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/6 hover:text-zinc-300"
-        >
-          <PanelLeftClose className="h-4.5 w-4.5" />
-        </button>
-      </div>
+    <>
+      {/* Mobile Overlay */}
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 pb-3">
-        {/* Main Links */}
-        <p className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
-          {t('sidebar.menu')}
-        </p>
-        {mainLinks.map(({ to, icon, label }) => (
-          <NavButton
-            key={to}
-            icon={icon}
-            label={label}
-            active={location.pathname === to || (to !== '/' && location.pathname.startsWith(to))}
-            onClick={() => navigate(to)}
-          />
-        ))}
-
-        {/* Sessions Dropdown */}
-        <div className="mt-6">
-          <button
-            onClick={() => setSessionsOpen(!sessionsOpen)}
-            className={cn(
-              'flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-all',
-              sessionsOpen || location.pathname.startsWith('/sessions') || location.pathname.startsWith('/chat/')
-                ? 'bg-blue-500/10 text-blue-400'
-                : 'text-zinc-400 hover:bg-white/4 hover:text-zinc-200',
-            )}
-          >
-            <div className="flex items-center gap-2.5">
-              <MessageSquare className="h-4.5 w-4.5" />
-              {t('sidebar.sessions')}
-            </div>
-            {sessionsOpen ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-          {sessionsOpen && (
-            <div className="mt-1 ml-2 border-l border-white/6 pl-2">
-              {sessionsLoading ? (
-                <div className="flex items-center justify-center py-4">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-500/30 border-t-blue-500" />
-                </div>
-              ) : sessions.length > 0 ? (
-                <>
-                  {sessions.slice(0, 5).map((session) => (
-                    <SessionItem
-                      key={session.id}
-                      session={session}
-                      onClick={() => navigate(`/chat/${encodeURIComponent(session.id)}`)}
-                    />
-                  ))}
-                  {sessions.length > 5 && (
-                    <button
-                      onClick={() => navigate('/sessions')}
-                      className="mt-1 w-full px-3 py-2 text-left text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                    >
-                      {t('common.viewAll')} ({sessions.length})
-                    </button>
-                  )}
-                </>
-              ) : (
-                <p className="px-3 py-3 text-xs text-zinc-600">{t('sidebar.noActiveSessions')}</p>
-              )}
-            </div>
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          'fixed top-0 left-0 z-50 h-screen bg-[#111827] border-r transition-all duration-300 flex flex-col',
+          isMobileOpen ? 'w-64' : compact ? 'w-20' : 'w-64',
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        )}
+        style={{ borderColor: 'rgba(255, 255, 255, 0.08)' }}
+      >
+        {/* Header com Logo */}
+        <div className="flex items-center justify-between h-16 px-4" style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          {(isMobileOpen || !compact) ? (
+            <button
+              onClick={() => navigate('/')}
+              className="flex items-center gap-2.5"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#3b82f6]">
+                <Terminal className="h-4 w-4 text-white" />
+              </div>
+              <span className="text-sm font-semibold text-[#f8fafc]">
+                Dev<span className="text-[#64748b]">Claw</span>
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/')}
+              className="flex items-center justify-center w-full"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#3b82f6]">
+                <Terminal className="h-4 w-4 text-white" />
+              </div>
+            </button>
           )}
-        </div>
-
-        {/* Config Dropdown */}
-        <div className="mt-6">
-          <button
-            onClick={() => setConfigOpen(!configOpen)}
-            className={cn(
-              'flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-all',
-              configOpen || isConfigActive
-                ? 'bg-blue-500/10 text-blue-400'
-                : 'text-zinc-400 hover:bg-white/4 hover:text-zinc-200',
-            )}
-          >
-            <div className="flex items-center gap-2.5">
-              <Settings className="h-4.5 w-4.5" />
-              {t('sidebar.settings')}
-            </div>
-            {configOpen ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-          {configOpen && (
-            <div className="mt-1 ml-2 border-l border-white/6 pl-2">
-              {configLinks.map(({ to, icon, label }) => (
-                <NavButton
-                  key={to}
-                  icon={icon}
-                  label={label}
-                  active={location.pathname === to}
-                  onClick={() => navigate(to)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Security (separate) */}
-        <div className="mt-6">
-          <p className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
-            {t('sidebar.security')}
-          </p>
-          <NavButton
-            icon={Shield}
-            label={t('sidebar.security')}
-            active={location.pathname === '/security'}
-            onClick={() => navigate('/security')}
-          />
-        </div>
-      </nav>
-
-      {/* Footer */}
-      <div className="border-t border-white/6 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-zinc-600">DevClaw v1.6.0</p>
           <div className="flex items-center gap-2">
-            <LanguageSwitcher />
-            <div className="flex items-center gap-1.5">
-              <div className="h-2 w-2 rounded-full bg-emerald-400" />
-              <span className="text-[11px] text-zinc-500">{t('common.online')}</span>
-            </div>
+            <button
+              onClick={() => setCompact(!compact)}
+              className="hidden lg:flex items-center justify-center w-9 h-9 rounded-lg hover:bg-[#1e293b] transition-all text-[#64748b] hover:text-[#f8fafc] group"
+              title={compact ? t('sidebar.expandMenu') : t('sidebar.collapseMenu')}
+            >
+              {compact ? (
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
+              ) : (
+                <ChevronLeft className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" />
+              )}
+            </button>
+            <button
+              onClick={() => setIsMobileOpen(false)}
+              className="lg:hidden flex items-center justify-center w-9 h-9 rounded-lg hover:bg-[#1e293b] transition-colors text-[#64748b]"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
-      </div>
-    </aside>
+
+        {/* Menu */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-6">
+          {Object.entries(sections).map(([sectionKey, items]) => (
+            <div key={sectionKey} className="space-y-1">
+              {showFullText && (
+                <div className="px-3 mb-2">
+                  <span className="text-xs font-semibold text-[#475569] uppercase tracking-wider">
+                    {t(sectionKey)}
+                  </span>
+                </div>
+              )}
+              {!showFullText && (
+                <div className="flex justify-center mb-2">
+                  <div className="w-8 h-px bg-[rgba(255,255,255,0.08)]" />
+                </div>
+              )}
+              {items.map((item) => {
+                const Icon = item.icon
+                const hasSubmenu = item.submenu && item.submenu.length > 0
+                const isExpanded = expandedMenus.includes(item.nameKey)
+                const active = hasSubmenu ? isAnySubmenuActive(item) : isActive(item.route)
+                const itemName = t(item.nameKey)
+
+                // If has submenu and showing full text
+                if (hasSubmenu && showFullText) {
+                  return (
+                    <div key={item.nameKey}>
+                      <button
+                        onClick={() => {
+                          setExpandedMenus(prev =>
+                            prev.includes(item.nameKey)
+                              ? prev.filter(n => n !== item.nameKey)
+                              : [...prev, item.nameKey]
+                          )
+                        }}
+                        className={cn(
+                          'relative w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
+                          active
+                            ? 'bg-white/5 text-[#f8fafc]'
+                            : 'text-[#64748b] hover:bg-white/5 hover:text-[#f8fafc]'
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          {active && (
+                            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#3b82f6] rounded-full animate-fade-in" />
+                          )}
+                          <Icon className={cn('w-5 h-5 flex-shrink-0', active && 'text-[#3b82f6]')} />
+                          <span className={cn('text-sm font-medium', active && 'text-[#f8fafc]')}>
+                            {itemName}
+                          </span>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </button>
+
+                      {isExpanded && (
+                        <div className="ml-4 mt-1 space-y-1">
+                          {item.submenu?.map((subitem) => {
+                            const SubIcon = subitem.icon
+                            const subActive = isActive(subitem.route)
+                            return (
+                              <button
+                                key={subitem.nameKey}
+                                onClick={() => {
+                                  navigate(subitem.route)
+                                  setIsMobileOpen(false)
+                                }}
+                                className={cn(
+                                  'relative flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 w-full',
+                                  subActive
+                                    ? 'bg-white/5 text-[#f8fafc]'
+                                    : 'text-[#64748b] hover:bg-white/5 hover:text-[#f8fafc]'
+                                )}
+                              >
+                                <SubIcon className={cn('w-4 h-4 flex-shrink-0', subActive && 'text-[#3b82f6]')} />
+                                <span className={cn('text-sm', subActive && 'text-[#f8fafc] font-medium')}>
+                                  {t(subitem.nameKey)}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+
+                // Normal link
+                const linkContent = (
+                  <button
+                    key={item.nameKey}
+                    onClick={() => {
+                      if (item.route) {
+                        navigate(item.route)
+                        setIsMobileOpen(false)
+                      }
+                    }}
+                    className={cn(
+                      'relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 w-full',
+                      active
+                        ? 'bg-white/5 text-[#f8fafc]'
+                        : 'text-[#64748b] hover:bg-white/5 hover:text-[#f8fafc]',
+                      !showFullText && 'justify-center'
+                    )}
+                  >
+                    {active && (
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#3b82f6] rounded-full animate-fade-in" />
+                    )}
+                    <Icon className={cn('w-5 h-5 flex-shrink-0', active && 'text-[#3b82f6]')} />
+                    {showFullText && (
+                      <span className={cn('text-sm font-medium', active && 'text-[#f8fafc]')}>
+                        {itemName}
+                      </span>
+                    )}
+                  </button>
+                )
+
+                return showFullText ? (
+                  <div key={item.nameKey}>{linkContent}</div>
+                ) : (
+                  <SidebarTooltip key={item.nameKey} label={itemName} show={!showFullText}>
+                    {linkContent}
+                  </SidebarTooltip>
+                )
+              })}
+            </div>
+          ))}
+        </nav>
+      </aside>
+
+      {/* Mobile Menu Button */}
+      <button
+        onClick={() => setIsMobileOpen(true)}
+        className={cn(
+          'lg:hidden fixed top-4 left-4 z-50 flex items-center justify-center w-11 h-11 rounded-lg bg-[#111827] border text-[#f8fafc] shadow-lg',
+          isMobileOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        )}
+        style={{ borderColor: 'rgba(255, 255, 255, 0.08)' }}
+      >
+        <Menu className="w-6 h-6" />
+      </button>
+    </>
   )
 }

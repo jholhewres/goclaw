@@ -1,19 +1,19 @@
-import { useParams } from 'react-router-dom'
-import { useEffect, useRef } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  GitBranch,
-  Database,
-  Globe,
-  FileCode,
-  Server,
-  Wrench,
-  Zap,
-  Sparkles,
-} from 'lucide-react'
+import { Plus, MessageSquare, Clock } from 'lucide-react'
 import { ChatMessage } from '@/components/ChatMessage'
 import { ChatInput } from '@/components/ChatInput'
 import { useChat } from '@/hooks/useChat'
+import { api, type SessionInfo } from '@/lib/api'
+import { timeAgo, cn } from '@/lib/utils'
+
+/** Generate a unique session ID */
+function generateSessionId(): string {
+  const timestamp = Date.now().toString(36)
+  const random = Math.random().toString(36).substring(2, 8)
+  return `webui:${timestamp}-${random}`
+}
 
 /** Extracts a user-friendly message from raw LLM/API errors. */
 function friendlyError(raw: string, t: (key: string) => string): string {
@@ -34,18 +34,23 @@ function friendlyError(raw: string, t: (key: string) => string): string {
 export function Chat() {
   const { t } = useTranslation()
   const { sessionId } = useParams<{ sessionId: string }>()
-  const resolvedId = sessionId ? decodeURIComponent(sessionId) : 'webui:default'
-  const { messages, streamingContent, isStreaming, error, sendMessage, abort } = useChat(resolvedId)
+  const navigate = useNavigate()
+  const resolvedId = sessionId ? decodeURIComponent(sessionId) : null
+  const { messages, streamingContent, isStreaming, error, sendMessage: chatSend, abort } = useChat(resolvedId)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [recentSessions, setRecentSessions] = useState<SessionInfo[]>([])
+  const [showSidebar, setShowSidebar] = useState(false)
 
-  const SUGGESTIONS = [
-    { icon: GitBranch, label: t('chatPage.gitStatus'), prompt: t('chatPage.gitStatusPrompt') },
-    { icon: Server, label: t('chatPage.processes'), prompt: t('chatPage.processesPrompt') },
-    { icon: Database, label: t('chatPage.dbSchema'), prompt: t('chatPage.dbSchemaPrompt') },
-    { icon: FileCode, label: t('chatPage.analyzeCode'), prompt: t('chatPage.analyzeCodePrompt') },
-    { icon: Globe, label: t('chatPage.apiTest'), prompt: t('chatPage.apiTestPrompt') },
-    { icon: Wrench, label: t('chatPage.dockerPs'), prompt: t('chatPage.dockerPsPrompt') },
-  ]
+  // Load recent sessions
+  useEffect(() => {
+    api.sessions.list().then((sessions) => {
+      // Filter to webui sessions and limit to 10
+      const webuiSessions = sessions
+        .filter(s => s.channel === 'webui' || s.id.startsWith('webui:'))
+        .slice(0, 10)
+      setRecentSessions(webuiSessions)
+    }).catch(() => {})
+  }, [messages.length]) // Refresh when messages change
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -55,77 +60,160 @@ export function Chat() {
 
   const friendlyErrorLocal = (raw: string) => friendlyError(raw, t)
 
+  // Wrapper for sendMessage that creates a new session if needed
+  const sendMessage = async (content: string) => {
+    if (!resolvedId) {
+      // Generate new session ID and navigate
+      const newSessionId = generateSessionId()
+      navigate(`/chat/${encodeURIComponent(newSessionId)}`, { replace: true })
+      // Wait for navigation then send - we'll use a setTimeout hack
+      setTimeout(() => {
+        chatSend(content)
+      }, 50)
+    } else {
+      chatSend(content)
+    }
+  }
+
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto">
-        {!hasMessages ? (
-          <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 pt-8">
-            <div className="w-full max-w-2xl space-y-6">
-              {/* Branding */}
-              <div className="text-center space-y-3">
-                <div className="inline-flex items-center gap-2 rounded-full bg-blue-500/10 px-3 py-1.5 text-[11px] font-medium text-blue-400 ring-1 ring-blue-500/20">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {t('chatPage.assistant')}
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
+      <div className="flex flex-1 overflow-hidden">
+        {/* Main chat area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
+            {!hasMessages ? (
+              <div className="flex flex-col h-full items-center justify-center px-6">
+                <div className="w-full max-w-2xl space-y-6">
+                  {/* Branding */}
+                  <div className="text-center space-y-3">
+                    <h1 className="text-3xl md:text-[40px] font-bold text-[#f8fafc] tracking-tight leading-tight">
+                      {t('chatPage.howCanHelp')}
+                    </h1>
+                    <p className="text-sm text-[#64748b] max-w-md mx-auto">
+                      {t('chatPage.howCanHelpDesc')}
+                    </p>
+                  </div>
+
+                  {/* Input */}
+                  <ChatInput
+                    onSend={sendMessage}
+                    onAbort={abort}
+                    isStreaming={isStreaming}
+                    placeholder={t('chatPage.placeholder')}
+                  />
+
+                  {/* Recent sessions */}
+                  {recentSessions.length > 0 && (
+                    <div className="mt-4">
+                      <button
+                        onClick={() => setShowSidebar(!showSidebar)}
+                        className="flex items-center gap-2 text-sm text-[#64748b] hover:text-[#f8fafc] transition-colors mx-auto"
+                      >
+                        <Clock className="h-4 w-4" />
+                        <span>Conversas recentes</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <h1 className="text-3xl font-bold tracking-tight text-white">
-                  {t('chatPage.whatDo')}
-                </h1>
-                <p className="mx-auto max-w-md text-sm text-zinc-500">
-                  {t('chatPage.askOrPick')}
-                </p>
               </div>
-
-              {/* Suggestions grid */}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s.label}
-                    onClick={() => sendMessage(s.prompt)}
-                    className="group flex cursor-pointer items-center gap-2.5 rounded-xl bg-zinc-800/40 px-3.5 py-3 text-left ring-1 ring-zinc-700/30 transition-all hover:bg-zinc-800/60 hover:ring-blue-500/20"
-                  >
-                    <s.icon className="h-4 w-4 shrink-0 text-zinc-500 transition-colors group-hover:text-blue-400" />
-                    <span className="text-xs font-medium text-zinc-400 transition-colors group-hover:text-zinc-200">{s.label}</span>
-                  </button>
-                ))}
+            ) : (
+              /* Messages */
+              <div className="py-6">
+                <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 space-y-4">
+                  {messages.map((msg, i) => (
+                    <ChatMessage
+                      key={`${msg.role}-${msg.timestamp}-${i}`}
+                      role={msg.role}
+                      content={msg.content}
+                      toolName={msg.tool_name}
+                      toolInput={msg.tool_input}
+                    />
+                  ))}
+                  {/* Show streaming message or thinking indicator */}
+                  {isStreaming && (
+                    <ChatMessage
+                      role="assistant"
+                      content={streamingContent}
+                      isStreaming
+                    />
+                  )}
+                  {error && (
+                    <div
+                      className="rounded-xl px-4 py-3"
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                      }}
+                    >
+                      <p className="text-sm font-medium text-[#f87171]">{friendlyErrorLocal(error)}</p>
+                      {error !== friendlyErrorLocal(error) && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-xs text-[#f87171]/60 hover:text-[#f87171]/80">
+                            {t('chatPage.technicalDetails')}
+                          </summary>
+                          <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap font-mono text-xs text-[#f87171]/50">
+                            {error}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                  <div ref={bottomRef} />
+                </div>
               </div>
+            )}
+          </div>
 
-              {/* Quick tips */}
-              <div className="flex items-center justify-center gap-4 text-[11px] text-zinc-600">
-                <span className="flex items-center gap-1.5">
-                  <Zap className="h-3 w-3 text-blue-500/50" />
-                  {t('chatPage.nativeTools')}
-                </span>
-                <span className="h-3 w-px bg-zinc-700/50" />
-                <span>{t('chatPage.enterToSend')}</span>
+          {/* Input when messages exist */}
+          {hasMessages && (
+            <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:px-8 pb-4">
+              <ChatInput onSend={sendMessage} onAbort={abort} isStreaming={isStreaming} />
+            </div>
+          )}
+        </div>
+
+        {/* Recent sessions sidebar */}
+        {(showSidebar || hasMessages) && recentSessions.length > 0 && (
+          <div className="w-64 border-l border-white/10 bg-[#111827] overflow-y-auto hidden lg:block">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-[#f8fafc]">Conversas</h3>
+                <button
+                  onClick={() => navigate('/')}
+                  className="flex items-center gap-1 text-xs text-[#64748b] hover:text-[#3b82f6] transition-colors"
+                >
+                  <Plus className="h-3 w-3" />
+                  <span>Nova</span>
+                </button>
+              </div>
+              <div className="space-y-1">
+                {recentSessions.map((session) => {
+                  const isActive = resolvedId === session.id
+                  return (
+                    <button
+                      key={session.id}
+                      onClick={() => navigate(`/chat/${encodeURIComponent(session.id)}`)}
+                      className={cn(
+                        'w-full flex items-start gap-3 px-3 py-2.5 rounded-lg transition-all text-left',
+                        isActive
+                          ? 'bg-[#3b82f6]/10 text-[#f8fafc]'
+                          : 'text-[#94a3b8] hover:bg-white/5 hover:text-[#f8fafc]'
+                      )}
+                    >
+                      <MessageSquare className="h-4 w-4 mt-0.5 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm truncate">{session.id.replace('webui:', '')}</p>
+                        <p className="text-xs text-[#64748b] mt-0.5">
+                          {session.message_count} msgs · {timeAgo(session.last_message_at)}
+                        </p>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>
-        ) : (
-          <div className="mx-auto max-w-3xl space-y-6 px-6 py-6">
-            {messages.map((msg, i) => (
-              <ChatMessage key={`${msg.role}-${msg.timestamp}-${i}`} role={msg.role} content={msg.content} toolName={msg.tool_name} toolInput={msg.tool_input} />
-            ))}
-            {streamingContent && (
-              <ChatMessage role="assistant" content={streamingContent} isStreaming />
-            )}
-            {error && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-5 py-4">
-                <p className="text-sm font-medium text-red-400">{friendlyErrorLocal(error)}</p>
-                {error !== friendlyErrorLocal(error) && (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-xs text-red-400/60 hover:text-red-400/80">{t('chatPage.technicalDetails')}</summary>
-                    <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap font-mono text-xs text-red-400/50">{error}</pre>
-                  </details>
-                )}
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
         )}
-      </div>
-
-      <div className="mx-auto w-full max-w-3xl px-6 pb-4 pt-2">
-        <ChatInput onSend={sendMessage} onAbort={abort} isStreaming={isStreaming} />
       </div>
     </div>
   )

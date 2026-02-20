@@ -10,19 +10,19 @@ interface Props {
 
 const COLOR_MAP = {
   emerald: {
-    active: 'border-emerald-500/50 bg-emerald-500/10 ring-1 ring-emerald-500/20',
-    icon: 'text-emerald-400',
-    dot: 'bg-emerald-400',
+    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
+    icon: 'text-zinc-200',
+    dot: 'bg-zinc-300',
   },
   blue: {
-    active: 'border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20',
-    icon: 'text-blue-400',
-    dot: 'bg-blue-400',
+    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
+    icon: 'text-zinc-200',
+    dot: 'bg-zinc-300',
   },
   amber: {
-    active: 'border-amber-500/50 bg-amber-500/10 ring-1 ring-amber-500/20',
-    icon: 'text-amber-400',
-    dot: 'bg-amber-400',
+    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
+    icon: 'text-zinc-200',
+    dot: 'bg-zinc-300',
   },
 }
 
@@ -84,7 +84,7 @@ export function StepSecurity({ data, updateData }: Props) {
                 })
               }}
               placeholder={t('setupPage.webuiPassword')}
-              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+              className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
             />
             <button
               type="button"
@@ -103,8 +103,8 @@ export function StepSecurity({ data, updateData }: Props) {
         {/* Vault Password */}
         <div className="rounded-xl border border-zinc-700/30 bg-zinc-800/20 p-4">
           <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
-              <KeyRound className="h-4 w-4 text-blue-400" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-800">
+              <KeyRound className="h-4 w-4 text-zinc-400" />
             </div>
             <div className="flex-1">
               <h3 className="text-sm font-medium text-white">{t('setupPage.vault')}</h3>
@@ -124,7 +124,7 @@ export function StepSecurity({ data, updateData }: Props) {
                     }
                   }}
                   className={`relative h-5 w-9 rounded-full transition-colors ${
-                    customVaultEnabled ? 'bg-blue-500' : 'bg-zinc-700'
+                    customVaultEnabled ? 'bg-zinc-500' : 'bg-zinc-700'
                   }`}
                 >
                   <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
@@ -142,7 +142,7 @@ export function StepSecurity({ data, updateData }: Props) {
                       value={data.vaultPassword}
                       onChange={(e) => updateData({ vaultPassword: e.target.value })}
                       placeholder={t('setupPage.vaultPasswordHint')}
-                      className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+                      className="flex h-10 w-full rounded-lg border border-zinc-700/50 bg-zinc-900/50 px-3 pr-10 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
                     />
                     <button
                       type="button"
@@ -158,8 +158,8 @@ export function StepSecurity({ data, updateData }: Props) {
 
               {data.webuiPassword && (
                 <div className="mt-2 flex items-start gap-1.5">
-                  <Info className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400/60" />
-                  <p className="text-[11px] text-emerald-400/60">
+                  <Info className="mt-0.5 h-3 w-3 shrink-0 text-zinc-400" />
+                  <p className="text-[11px] text-zinc-400">
                     {t('setupPage.vaultAutoSave')}
                   </p>
                 </div>

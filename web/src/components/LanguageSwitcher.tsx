@@ -44,7 +44,7 @@ export function LanguageSwitcher() {
               onClick={() => changeLanguage(lang.code)}
               className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                 lang.code === i18n.language
-                  ? 'bg-blue-500/10 text-blue-400'
+                  ? 'bg-zinc-800 text-zinc-200'
                   : 'text-zinc-400 hover:bg-white/4 hover:text-zinc-200'
               }`}
             >

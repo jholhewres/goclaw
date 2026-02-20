@@ -8,10 +8,18 @@ interface ChatInputProps {
   isStreaming?: boolean
   disabled?: boolean
   placeholder?: string
+  rows?: number
+  autoFocus?: boolean
 }
 
 export function ChatInput({
-  onSend, onAbort, isStreaming = false, disabled = false, placeholder = 'Pergunte algo ou descreva uma tarefa...',
+  onSend,
+  onAbort,
+  isStreaming = false,
+  disabled = false,
+  placeholder = 'Enviar mensagem...',
+  rows = 3,
+  autoFocus = false,
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -23,7 +31,9 @@ export function ChatInput({
     el.style.height = Math.min(el.scrollHeight, 200) + 'px'
   }, [value])
 
-  useEffect(() => { textareaRef.current?.focus() }, [])
+  useEffect(() => {
+    if (autoFocus) textareaRef.current?.focus()
+  }, [autoFocus])
 
   const handleSend = () => {
     const trimmed = value.trim()
@@ -41,54 +51,58 @@ export function ChatInput({
     }
   }
 
+  const canSend = value.trim().length > 0 && !disabled && !isStreaming
+
   return (
-    <div className="px-6 pb-5 pt-3">
-      <div
-        className={cn(
-          'flex items-end gap-3 rounded-2xl border bg-zinc-900/80 px-4 py-3',
-          'transition-all',
-          isStreaming
-            ? 'border-blue-500/20 ring-2 ring-blue-500/5'
-            : 'border-zinc-700/40 focus-within:border-blue-500/30 focus-within:ring-2 focus-within:ring-blue-500/10',
-        )}
-      >
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={1}
-          className="flex-1 resize-none bg-transparent text-sm leading-relaxed text-white outline-none placeholder:text-zinc-600 max-h-[200px] disabled:opacity-50"
-        />
-        {isStreaming ? (
-          <button
-            onClick={() => onAbort?.()}
-            className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-red-500/15 text-red-400 ring-1 ring-red-500/20 transition-all hover:bg-red-500/25"
-            aria-label="Parar geração"
-          >
-            <Square className="h-4 w-4" fill="currentColor" />
-          </button>
-        ) : (
-          <button
-            onClick={handleSend}
-            disabled={!value.trim() || disabled}
-            className={cn(
-              'flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-all',
-              value.trim()
-                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20 hover:bg-blue-400'
-                : 'bg-zinc-800 text-zinc-600',
-            )}
-            aria-label="Enviar mensagem"
-          >
-            <ArrowUp className="h-4.5 w-4.5" />
-          </button>
-        )}
+    <div className="bg-[#111827] rounded-xl border border-white/10 transition-all focus-within:border-white/20">
+      {/* Textarea */}
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={disabled ? 'Aguarde a resposta...' : placeholder}
+        disabled={disabled}
+        rows={rows}
+        autoFocus={autoFocus}
+        className="w-full px-4 pt-3 pb-1.5 text-[15px] text-[#f8fafc] placeholder:text-[#475569] bg-transparent resize-none border-none outline-none focus:ring-0 disabled:opacity-50"
+        style={{ boxShadow: 'none' }}
+      />
+
+      {/* Action bar */}
+      <div className="flex items-center justify-between px-3 pb-2.5">
+        {/* Left side - hint */}
+        <span className="text-[11px] text-[#475569]">
+          Enter para enviar, Shift+Enter para nova linha
+        </span>
+
+        {/* Right side - send/stop */}
+        <div className="flex items-center gap-1">
+          {isStreaming ? (
+            <button
+              onClick={() => onAbort?.()}
+              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg bg-[#ef4444] text-white transition-all hover:bg-[#dc2626]"
+              aria-label="Parar geração"
+            >
+              <Square className="h-3.5 w-3.5" fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!canSend}
+              className={cn(
+                'flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition-all',
+                canSend
+                  ? 'bg-[#3b82f6] text-white hover:bg-[#2563eb]'
+                  : 'bg-white/10 text-white/30 cursor-not-allowed',
+              )}
+              aria-label="Enviar mensagem"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
-      <p className="mt-2 text-center text-[11px] text-zinc-700">
-        DevClaw pode cometer erros. Verifique informações importantes.
-      </p>
     </div>
   )
 }

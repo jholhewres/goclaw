@@ -35,17 +35,17 @@ export function Security() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-8 w-8 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
+      <div className="flex flex-1 items-center justify-center bg-[#0c1222]">
+        <div className="h-8 w-8 rounded-full border-4 border-[#1e293b] border-t-[#3b82f6] animate-spin" />
       </div>
     )
   }
 
   if (loadError) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-dc-darker">
-        <p className="text-sm text-red-400">{t('common.error')}</p>
-        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+      <div className="flex flex-1 flex-col items-center justify-center bg-[#0c1222]">
+        <p className="text-sm text-[#f87171]">{t('common.error')}</p>
+        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-[#64748b] hover:text-[#f8fafc] transition-colors cursor-pointer">
           {t('common.loading')}
         </button>
       </div>
@@ -57,12 +57,11 @@ export function Security() {
   const authOk = overview?.webui_auth_configured
 
   return (
-    <div className="flex-1 overflow-y-auto bg-dc-darker">
-      <div className="mx-auto max-w-3xl px-8 py-10">
-        {/* Header */}
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">{t('security.subtitle')}</p>
-          <h1 className="mt-1 text-2xl font-black text-white tracking-tight">{t('security.title')}</h1>
+    <div className="py-8 px-4 sm:px-6 lg:px-8 max-w-screen-2xl mx-auto">
+      {/* Header */}
+      <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#475569]">{t('security.subtitle')}</p>
+          <h1 className="mt-1 text-2xl font-bold text-[#f8fafc] tracking-tight">{t('security.title')}</h1>
         </div>
 
         {/* Quick status */}
@@ -81,7 +80,6 @@ export function Security() {
           />
           <AuditLogSection entryCount={overview?.audit_entry_count ?? 0} />
         </div>
-      </div>
     </div>
   )
 }
@@ -90,13 +88,13 @@ export function Security() {
 
 function StatusPill({ label, ok, text }: { label: string; ok: boolean; text: string }) {
   return (
-    <div className={`rounded-xl px-3.5 py-2.5 ring-1 ${
-      ok ? 'bg-emerald-500/3 ring-emerald-500/15' : 'bg-zinc-800/30 ring-zinc-700/20'
+    <div className={`rounded-xl px-3.5 py-2.5 border ${
+      ok ? 'bg-[#111827] border-white/10' : 'bg-[#111827] border-white/5'
     }`}>
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-[#64748b]">{label}</span>
       <div className="mt-0.5 flex items-center gap-1.5">
-        <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-        <span className={`text-xs font-medium ${ok ? 'text-emerald-400' : 'text-zinc-500'}`}>{text}</span>
+        <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-[#22c55e]' : 'bg-[#475569]'}`} />
+        <span className={`text-xs font-medium ${ok ? 'text-[#f8fafc]' : 'text-[#64748b]'}`}>{text}</span>
       </div>
     </div>
   )
@@ -132,23 +130,23 @@ function Accordion({
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/6 bg-(--color-dc-dark)/80">
+    <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#111827]">
       <button
         onClick={toggle}
         aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-white/2"
+        className="flex w-full cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-white/5"
       >
         <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${iconColor}`}>
           {icon}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-bold text-white">{title}</h3>
-          <p className="text-[11px] text-zinc-500">{subtitle}</p>
+          <h3 className="text-sm font-semibold text-[#f8fafc]">{title}</h3>
+          <p className="text-[11px] text-[#64748b]">{subtitle}</p>
         </div>
         {badge}
-        <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-600 transition-transform ${open ? '' : '-rotate-90'}`} />
+        <ChevronDown className={`h-4 w-4 shrink-0 text-[#64748b] transition-transform ${open ? '' : '-rotate-90'}`} />
       </button>
-      {open && <div className="border-t border-white/4 px-5 py-5">{children}</div>}
+      {open && <div className="border-t border-white/10 px-5 py-5">{children}</div>}
     </section>
   )
 }
@@ -169,12 +167,12 @@ function VaultSection({ exists, unlocked }: { exists: boolean; unlocked: boolean
   }
 
   const statusBadge = (
-    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 ${
+    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
       !exists
-        ? 'bg-zinc-800/50 text-zinc-500 ring-zinc-700/30'
+        ? 'bg-[#1e293b] text-[#64748b]'
         : unlocked
-        ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
-        : 'bg-blue-500/10 text-amber-400 ring-blue-500/20'
+        ? 'bg-[#22c55e]/20 text-[#22c55e]'
+        : 'bg-[#1e293b] text-[#f59e0b]'
     }`}>
       {!exists ? 'Não configurado' : unlocked ? 'Protegido' : 'Inacessível'}
     </span>
@@ -182,8 +180,8 @@ function VaultSection({ exists, unlocked }: { exists: boolean; unlocked: boolean
 
   return (
     <Accordion
-      icon={<Lock className="h-4 w-4 text-violet-400" />}
-      iconColor="bg-violet-500/10"
+      icon={<Lock className="h-4 w-4 text-[#a78bfa]" />}
+      iconColor="bg-[#a78bfa]/10"
       title="Vault"
       subtitle="Cofre criptografado (AES-256-GCM + Argon2id)"
       badge={statusBadge}
@@ -193,13 +191,13 @@ function VaultSection({ exists, unlocked }: { exists: boolean; unlocked: boolean
         <Spinner />
       ) : !vault || !vault.exists ? (
         <EmptyState
-          icon={<Lock className="h-8 w-8 text-zinc-700" />}
+          icon={<Lock className="h-8 w-8 text-[#475569]" />}
           title="Vault não configurado"
           description={<>Execute <Code>devclaw config vault-init</Code> ou complete o setup wizard</>}
         />
       ) : !vault.unlocked ? (
         <EmptyState
-          icon={<Lock className="h-8 w-8 text-amber-400/40" />}
+          icon={<Lock className="h-8 w-8 text-[#f59e0b]/40" />}
           title="Vault inacessível"
           description="Defina DEVCLAW_VAULT_PASSWORD no ambiente para liberar o acesso"
         />
@@ -207,7 +205,7 @@ function VaultSection({ exists, unlocked }: { exists: boolean; unlocked: boolean
         <div>
           {vault.keys.length === 0 ? (
             <EmptyState
-              icon={<Key className="h-8 w-8 text-zinc-700" />}
+              icon={<Key className="h-8 w-8 text-[#475569]" />}
               title="Nenhum secret armazenado"
               description="Adicione secrets via CLI ou chat"
             />
@@ -216,14 +214,14 @@ function VaultSection({ exists, unlocked }: { exists: boolean; unlocked: boolean
               {vault.keys.map((key) => (
                 <div
                   key={key}
-                  className="flex items-center gap-3 rounded-xl bg-zinc-800/30 px-4 py-3 ring-1 ring-zinc-700/20"
+                  className="flex items-center gap-3 rounded-xl bg-[#0c1222] px-4 py-3 border border-white/5"
                 >
-                  <Key className="h-3.5 w-3.5 shrink-0 text-violet-400" />
-                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-zinc-200">{key}</span>
-                  <span className="text-xs tracking-widest text-zinc-600">••••••••</span>
+                  <Key className="h-3.5 w-3.5 shrink-0 text-[#a78bfa]" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-[#f8fafc]">{key}</span>
+                  <span className="text-xs tracking-widest text-[#475569]">••••••••</span>
                 </div>
               ))}
-              <p className="pt-2 text-[11px] text-zinc-600">
+              <p className="pt-2 text-[11px] text-[#475569]">
                 {vault.keys.length} secret{vault.keys.length !== 1 ? 's' : ''} armazenado{vault.keys.length !== 1 ? 's' : ''}. Valores nunca são exibidos.
               </p>
             </div>
@@ -278,10 +276,10 @@ function ToolGuardSection({ enabled }: { enabled: boolean }) {
   }
 
   const statusBadge = (
-    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 ${
+    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
       enabled
-        ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
-        : 'bg-zinc-800/50 text-zinc-500 ring-zinc-700/30'
+        ? 'bg-[#22c55e]/20 text-[#22c55e]'
+        : 'bg-[#1e293b] text-[#64748b]'
     }`}>
       {enabled ? 'Ativo' : 'Desativado'}
     </span>
@@ -289,8 +287,8 @@ function ToolGuardSection({ enabled }: { enabled: boolean }) {
 
   return (
     <Accordion
-      icon={<Shield className="h-4 w-4 text-amber-400" />}
-      iconColor="bg-blue-500/10"
+      icon={<Shield className="h-4 w-4 text-[#f59e0b]" />}
+      iconColor="bg-[#1e293b]"
       title="Tool Guard"
       subtitle="Controle de permissões de ferramentas"
       badge={statusBadge}
@@ -300,7 +298,7 @@ function ToolGuardSection({ enabled }: { enabled: boolean }) {
         <Spinner />
       ) : !enabled ? (
         <EmptyState
-          icon={<Shield className="h-8 w-8 text-zinc-700" />}
+          icon={<Shield className="h-8 w-8 text-[#475569]" />}
           title="Tool Guard desativado"
           description={<>Ative no <Code>config.yaml</Code> → <Code>security.tool_guard.enabled: true</Code></>}
         />
@@ -308,7 +306,7 @@ function ToolGuardSection({ enabled }: { enabled: boolean }) {
         <div className="space-y-5">
           {/* Permission toggles */}
           <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Permissões perigosas</p>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#64748b]">Permissões perigosas</p>
             <div className="grid gap-2 sm:grid-cols-3">
               <PermToggle
                 label="Destrutivos"
@@ -364,10 +362,10 @@ function ToolGuardSection({ enabled }: { enabled: boolean }) {
 
           {(guard.protected_paths ?? []).length > 0 && (
             <div>
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Paths protegidos</p>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#64748b]">Paths protegidos</p>
               <div className="flex flex-wrap gap-1.5">
                 {guard.protected_paths.map((p) => (
-                  <span key={p} className="rounded-lg bg-zinc-800 px-2.5 py-1 font-mono text-xs text-zinc-400 ring-1 ring-zinc-700/50">{p}</span>
+                  <span key={p} className="rounded-lg bg-[#1e293b] px-2.5 py-1 font-mono text-xs text-[#94a3b8]">{p}</span>
                 ))}
               </div>
             </div>
@@ -383,8 +381,8 @@ function ToolGuardSection({ enabled }: { enabled: boolean }) {
 function APIKeysSection({ gatewayConfigured, webuiConfigured }: { gatewayConfigured: boolean; webuiConfigured: boolean }) {
   return (
     <Accordion
-      icon={<Key className="h-4 w-4 text-cyan-400" />}
-      iconColor="bg-cyan-500/10"
+      icon={<Key className="h-4 w-4 text-[#22d3ee]" />}
+      iconColor="bg-[#22d3ee]/10"
       title="Autenticação"
       subtitle="Tokens do gateway e painel web"
     >
@@ -392,9 +390,9 @@ function APIKeysSection({ gatewayConfigured, webuiConfigured }: { gatewayConfigu
         <AuthRow label="Gateway API" hint="Bearer token para API HTTP" configured={gatewayConfigured} />
         <AuthRow label="Web UI" hint="Senha de acesso ao painel" configured={webuiConfigured} warn={!webuiConfigured} />
       </div>
-      <div className="mt-4 flex items-center gap-2 text-[11px] text-zinc-600">
+      <div className="mt-4 flex items-center gap-2 text-[11px] text-[#475569]">
         <span>Altere os tokens em</span>
-        <Link to="/domain" className="inline-flex items-center gap-1 text-blue-400/70 hover:text-blue-400 transition-colors">
+        <Link to="/domain" className="inline-flex items-center gap-1 text-[#64748b] hover:text-[#f8fafc] transition-colors">
           Domínio & Acesso
           <ExternalLink className="h-2.5 w-2.5" />
         </Link>
@@ -405,21 +403,21 @@ function APIKeysSection({ gatewayConfigured, webuiConfigured }: { gatewayConfigu
 
 function AuthRow({ label, hint, configured, warn }: { label: string; hint: string; configured: boolean; warn?: boolean }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-zinc-800/30 px-4 py-3 ring-1 ring-zinc-700/20">
+    <div className="flex items-center justify-between rounded-xl bg-[#0c1222] px-4 py-3 border border-white/5">
       <div>
-        <p className="text-sm font-medium text-zinc-200">{label}</p>
-        <p className="text-[11px] text-zinc-500">{hint}</p>
+        <p className="text-sm font-medium text-[#f8fafc]">{label}</p>
+        <p className="text-[11px] text-[#64748b]">{hint}</p>
       </div>
       {configured ? (
-        <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-[#22c55e]">
           <CheckCircle2 className="h-3.5 w-3.5" /> Configurado
         </span>
       ) : warn ? (
-        <span className="flex items-center gap-1.5 text-xs font-medium text-amber-400">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-[#f59e0b]">
           <AlertTriangle className="h-3.5 w-3.5" /> Sem proteção
         </span>
       ) : (
-        <span className="flex items-center gap-1.5 text-xs text-zinc-600">
+        <span className="flex items-center gap-1.5 text-xs text-[#475569]">
           <XCircle className="h-3.5 w-3.5" /> Não configurado
         </span>
       )}
@@ -444,8 +442,8 @@ function AuditLogSection({ entryCount }: { entryCount: number }) {
 
   return (
     <Accordion
-      icon={<Activity className="h-4 w-4 text-blue-400" />}
-      iconColor="bg-blue-500/10"
+      icon={<Activity className="h-4 w-4 text-[#64748b]" />}
+      iconColor="bg-[#1e293b]"
       title="Audit Log"
       subtitle={entryCount > 0 ? `${entryCount} registros` : 'Histórico de ações executadas'}
       onOpen={load}
@@ -454,40 +452,40 @@ function AuditLogSection({ entryCount }: { entryCount: number }) {
         <Spinner />
       ) : entries.length === 0 ? (
         <div className="flex items-center gap-3 py-4">
-          <Activity className="h-5 w-5 shrink-0 text-zinc-700" />
+          <Activity className="h-5 w-5 shrink-0 text-[#475569]" />
           <div>
-            <p className="text-sm text-zinc-400">Nenhuma ação registrada ainda</p>
-            <p className="text-[11px] text-zinc-600">O histórico aparece conforme o agente executa ferramentas</p>
+            <p className="text-sm text-[#94a3b8]">Nenhuma ação registrada ainda</p>
+            <p className="text-[11px] text-[#475569]">O histórico aparece conforme o agente executa ferramentas</p>
           </div>
         </div>
       ) : (
         <div className="max-h-[380px] overflow-y-auto -mx-5 -mb-5">
           <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-(--color-dc-dark)">
+            <thead className="sticky top-0 bg-[#111827]">
               <tr>
-                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Ferramenta</th>
-                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Caller</th>
-                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Status</th>
-                <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Quando</th>
+                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-[#475569]">Ferramenta</th>
+                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-[#475569]">Caller</th>
+                <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-[#475569]">Status</th>
+                <th className="px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-[#475569]">Quando</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/4">
+            <tbody className="divide-y divide-white/5">
               {entries.map((e) => (
-                <tr key={e.id} className="transition-colors hover:bg-white/2">
-                  <td className="px-5 py-2.5 font-mono text-zinc-300">{e.tool}</td>
-                  <td className="px-5 py-2.5 text-zinc-500">{e.caller || '—'}</td>
+                <tr key={e.id} className="transition-colors hover:bg-white/5">
+                  <td className="px-5 py-2.5 font-mono text-[#f8fafc]">{e.tool}</td>
+                  <td className="px-5 py-2.5 text-[#64748b]">{e.caller || '—'}</td>
                   <td className="px-5 py-2.5">
                     {e.allowed ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-400">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#22c55e]">
                         <CheckCircle2 className="h-3 w-3" /> OK
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-400">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#f87171]">
                         <XCircle className="h-3 w-3" /> Negado
                       </span>
                     )}
                   </td>
-                  <td className="px-5 py-2.5 text-right text-zinc-600">{timeAgo(e.created_at)}</td>
+                  <td className="px-5 py-2.5 text-right text-[#475569]">{timeAgo(e.created_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -503,7 +501,7 @@ function AuditLogSection({ entryCount }: { entryCount: number }) {
 function Spinner() {
   return (
     <div className="flex justify-center py-8">
-      <div className="h-6 w-6 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />
+      <div className="h-6 w-6 rounded-full border-2 border-[#1e293b] border-t-[#3b82f6] animate-spin" />
     </div>
   )
 }
@@ -512,14 +510,14 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
   return (
     <div className="flex flex-col items-center py-8">
       {icon}
-      <p className="mt-3 text-sm font-medium text-zinc-400">{title}</p>
-      <p className="mt-1 text-xs text-zinc-600 text-center max-w-xs">{description}</p>
+      <p className="mt-3 text-sm font-medium text-[#94a3b8]">{title}</p>
+      <p className="mt-1 text-xs text-[#475569] text-center max-w-xs">{description}</p>
     </div>
   )
 }
 
 function Code({ children }: { children: React.ReactNode }) {
-  return <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">{children}</code>
+  return <code className="rounded bg-[#1e293b] px-1.5 py-0.5 text-[#94a3b8]">{children}</code>
 }
 
 function PermToggle({
@@ -537,23 +535,23 @@ function PermToggle({
   disabled?: boolean
   color?: 'amber' | 'red'
 }) {
-  const ringActive = color === 'red' ? 'ring-red-500/20 bg-red-500/5' : 'ring-blue-500/20 bg-blue-500/5'
-  const trackActive = color === 'red' ? 'bg-red-500' : 'bg-blue-500'
+  const bgActive = color === 'red' ? 'bg-[#ef4444]/10' : 'bg-[#f59e0b]/10'
+  const trackActive = color === 'red' ? 'bg-[#ef4444]' : 'bg-[#f59e0b]'
 
   return (
     <button
       onClick={() => onChange(!enabled)}
       disabled={disabled}
-      className={`flex cursor-pointer items-center gap-3 rounded-xl px-3.5 py-3 text-left ring-1 transition-all ${
-        enabled ? ringActive : 'ring-zinc-700/20 bg-zinc-800/30 hover:ring-zinc-700/40'
+      className={`flex cursor-pointer items-center gap-3 rounded-xl px-3.5 py-3 text-left border transition-all ${
+        enabled ? `${bgActive} border-white/10` : 'border-white/5 bg-[#0c1222] hover:border-white/10'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold text-zinc-200">{label}</p>
-        <p className="text-[10px] text-zinc-500">{hint}</p>
+        <p className="text-xs font-semibold text-[#f8fafc]">{label}</p>
+        <p className="text-[10px] text-[#64748b]">{hint}</p>
       </div>
-      <div className={`inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${enabled ? trackActive : 'bg-zinc-700'}`}>
-        <div className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+      <div className={`inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${enabled ? trackActive : 'bg-[#1e293b]'}`}>
+        <div className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
       </div>
     </button>
   )
@@ -579,18 +577,18 @@ function TagList({
   onAdd: (v: string) => void
 }) {
   const tagClass = color === 'amber'
-    ? 'bg-blue-500/10 text-amber-400 ring-blue-500/20'
-    : 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
+    ? 'bg-[#f59e0b]/10 text-[#f59e0b]'
+    : 'bg-[#22c55e]/10 text-[#22c55e]'
 
   return (
-    <div className="rounded-xl bg-zinc-800/20 px-4 py-3 ring-1 ring-zinc-700/15">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
-      {hint && <p className="mt-0.5 text-[10px] text-zinc-600">{hint}</p>}
+    <div className="rounded-xl bg-[#0c1222] px-4 py-3 border border-white/5">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-[#64748b]">{label}</p>
+      {hint && <p className="mt-0.5 text-[10px] text-[#475569]">{hint}</p>}
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {items.map((t) => (
-          <span key={t} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono text-xs ring-1 ${tagClass}`}>
+          <span key={t} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono text-xs ${tagClass}`}>
             {t}
-            <button onClick={() => onRemove(t)} className="cursor-pointer transition-colors hover:text-red-400">
+            <button onClick={() => onRemove(t)} className="cursor-pointer transition-colors hover:text-[#f87171]">
               <X className="h-3 w-3" />
             </button>
           </span>
@@ -600,7 +598,7 @@ function TagList({
             value={inputValue}
             onChange={(e) => onInputChange(e.target.value)}
             placeholder={items.length === 0 ? 'nome_da_tool' : '+ adicionar'}
-            className="h-7 w-28 rounded-lg bg-transparent px-2 text-xs text-zinc-400 outline-none placeholder:text-zinc-600 focus:placeholder:text-zinc-500"
+            className="h-7 w-28 rounded-lg bg-transparent px-2 text-xs text-[#94a3b8] outline-none placeholder:text-[#475569] focus:placeholder:text-[#64748b]"
           />
         </form>
       </div>

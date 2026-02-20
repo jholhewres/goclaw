@@ -50,7 +50,7 @@ function Select({ value, onChange, options }: {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full appearance-none rounded-xl border border-white/8 bg-dc-dark px-4 py-3 pr-10 text-sm text-zinc-200 outline-none transition-colors hover:border-white/15 focus:border-blue-500/50"
+        className="h-11 w-full cursor-pointer appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 pr-10 text-sm text-zinc-100 outline-none transition-all hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -72,7 +72,7 @@ function Input({ value, onChange, placeholder }: {
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-xl border border-white/8 bg-dc-dark px-4 py-3 text-sm text-zinc-200 outline-none transition-colors placeholder:text-zinc-600 hover:border-white/15 focus:border-blue-500/50"
+      className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-zinc-100 outline-none transition-all placeholder:text-zinc-500 hover:border-zinc-600 focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
     />
   )
 }
@@ -129,7 +129,7 @@ export function System() {
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-10 w-10 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
+        <div className="h-10 w-10 rounded-full border-4 border-zinc-700 border-t-zinc-400 animate-spin" />
       </div>
     )
   }
@@ -138,7 +138,7 @@ export function System() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center bg-dc-darker">
         <p className="text-sm text-red-400">Erro ao carregar configurações</p>
-        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors cursor-pointer">
+        <button onClick={() => window.location.reload()} className="mt-3 text-xs text-zinc-400 hover:text-zinc-300 transition-colors cursor-pointer">
           Tentar novamente
         </button>
       </div>
@@ -147,7 +147,7 @@ export function System() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-dc-darker">
-      <div className="mx-auto w-full max-w-4xl flex-1 overflow-y-auto px-8 py-10">
+      <div className="mx-auto w-full max-w-4xl flex-1 overflow-y-auto px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
@@ -170,7 +170,7 @@ export function System() {
             <button
               onClick={handleSave}
               disabled={!hasChanges || saving}
-              className="flex cursor-pointer items-center gap-2 rounded-xl bg-blue-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition-all hover:shadow-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex cursor-pointer items-center gap-2 rounded-xl bg-zinc-100 px-5 py-3 text-sm font-bold text-zinc-900 shadow-lg shadow-zinc-900/10 transition-all hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4" />
               {saving ? t('common.saving') : t('common.save')}
@@ -181,7 +181,7 @@ export function System() {
         {message && (
           <div className={`mt-6 rounded-2xl px-5 py-4 text-base ring-1 ${
             message.type === 'success'
-              ? 'bg-emerald-500/5 text-emerald-400 ring-emerald-500/20'
+              ? 'bg-zinc-700/30 text-zinc-300 ring-zinc-600'
               : 'bg-red-500/5 text-red-400 ring-red-500/20'
           }`}>
             {message.text}
@@ -191,8 +191,8 @@ export function System() {
         {/* Identity Section */}
         <section className="mt-10">
           <div className="flex items-center gap-3 mb-6">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 ring-1 ring-violet-500/20">
-              <Bot className="h-5 w-5 text-violet-400" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-800">
+              <Bot className="h-5 w-5 text-zinc-400" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">{t('system.identity')}</h2>
@@ -200,7 +200,7 @@ export function System() {
             </div>
           </div>
 
-          <div className="space-y-5 rounded-2xl border border-white/6 bg-dc-dark p-6">
+          <div className="space-y-5 rounded-2xl border border-zinc-700/30 bg-zinc-900 p-6">
             <div>
               <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
                 {t('system.assistantName')}
@@ -234,8 +234,8 @@ export function System() {
         {/* Locale Section */}
         <section className="mt-10">
           <div className="flex items-center gap-3 mb-6">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20">
-              <Globe className="h-5 w-5 text-blue-400" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-800">
+              <Globe className="h-5 w-5 text-zinc-400" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">{t('system.localization')}</h2>
@@ -243,7 +243,7 @@ export function System() {
             </div>
           </div>
 
-          <div className="space-y-5 rounded-2xl border border-white/6 bg-dc-dark p-6">
+          <div className="space-y-5 rounded-2xl border border-zinc-700/30 bg-zinc-900 p-6">
             <div>
               <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
                 {t('system.primaryLanguage')}
@@ -276,7 +276,7 @@ export function System() {
 
         {/* Info */}
         <section className="mt-10 mb-10">
-          <div className="rounded-2xl border border-white/4 bg-dc-dark/50 p-6">
+          <div className="rounded-2xl border border-zinc-700/20 bg-zinc-900/50 p-6">
             <h3 className="text-sm font-bold text-zinc-400 mb-3">{t('system.tips')}</h3>
             <ul className="space-y-2 text-xs text-zinc-500">
               <li>• {t('system.tip1')}</li>

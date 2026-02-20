@@ -115,9 +115,9 @@ export function SetupWizard() {
                   disabled={id > step}
                   className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold transition-all duration-300 ${
                     id === step
-                      ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25 ring-4 ring-blue-500/10'
+                      ? 'bg-zinc-500 text-white shadow-lg shadow-zinc-900/10 ring-4 ring-zinc-500/20'
                       : id < step
-                        ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20 cursor-pointer hover:bg-emerald-500/25'
+                        ? 'bg-zinc-700 text-zinc-300 ring-1 ring-zinc-600 cursor-pointer hover:bg-zinc-600'
                         : 'bg-zinc-800/60 text-zinc-600 ring-1 ring-zinc-700/50'
                   }`}
                 >
@@ -129,9 +129,9 @@ export function SetupWizard() {
                 </button>
                 <span className={`text-[11px] font-medium transition-colors ${
                   id === step
-                    ? 'text-blue-400'
+                    ? 'text-zinc-300'
                     : id < step
-                      ? 'text-emerald-400/70'
+                      ? 'text-zinc-400'
                       : 'text-zinc-600'
                 }`}>
                   {label}
@@ -142,7 +142,7 @@ export function SetupWizard() {
               {index < STEPS.length - 1 && (
                 <div className="relative mx-2 mt-[-18px] h-0.5 w-8 sm:w-12 lg:w-16 overflow-hidden rounded-full bg-zinc-800">
                   <div
-                    className="absolute inset-y-0 left-0 bg-emerald-500/60 transition-all duration-500 ease-out rounded-full"
+                    className="absolute inset-y-0 left-0 bg-zinc-500/60 transition-all duration-500 ease-out rounded-full"
                     style={{ width: id < step ? '100%' : '0%' }}
                   />
                 </div>
@@ -190,9 +190,9 @@ export function SetupWizard() {
                 key={id}
                 className={`h-1.5 rounded-full transition-all duration-300 ${
                   id === step
-                    ? 'w-6 bg-blue-500'
+                    ? 'w-6 bg-zinc-400'
                     : id < step
-                      ? 'w-1.5 bg-emerald-500/50'
+                      ? 'w-1.5 bg-zinc-500'
                       : 'w-1.5 bg-zinc-700'
                 }`}
               />
@@ -202,7 +202,7 @@ export function SetupWizard() {
           {step < 5 ? (
             <button
               onClick={next}
-              className="group flex cursor-pointer items-center gap-2 rounded-xl bg-blue-500 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-400 hover:shadow-blue-500/30"
+              className="group flex cursor-pointer items-center gap-2 rounded-xl bg-zinc-100 px-5 py-2.5 text-sm font-medium text-zinc-900 shadow-lg shadow-zinc-900/10 transition-all hover:bg-zinc-200"
             >
               {t('setupPage.next')}
               <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -211,7 +211,7 @@ export function SetupWizard() {
             <button
               onClick={handleFinalize}
               disabled={submitting}
-              className="group flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-emerald-500/20 transition-all hover:bg-emerald-400 hover:shadow-emerald-500/30 disabled:cursor-wait disabled:opacity-50"
+              className="group flex cursor-pointer items-center gap-2 rounded-xl bg-zinc-100 px-5 py-2.5 text-sm font-medium text-zinc-900 shadow-lg shadow-zinc-900/10 transition-all hover:bg-zinc-200 disabled:cursor-wait disabled:opacity-50"
             >
               {submitting ? (
                 <>
@@ -272,11 +272,11 @@ function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
 
   return (
     <div className="flex flex-col items-center gap-5 py-6 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 ring-1 ring-emerald-500/20">
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800 ring-1 ring-zinc-700">
         {phase === 'restarting' ? (
-          <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
         ) : (
-          <CheckCircle2 className="h-8 w-8 text-emerald-400" />
+          <CheckCircle2 className="h-8 w-8 text-zinc-300" />
         )}
       </div>
       <div>
@@ -295,8 +295,8 @@ function SetupComplete({ hasPassword }: { hasPassword: boolean }) {
       <div className="w-48 h-1 rounded-full bg-zinc-800 overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-1000 ${
           phase === 'restarting'
-            ? 'w-2/3 bg-blue-500 animate-pulse'
-            : 'w-full bg-emerald-500'
+            ? 'w-2/3 bg-zinc-500 animate-pulse'
+            : 'w-full bg-zinc-400'
         }`} />
       </div>
 

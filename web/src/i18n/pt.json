@@ -40,6 +40,14 @@
     "webhooks": "Webhooks",
     "hooks": "Hooks",
     "integrations": "Integrações",
+    "security": "Segurança",
+    "expandMenu": "Expandir menu",
+    "collapseMenu": "Compactar menu"
+  },
+  "sidebarSections": {
+    "start": "Início",
+    "manage": "Gerenciar",
+    "settings": "Configurações",
     "security": "Segurança"
   },
   "dashboard": {
@@ -357,6 +365,10 @@
   "chatPage": {
     "assistant": "Assistente IA",
     "whatDo": "O que vamos fazer?",
+    "howCanHelp": "Como posso te ajudar?",
+    "howCanHelpDesc": "Converse com seu assistente para desenvolver código, analisar dados e executar tarefas.",
+    "thinking": "Pensando...",
+    "placeholder": "Pergunte algo ou descreva uma tarefa...",
     "askOrPick": "Pergunte qualquer coisa ou escolha uma sugestão",
     "nativeTools": "70+ ferramentas nativas",
     "enterToSend": "Enter para enviar, Shift+Enter para nova linha",

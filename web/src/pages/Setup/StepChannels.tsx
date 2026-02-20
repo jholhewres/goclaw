@@ -9,20 +9,20 @@ interface Props {
 
 const COLOR_MAP: Record<string, { active: string; icon: string }> = {
   emerald: {
-    active: 'border-emerald-500/50 bg-emerald-500/5 ring-1 ring-emerald-500/20',
-    icon: 'text-emerald-400',
+    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
+    icon: 'text-zinc-200',
   },
   blue: {
-    active: 'border-blue-500/50 bg-blue-500/5 ring-1 ring-blue-500/20',
-    icon: 'text-blue-400',
+    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
+    icon: 'text-zinc-200',
   },
   violet: {
-    active: 'border-violet-500/50 bg-violet-500/5 ring-1 ring-violet-500/20',
-    icon: 'text-violet-400',
+    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
+    icon: 'text-zinc-200',
   },
   pink: {
-    active: 'border-pink-500/50 bg-pink-500/5 ring-1 ring-pink-500/20',
-    icon: 'text-pink-400',
+    active: 'border-zinc-500 bg-zinc-700/50 ring-1 ring-zinc-500/50',
+    icon: 'text-zinc-200',
   },
 }
 
@@ -124,7 +124,7 @@ export function StepChannels({ data, updateData }: Props) {
 
               <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all ${
                 isActive
-                  ? 'border-transparent bg-blue-500 text-white'
+                  ? 'border-transparent bg-zinc-500 text-white'
                   : 'border-zinc-600 bg-zinc-800'
               }`}>
                 {isActive && <Check className="h-3 w-3" />}
@@ -136,9 +136,9 @@ export function StepChannels({ data, updateData }: Props) {
 
       {/* Owner phone — only shown when WhatsApp is enabled */}
       {data.channels['whatsapp'] && (
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+        <div className="rounded-xl border border-zinc-600 bg-zinc-800/50 p-4 space-y-3">
           <label className="flex items-center gap-2 text-sm font-medium text-zinc-300">
-            <Phone className="h-3.5 w-3.5 text-emerald-400" />
+            <Phone className="h-3.5 w-3.5 text-zinc-400" />
             {t('setupPage.ownerPhone')}
           </label>
           <input
@@ -146,7 +146,7 @@ export function StepChannels({ data, updateData }: Props) {
             value={data.ownerPhone}
             onChange={(e) => updateData({ ownerPhone: e.target.value.replace(/\D/g, '') })}
             placeholder="5511999999999"
-            className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/10"
+            className="flex h-11 w-full rounded-xl border border-zinc-700/50 bg-zinc-800/50 px-4 text-sm text-white placeholder:text-zinc-600 outline-none transition-all focus:border-zinc-600 focus:ring-2 focus:ring-zinc-500/20"
           />
           <p className="text-xs text-zinc-500">
             {t('setupPage.ownerPhoneHint')}
@@ -155,7 +155,7 @@ export function StepChannels({ data, updateData }: Props) {
       )}
 
       <div className="flex items-center gap-2.5 rounded-xl bg-zinc-800/40 px-4 py-3 ring-1 ring-zinc-700/30">
-        <MessageSquare className="h-4 w-4 shrink-0 text-blue-400" />
+        <MessageSquare className="h-4 w-4 shrink-0 text-zinc-400" />
         <p className="text-xs text-zinc-400">
           {t('setupPage.webchatAlways')}
         </p>

@@ -11,9 +11,11 @@ import {
   MessageCircle,
   ArrowRight,
   Clock,
+  Check,
+  X,
 } from 'lucide-react'
 import { api, type ChannelHealth } from '@/lib/api'
-import { timeAgo } from '@/lib/utils'
+import { timeAgo, cn } from '@/lib/utils'
 
 /**
  * Channel management page.
@@ -38,29 +40,30 @@ export function Channels() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-dc-darker">
-        <div className="h-8 w-8 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin" />
+      <div className="flex flex-1 items-center justify-center bg-[#0c1222]">
+        <div className="h-8 w-8 rounded-full border-4 border-[#1e293b] border-t-[#3b82f6] animate-spin" />
       </div>
     )
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-dc-darker">
-      <div className="mx-auto max-w-3xl px-8 py-10">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-600">{t('channels.subtitle')}</p>
-          <h1 className="mt-1 text-2xl font-black text-white tracking-tight">{t('channels.title')}</h1>
-        </div>
-
-        {channels.length === 0 ? (
-          <EmptyChannels />
-        ) : (
-          <div className="mt-6 space-y-3">
-            {whatsapp && <WhatsAppCard channel={whatsapp} onNavigate={() => navigate('/channels/whatsapp')} />}
-            {otherChannels.map((ch) => <ChannelCard key={ch.name} channel={ch} />)}
-          </div>
-        )}
+    <div className="py-8 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto">
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#475569]">{t('channels.subtitle')}</p>
+        <h1 className="mt-1 text-2xl font-bold text-[#f8fafc] tracking-tight">{t('channels.title')}</h1>
+        <p className="mt-2 text-sm text-[#64748b]">
+          Conecte canais de comunicação para enviar e receber mensagens
+        </p>
       </div>
+
+      {channels.length === 0 ? (
+        <EmptyChannels />
+      ) : (
+        <div className="mt-8 space-y-4">
+          {whatsapp && <WhatsAppCard channel={whatsapp} onNavigate={() => navigate('/channels/whatsapp')} />}
+          {otherChannels.map((ch) => <ChannelCard key={ch.name} channel={ch} />)}
+        </div>
+      )}
     </div>
   )
 }
@@ -72,57 +75,65 @@ function WhatsAppCard({ channel, onNavigate }: { channel: ChannelHealth; onNavig
   const hasLastMsg = channel.last_msg_at && channel.last_msg_at !== '0001-01-01T00:00:00Z'
 
   return (
-    <div className={`rounded-2xl p-5 ring-1 transition-colors ${
-      connected ? 'bg-emerald-500/3 ring-emerald-500/15' : 'ring-zinc-700/30 bg-zinc-800/20'
-    }`}>
+    <div className={cn(
+      'rounded-2xl p-6 border transition-all',
+      connected
+        ? 'bg-[#111827] border-[#22c55e]/20'
+        : 'bg-[#111827] border-white/10'
+    )}>
       <div className="flex items-start gap-4">
-        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-          connected ? 'bg-emerald-500/10' : 'bg-blue-500/10'
-        }`}>
-          <WhatsAppIcon className={`h-5 w-5 ${connected ? 'text-emerald-400' : 'text-blue-400'}`} />
+        {/* Icon */}
+        <div className={cn(
+          'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-colors',
+          connected ? 'bg-[#22c55e]/10' : 'bg-[#1e293b]'
+        )}>
+          <WhatsAppIcon className={cn('h-6 w-6', connected ? 'text-[#22c55e]' : 'text-[#64748b]')} />
         </div>
 
+        {/* Content */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2.5">
-            <h3 className="text-sm font-bold text-white">WhatsApp</h3>
-            <StatusDot connected={connected} />
+          <div className="flex items-center gap-3">
+            <h3 className="text-base font-semibold text-[#f8fafc]">WhatsApp</h3>
+            <StatusBadge connected={connected} />
           </div>
 
-          <p className="mt-0.5 text-[11px] text-zinc-500">
+          <p className="mt-1 text-sm text-[#64748b]">
             {connected
               ? hasLastMsg
-                ? `Last message ${timeAgo(channel.last_msg_at)}`
-                : 'Connected — waiting for messages'
-              : 'Scan QR code to connect'}
+                ? `Última mensagem ${timeAgo(channel.last_msg_at)}`
+                : 'Conectado — aguardando mensagens'
+              : 'Escaneie o QR code para conectar'}
           </p>
 
-          <div className="mt-3 flex items-center gap-2">
+          {/* Actions */}
+          <div className="mt-4 flex items-center gap-3">
             <button
               onClick={onNavigate}
-              className={`flex cursor-pointer items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
+              className={cn(
+                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all',
                 connected
-                  ? 'bg-zinc-800 text-zinc-300 ring-1 ring-zinc-700/30 hover:bg-zinc-700'
-                  : 'bg-blue-500 text-white shadow-lg shadow-blue-500/15 hover:bg-blue-400'
-              }`}
+                  ? 'bg-[#1e293b] text-[#94a3b8] border border-white/10 hover:bg-[#334155] hover:text-[#f8fafc]'
+                  : 'bg-[#3b82f6] text-white hover:bg-[#2563eb]'
+              )}
             >
               {connected ? (
                 <>
-                  <Smartphone className="h-3.5 w-3.5" />
-                  Manage
+                  <Smartphone className="h-4 w-4" />
+                  Gerenciar
                 </>
               ) : (
                 <>
-                  <QrCode className="h-3.5 w-3.5" />
-                  Connect via QR Code
-                  <ArrowRight className="h-3 w-3" />
+                  <QrCode className="h-4 w-4" />
+                  Conectar via QR
+                  <ArrowRight className="h-4 w-4" />
                 </>
               )}
             </button>
 
             {channel.error_count > 0 && (
-              <span className="flex items-center gap-1 rounded-lg bg-blue-500/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-400 ring-1 ring-blue-500/15">
-                <AlertTriangle className="h-3 w-3" />
-                {channel.error_count} error{channel.error_count !== 1 ? 's' : ''}
+              <span className="flex items-center gap-1.5 rounded-lg bg-[#f59e0b]/10 border border-[#f59e0b]/20 px-3 py-2 text-xs font-medium text-[#f59e0b]">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {channel.error_count} {channel.error_count === 1 ? 'erro' : 'erros'}
               </span>
             )}
           </div>
@@ -138,47 +149,60 @@ function ChannelCard({ channel }: { channel: ChannelHealth }) {
   const connected = channel.connected
   const hasLastMsg = channel.last_msg_at && channel.last_msg_at !== '0001-01-01T00:00:00Z'
 
-  const channelNames: Record<string, string> = {
-    discord: 'Discord',
-    telegram: 'Telegram',
-    slack: 'Slack',
+  const channelConfig: Record<string, { name: string; color: string }> = {
+    discord: { name: 'Discord', color: '#5865F2' },
+    telegram: { name: 'Telegram', color: '#0088cc' },
+    slack: { name: 'Slack', color: '#4A154B' },
   }
 
+  const config = channelConfig[channel.name] || { name: channel.name, color: '#64748b' }
+
   return (
-    <div className={`rounded-xl px-5 py-4 ring-1 transition-colors ${
-      connected ? 'bg-emerald-500/3 ring-emerald-500/15' : 'bg-zinc-800/30 ring-zinc-700/20'
-    }`}>
+    <div className={cn(
+      'rounded-xl p-5 border transition-all',
+      connected
+        ? 'bg-[#111827] border-white/10'
+        : 'bg-[#111827]/50 border-white/5'
+    )}>
       <div className="flex items-center gap-4">
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-          connected ? 'bg-emerald-500/10' : 'bg-zinc-800'
-        }`}>
-          {connected ? <Wifi className="h-4 w-4 text-emerald-400" /> : <WifiOff className="h-4 w-4 text-zinc-500" />}
+        {/* Icon */}
+        <div className={cn(
+          'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors',
+          connected ? 'bg-[#1e293b]' : 'bg-[#1e293b]/50'
+        )}>
+          {connected ? (
+            <Wifi className="h-5 w-5 text-[#22c55e]" />
+          ) : (
+            <WifiOff className="h-5 w-5 text-[#475569]" />
+          )}
         </div>
 
+        {/* Content */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold text-white">{channelNames[channel.name] || channel.name}</h3>
-            <StatusDot connected={connected} />
+          <div className="flex items-center gap-2.5">
+            <h3 className="text-sm font-semibold text-[#f8fafc]">{config.name}</h3>
+            <StatusBadge connected={connected} small />
           </div>
-          <p className="text-[11px] text-zinc-500">
+          <p className="mt-0.5 text-xs text-[#64748b]">
             {connected
               ? hasLastMsg
-                ? `Last message ${timeAgo(channel.last_msg_at)}`
-                : 'Connected'
-              : 'Disconnected'}
+                ? `Última mensagem ${timeAgo(channel.last_msg_at)}`
+                : 'Conectado'
+              : 'Desconectado'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Status indicators */}
+        <div className="flex items-center gap-3">
           {channel.error_count > 0 && (
-            <span className="flex items-center gap-1 text-[11px] text-amber-400">
-              <AlertTriangle className="h-3 w-3" />
+            <span className="flex items-center gap-1 text-xs text-[#f59e0b]">
+              <AlertTriangle className="h-3.5 w-3.5" />
               {channel.error_count}
             </span>
           )}
           {hasLastMsg && (
-            <span className="flex items-center gap-1 text-[11px] text-zinc-600">
-              <Clock className="h-3 w-3" />
+            <span className="flex items-center gap-1.5 text-xs text-[#475569]">
+              <Clock className="h-3.5 w-3.5" />
               {timeAgo(channel.last_msg_at)}
             </span>
           )}
@@ -192,55 +216,66 @@ function ChannelCard({ channel }: { channel: ChannelHealth }) {
 
 function EmptyChannels() {
   return (
-    <div className="mt-8 rounded-2xl border border-white/6 bg-(--color-dc-dark)/80 px-6 py-12">
-      <div className="flex flex-col items-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10">
-          <MessageCircle className="h-6 w-6 text-blue-400" />
+    <div className="mt-8 rounded-2xl border border-white/10 bg-[#111827] p-8">
+      <div className="flex flex-col items-center text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[#1e293b]">
+          <Radio className="h-7 w-7 text-[#64748b]" />
         </div>
-        <h3 className="mt-4 text-sm font-bold text-zinc-300">No channels configured</h3>
-        <p className="mt-1.5 max-w-sm text-center text-xs text-zinc-500">
-          Channels allow DevClaw to send and receive messages via WhatsApp, Discord, Telegram, and Slack.
+        <h3 className="mt-4 text-base font-semibold text-[#f8fafc]">Nenhum canal configurado</h3>
+        <p className="mt-2 max-w-md text-sm text-[#64748b]">
+          Canais permitem que o DevClaw envie e receba mensagens via WhatsApp, Discord, Telegram e Slack.
         </p>
       </div>
 
-      <div className="mt-6 mx-auto max-w-md rounded-xl bg-zinc-800/30 px-4 py-3 ring-1 ring-zinc-700/20">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Example in config.yaml</p>
-        <pre className="mt-2 overflow-x-auto font-mono text-xs leading-relaxed text-zinc-400">
+      <div className="mt-6 mx-auto max-w-md rounded-xl bg-[#0c1222] border border-white/10 p-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#475569]">Exemplo em config.yaml</p>
+        <pre className="mt-3 overflow-x-auto font-mono text-xs leading-relaxed text-[#94a3b8]">
 {`channels:
   whatsapp:
     enabled: true
     owner_phone: "5511999999999"
   discord:
     enabled: true
-    token: "\${DEVCLAW_DISCORD_TOKEN}"`}</pre>
+    token: "\${DEVCLAW_DISCORD_TOKEN}"`}
+        </pre>
       </div>
 
-      <div className="mt-4 flex items-center justify-center gap-4 text-[11px] text-zinc-600">
-        <span className="flex items-center gap-1.5">
-          <Radio className="h-3 w-3 text-zinc-500" />
+      <div className="mt-5 flex items-center justify-center gap-6 text-xs text-[#475569]">
+        <span className="flex items-center gap-2">
+          <MessageCircle className="h-3.5 w-3.5" />
           WhatsApp, Discord, Telegram, Slack
         </span>
-        <span className="h-3 w-px bg-zinc-700/50" />
-        <span>Tokens are stored in the vault</span>
+        <span className="h-3 w-px bg-white/10" />
+        <span>Tokens são armazenados no vault</span>
       </div>
     </div>
   )
 }
 
-/* ── Shared ── */
+/* ── Status Badge ── */
 
-function StatusDot({ connected }: { connected: boolean }) {
+function StatusBadge({ connected, small = false }: { connected: boolean; small?: boolean }) {
   return (
-    <span className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+    <span className={cn(
+      'inline-flex items-center gap-1.5 rounded-full font-medium transition-colors',
+      small
+        ? 'px-2 py-0.5 text-[10px]'
+        : 'px-2.5 py-1 text-[11px]',
       connected
-        ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
-        : 'bg-zinc-800 text-zinc-500 ring-1 ring-zinc-700/30'
-    }`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+        ? 'bg-[#22c55e]/10 text-[#22c55e]'
+        : 'bg-[#475569]/20 text-[#64748b]'
+    )}>
+      {connected ? (
+        <Check className={cn('shrink-0', small ? 'h-3 w-3' : 'h-3.5 w-3.5')} />
+      ) : (
+        <X className={cn('shrink-0', small ? 'h-3 w-3' : 'h-3.5 w-3.5')} />
+      )}
       {connected ? 'Online' : 'Offline'}
     </span>
   )
 }
+
+/* ── WhatsApp Icon ── */
 
 function WhatsAppIcon({ className }: { className?: string }) {
   return (

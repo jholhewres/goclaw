@@ -40,6 +40,14 @@
     "webhooks": "Webhooks",
     "hooks": "Hooks",
     "integrations": "Integrations",
+    "security": "Security",
+    "expandMenu": "Expand menu",
+    "collapseMenu": "Collapse menu"
+  },
+  "sidebarSections": {
+    "start": "Start",
+    "manage": "Manage",
+    "settings": "Settings",
     "security": "Security"
   },
   "dashboard": {
@@ -357,6 +365,10 @@
   "chatPage": {
     "assistant": "AI Assistant",
     "whatDo": "What should we do?",
+    "howCanHelp": "How can I help you?",
+    "howCanHelpDesc": "Chat with your assistant to develop code, analyze data, and execute tasks.",
+    "thinking": "Thinking...",
+    "placeholder": "Ask something or describe a task...",
     "askOrPick": "Ask anything or pick a suggestion",
     "nativeTools": "70+ native tools",
     "enterToSend": "Enter to send, Shift+Enter for new line",
