@@ -73,7 +73,7 @@ func NewLLMClient(cfg *Config, logger *slog.Logger) *LLMClient {
 		baseURL:          baseURL,
 		provider:         provider,
 		apiKey:           cfg.API.APIKey,
-		model:            cfg.Model,
+		model:            normalizeGeminiModelID(cfg.Model),
 		fallback:         cfg.Fallback.Effective(),
 		params:           cfg.API.Params,
 		probeMinInterval: 30 * time.Second,
@@ -138,6 +138,90 @@ func detectProvider(baseURL string) string {
 		return "huggingface"
 	default:
 		return "openai" // assume OpenAI-compatible
+	}
+}
+
+// normalizeGeminiModelID converts short Gemini model aliases to their full API names.
+// This allows users to specify "gemini-3.1-pro" and get "gemini-3.1-pro-preview".
+// If the model is not a Gemini model or doesn't need normalization, returns unchanged.
+func normalizeGeminiModelID(model string) string {
+	if !strings.HasPrefix(model, "gemini-") {
+		return model
+	}
+
+	// Gemini 3.1 aliases
+	switch model {
+	case "gemini-3.1-pro":
+		return "gemini-3.1-pro-preview"
+	case "gemini-3.1-flash":
+		return "gemini-3.1-flash-preview"
+	}
+
+	// Gemini 3 aliases
+	switch model {
+	case "gemini-3-pro":
+		return "gemini-3-pro-preview"
+	case "gemini-3-flash":
+		return "gemini-3-flash-preview"
+	}
+
+	return model
+}
+
+// providerForModel returns a human-readable provider name for error messages.
+// Uses the configured provider if available, otherwise infers from the model name.
+func (c *LLMClient) providerForModel(model string) string {
+	// If provider is set, use it (with nicer formatting)
+	if c.provider != "" && c.provider != "openai" {
+		switch c.provider {
+		case "zai", "zai-coding", "zai-anthropic":
+			return "Z.AI"
+		case "anthropic":
+			return "Anthropic"
+		case "openai":
+			return "OpenAI"
+		case "openrouter":
+			return "OpenRouter"
+		case "xai":
+			return "xAI"
+		case "groq":
+			return "Groq"
+		case "cerebras":
+			return "Cerebras"
+		case "mistral":
+			return "Mistral"
+		case "google":
+			return "Google"
+		case "ollama":
+			return "Ollama"
+		case "lmstudio":
+			return "LM Studio"
+		case "vllm":
+			return "vLLM"
+		case "huggingface":
+			return "Hugging Face"
+		default:
+			return c.provider
+		}
+	}
+
+	// Fall back to inferring from model name
+	modelLower := strings.ToLower(model)
+	switch {
+	case strings.HasPrefix(modelLower, "gpt-"), strings.HasPrefix(modelLower, "o1-"), strings.HasPrefix(modelLower, "o3-"):
+		return "OpenAI"
+	case strings.HasPrefix(modelLower, "claude-"):
+		return "Anthropic"
+	case strings.HasPrefix(modelLower, "gemini-"):
+		return "Google"
+	case strings.HasPrefix(modelLower, "llama-"), strings.HasPrefix(modelLower, "mixtral-"), strings.HasPrefix(modelLower, "mistral-"):
+		return "Mistral"
+	case strings.HasPrefix(modelLower, "grok-"):
+		return "xAI"
+	case strings.HasPrefix(modelLower, "glm-"):
+		return "Z.AI"
+	default:
+		return "LLM"
 	}
 }
 
@@ -890,10 +974,26 @@ func (k LLMErrorKind) IsRetryableKind() bool {
 type apiError struct {
 	statusCode    int
 	body          string
-	retryAfterSec int // from Retry-After header, 0 if not set
+	retryAfterSec int    // from Retry-After header, 0 if not set
+	model         string // model that produced the error (for billing/auth errors)
+	provider      string // provider name (e.g., "OpenAI", "Anthropic")
 }
 
 func (e *apiError) Error() string {
+	// For billing/auth errors, include model and provider for user clarity.
+	if e.statusCode == 402 || e.statusCode == 401 || e.statusCode == 403 {
+		prefix := ""
+		if e.provider != "" {
+			prefix = e.provider
+			if e.model != "" {
+				prefix += " (" + e.model + ")"
+			}
+			prefix += ": "
+		} else if e.model != "" {
+			prefix = e.model + ": "
+		}
+		return fmt.Sprintf("%sAPI returned %d: %s", prefix, e.statusCode, truncate(e.body, 200))
+	}
 	return fmt.Sprintf("API returned %d: %s", e.statusCode, truncate(e.body, 200))
 }
 
@@ -2090,6 +2190,11 @@ func (c *LLMClient) CompleteWithFallbackUsingModel(ctx context.Context, modelOve
 					"kind", kind.String(),
 					"error", err,
 				)
+				// Enhance billing/auth errors with model info for user clarity.
+				if kind == LLMErrorBilling || kind == LLMErrorAuth {
+					provider := c.providerForModel(model)
+					return nil, fmt.Errorf("%s (%s): %w", provider, model, err)
+				}
 				return nil, err
 			}
 

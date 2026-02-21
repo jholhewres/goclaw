@@ -186,3 +186,85 @@ func TestSSRFGuard_BlocksBuiltinHosts(t *testing.T) {
 		}
 	}
 }
+
+func TestSSRFGuard_BlocksLegacyIPv4Formats(t *testing.T) {
+	t.Parallel()
+	g := newTestSSRFGuard(SSRFConfig{})
+
+	tests := []struct {
+		name string
+		url  string
+		desc string
+	}{
+		// Octal notation (0177 = 127 in octal)
+		{"octal_loopback", "http://0177.0.0.1/secret", "octal notation for 127.0.0.1"},
+		{"octal_short", "http://0177.0.1/secret", "partial octal notation"},
+
+		// Hex notation
+		{"hex_prefix", "http://0x7f.0.0.1/secret", "hex prefix notation"},
+
+		// Short notation (fewer than 4 octets)
+		{"short_loopback", "http://127.1/secret", "short notation 127.1 -> 127.0.0.1"},
+		{"short_partial", "http://127.0.1/secret", "short notation with 3 octets"},
+
+		// Mixed legacy forms
+		{"octal_in_octet", "http://192.168.010.1/secret", "010 is octal for 8"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := g.IsAllowed(tt.url)
+			if err == nil {
+				t.Errorf("expected %s (%s) to be blocked", tt.url, tt.desc)
+			}
+		})
+	}
+}
+
+func TestValidateIPv4Literal_ValidFormats(t *testing.T) {
+	t.Parallel()
+
+	validHosts := []string{
+		"192.168.1.1",
+		"10.0.0.1",
+		"8.8.8.8",
+		"1.2.3.4",
+		"255.255.255.255",
+		"0.0.0.1", // Single 0 is valid
+		"example.com",
+		"sub.example.com",
+		"localhost",
+	}
+
+	for _, host := range validHosts {
+		err := validateIPv4Literal(host)
+		if err != nil {
+			t.Errorf("expected %q to be valid, got error: %v", host, err)
+		}
+	}
+}
+
+func TestValidateIPv4Literal_InvalidFormats(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		host string
+		desc string
+	}{
+		{"0177.0.0.1", "octal notation"},
+		{"0x7f.0.0.1", "hex notation"},
+		{"127.1", "short notation (2 octets)"},
+		{"127.0.1", "short notation (3 octets)"},
+		{"192.168.01.1", "leading zero in octet"},
+		{"192.168.001.1", "leading zeros in octet"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			err := validateIPv4Literal(tt.host)
+			if err == nil {
+				t.Errorf("expected %s (%s) to be invalid", tt.host, tt.desc)
+			}
+		})
+	}
+}

@@ -84,6 +84,14 @@ func (g *SSRFGuard) IsAllowed(rawURL string) error {
 		return fmt.Errorf("SSRF: no host in URL")
 	}
 
+	// Enforce strict dotted-decimal IPv4 format (openclaw security hardening).
+	// Block legacy forms: octal (0177.0.0.1), hex (0x7f.0.0.1), short (127.1),
+	// and packed integer (2130706433) before DNS resolution.
+	if err := validateIPv4Literal(host); err != nil {
+		g.logger.Warn("SSRF blocked: legacy IPv4 format", "url", rawURL, "host", host)
+		return err
+	}
+
 	// Block localhost and 0.0.0.0 by hostname.
 	hostLower := strings.ToLower(host)
 	if hostLower == "localhost" || hostLower == "0.0.0.0" {
@@ -143,6 +151,88 @@ func (g *SSRFGuard) IsAllowed(rawURL string) error {
 	}
 
 	return nil
+}
+
+// validateIPv4Literal enforces strict dotted-decimal IPv4 format.
+// Blocks legacy forms that some systems may interpret as loopback or private IPs:
+//   - Octal: 0177.0.0.1, 0177.0.1 (each octet starting with 0 is octal)
+//   - Hex: 0x7f.0.0.1, 0x7f000001
+//   - Short: 127.1 (expands to 127.0.0.1), 127.0.1
+//   - Packed integer: 2130706433 (decimal representation of 127.0.0.1)
+//
+// Only standard dotted-decimal (e.g., 127.0.0.1) passes validation.
+func validateIPv4Literal(host string) error {
+	// Check for hex prefixes (before any other checks).
+	if strings.Contains(strings.ToLower(host), "0x") {
+		return fmt.Errorf("SSRF: hex IPv4 notation not allowed (use standard dotted-decimal)")
+	}
+
+	// Check if host looks like it could be an IPv4 literal (digits and dots).
+	if !isPossibleIPv4Literal(host) {
+		return nil // Not an IPv4 literal, let DNS resolve it.
+	}
+
+	// Split into octets.
+	parts := strings.Split(host, ".")
+	if len(parts) > 4 {
+		return fmt.Errorf("SSRF: invalid IPv4 address (too many octets)")
+	}
+
+	// Less than 4 parts could be short notation (e.g., 127.1).
+	// Standard DNS resolution may interpret these differently across systems.
+	if len(parts) < 4 {
+		return fmt.Errorf("SSRF: short IPv4 notation not allowed (use standard dotted-decimal, e.g., 127.0.0.1)")
+	}
+
+	// Validate each octet.
+	for _, part := range parts {
+		if part == "" {
+			return fmt.Errorf("SSRF: empty octet in IPv4 address")
+		}
+
+		// Check for leading zeros (octal notation).
+		// "0" alone is fine, but "0177" or "007" is octal.
+		if len(part) > 1 && part[0] == '0' {
+			return fmt.Errorf("SSRF: octal IPv4 notation not allowed (use standard dotted-decimal)")
+		}
+
+		// Verify all characters are digits.
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				return fmt.Errorf("SSRF: invalid character in IPv4 address")
+			}
+		}
+
+		// Verify value is 0-255 (already validated by net.ParseIP later,
+		// but we fail earlier with a clearer error message).
+		val := 0
+		for _, c := range part {
+			val = val*10 + int(c-'0')
+		}
+		if val > 255 {
+			return fmt.Errorf("SSRF: IPv4 octet out of range")
+		}
+	}
+
+	return nil
+}
+
+// isPossibleIPv4Literal checks if a hostname might be an IPv4 literal.
+func isPossibleIPv4Literal(host string) bool {
+	if host == "" {
+		return false
+	}
+	digits := 0
+	for _, c := range host {
+		if c >= '0' && c <= '9' {
+			digits++
+		} else if c == '.' || c == 'x' || c == 'X' {
+			// dots are OK, x/X might indicate hex
+		} else {
+			return false // Contains non-IPv4 characters (letters, etc.)
+		}
+	}
+	return digits > 0 // At least one digit.
 }
 
 // extractEmbeddedIPv4 extracts an IPv4 address embedded in an IPv6 address

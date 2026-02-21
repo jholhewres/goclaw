@@ -144,3 +144,39 @@ func TestLLMClientCooldownTracking(t *testing.T) {
 		client.cooldownMu.Unlock()
 	})
 }
+
+func TestNormalizeGeminiModelID(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Gemini 3.1 aliases
+		{"gemini-3.1-pro", "gemini-3.1-pro-preview"},
+		{"gemini-3.1-flash", "gemini-3.1-flash-preview"},
+		// Gemini 3 aliases
+		{"gemini-3-pro", "gemini-3-pro-preview"},
+		{"gemini-3-flash", "gemini-3-flash-preview"},
+		// Already fully specified (no change)
+		{"gemini-3.1-pro-preview", "gemini-3.1-pro-preview"},
+		{"gemini-3.1-flash-preview", "gemini-3.1-flash-preview"},
+		{"gemini-3-pro-preview", "gemini-3-pro-preview"},
+		{"gemini-3-flash-preview", "gemini-3-flash-preview"},
+		// Older Gemini models (no change)
+		{"gemini-2.5-pro-preview", "gemini-2.5-pro-preview"},
+		{"gemini-2.0-flash", "gemini-2.0-flash"},
+		{"gemini-1.5-pro", "gemini-1.5-pro"},
+		// Non-Gemini models (no change)
+		{"gpt-4o", "gpt-4o"},
+		{"claude-sonnet-4-20250514", "claude-sonnet-4-20250514"},
+		{"llama-3.3-70b", "llama-3.3-70b"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := normalizeGeminiModelID(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeGeminiModelID(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}

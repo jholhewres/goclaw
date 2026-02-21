@@ -30,6 +30,25 @@ import (
 	"github.com/google/uuid"
 )
 
+// contextKeySpawnDepth is the context key for spawn depth tracking.
+type contextKeySpawnDepth struct{}
+
+// SpawnDepthFromContext retrieves the current spawn depth from context.
+// Returns 0 if not set (main agent level).
+func SpawnDepthFromContext(ctx context.Context) int {
+	if v := ctx.Value(contextKeySpawnDepth{}); v != nil {
+		if depth, ok := v.(int); ok {
+			return depth
+		}
+	}
+	return 0
+}
+
+// ContextWithSpawnDepth returns a new context with the spawn depth set.
+func ContextWithSpawnDepth(ctx context.Context, depth int) context.Context {
+	return context.WithValue(ctx, contextKeySpawnDepth{}, depth)
+}
+
 // ─── Configuration ───
 
 // SubagentConfig configures the subagent system.
@@ -45,6 +64,14 @@ type SubagentConfig struct {
 
 	// TimeoutSeconds is the max execution time per subagent (default: 300 = 5min).
 	TimeoutSeconds int `yaml:"timeout_seconds"`
+
+	// MaxSpawnDepth controls nested subagent spawning (default: 1 = no nesting).
+	// Set to 2 to allow subagents to spawn their own children.
+	// Higher values allow deeper nesting (e.g., 3 = sub-sub-subagents).
+	MaxSpawnDepth int `yaml:"max_spawn_depth"`
+
+	// MaxChildrenPerAgent limits how many children a single agent can spawn (default: 5).
+	MaxChildrenPerAgent int `yaml:"max_children_per_agent"`
 
 	// DeniedTools lists tool names that subagents cannot use.
 	// Default: ["spawn_subagent", "list_subagents", "wait_subagent"]
@@ -79,11 +106,13 @@ var DefaultSubagentDeniedTools = []string{
 // DefaultSubagentConfig returns safe defaults.
 func DefaultSubagentConfig() SubagentConfig {
 	return SubagentConfig{
-		Enabled:        true,
-		MaxConcurrent:  8,
-		MaxTurns:       0,   // Unlimited (aligned with agent loop)
-		TimeoutSeconds: 600, // 10 minutes — enough for research tasks that do many web searches
-		DeniedTools:    DefaultSubagentDeniedTools,
+		Enabled:             true,
+		MaxConcurrent:       8,
+		MaxTurns:            0,   // Unlimited (aligned with agent loop)
+		TimeoutSeconds:      600, // 10 minutes — enough for research tasks that do many web searches
+		MaxSpawnDepth:       1,   // No nesting by default (subagents cannot spawn children)
+		MaxChildrenPerAgent: 5,   // Each agent can spawn up to 5 children
+		DeniedTools:         DefaultSubagentDeniedTools,
 	}
 }
 
@@ -124,6 +153,12 @@ type SubagentRun struct {
 
 	// ParentSessionID is the session that spawned this subagent.
 	ParentSessionID string `json:"parent_session_id"`
+
+	// SpawnDepth is the nesting level (1 = top-level subagent, 2 = child of subagent, etc.).
+	SpawnDepth int `json:"spawn_depth"`
+
+	// ChildrenCount tracks how many children this subagent has spawned.
+	ChildrenCount int `json:"children_count,omitempty"`
 
 	// OriginChannel is the channel name (e.g. "telegram", "discord") where the
 	// spawn was requested. When set, the completion announcement is delivered
@@ -382,6 +417,10 @@ type SpawnParams struct {
 	ParentSessionID string
 	TimeoutSeconds  int
 
+	// SpawnDepth is the nesting level (1 = top-level subagent).
+	// If not set, defaults to 1.
+	SpawnDepth int
+
 	// OriginChannel, OriginTo, and OriginThreadID identify where to push the
 	// completion announcement. When OriginChannel is set the announce callback
 	// delivers the result directly to that channel/chat in addition to injecting
@@ -402,6 +441,19 @@ func (m *SubagentManager) Spawn(
 ) (*SubagentRun, error) {
 	if !m.cfg.Enabled {
 		return nil, fmt.Errorf("subagent system is disabled")
+	}
+
+	// Check spawn depth limit (nested subagents).
+	depth := params.SpawnDepth
+	if depth <= 0 {
+		depth = 1 // Default: first-level subagent
+	}
+	maxDepth := m.cfg.MaxSpawnDepth
+	if maxDepth <= 0 {
+		maxDepth = 1 // Default: no nesting
+	}
+	if depth > maxDepth {
+		return nil, fmt.Errorf("max spawn depth exceeded (depth=%d, max=%d)", depth, maxDepth)
 	}
 
 	// Check concurrency limit.
@@ -426,6 +478,7 @@ func (m *SubagentManager) Spawn(
 		Status:          SubagentStatusRunning,
 		Model:           params.Model,
 		ParentSessionID: params.ParentSessionID,
+		SpawnDepth:      depth,
 		OriginChannel:   params.OriginChannel,
 		OriginTo:        params.OriginTo,
 		OriginThreadID:  params.OriginThreadID,
@@ -447,13 +500,16 @@ func (m *SubagentManager) Spawn(
 
 	m.logger.Info("spawning subagent",
 		"run_id", runID,
+		"depth", depth,
+		"max_depth", maxDepth,
 		"label", run.Label,
 		"task_preview", truncate(params.Task, 80),
 		"timeout", timeout,
 	)
 
 	// Create a filtered tool executor for the subagent.
-	childExecutor := m.createChildExecutor(parentExecutor)
+	// Pass depth to allow conditional spawn tool access for nested subagents.
+	childExecutor := m.createChildExecutor(parentExecutor, depth)
 
 	// Determine model (subagent override > spawn param > parent).
 	model := llmClient.model
@@ -522,7 +578,10 @@ func (m *SubagentManager) Spawn(
 		// so set the agent's own run timeout generously (it won't exceed ctx).
 		agent.runTimeout = timeout + 30*time.Second
 
-		result, err := agent.Run(ctx, systemPrompt, nil, params.Task)
+		// Set spawn depth in context so child subagents know their depth.
+		runCtx := ContextWithSpawnDepth(ctx, depth)
+
+		result, err := agent.Run(runCtx, systemPrompt, nil, params.Task)
 
 		if ctx.Err() == context.DeadlineExceeded {
 			m.completeRun(run, result, fmt.Errorf("timeout after %v", timeout))
@@ -694,7 +753,8 @@ func (m *SubagentManager) Cleanup(maxAge time.Duration) int {
 // createChildExecutor creates a filtered ToolExecutor for the subagent,
 // excluding denied tools to prevent recursion and unsafe operations.
 // Supports group references (e.g. "group:memory") in the deny list.
-func (m *SubagentManager) createChildExecutor(parent *ToolExecutor) *ToolExecutor {
+// depth controls whether spawn tools are allowed (if depth < maxSpawnDepth).
+func (m *SubagentManager) createChildExecutor(parent *ToolExecutor, depth int) *ToolExecutor {
 	child := NewToolExecutor(m.logger)
 
 	// Copy the guard from parent.
@@ -712,11 +772,22 @@ func (m *SubagentManager) createChildExecutor(parent *ToolExecutor) *ToolExecuto
 	for _, name := range expanded {
 		denySet[name] = true
 	}
-	// Always deny subagent tools to prevent recursion (safety net).
-	denySet["spawn_subagent"] = true
-	denySet["list_subagents"] = true
-	denySet["wait_subagent"] = true
-	denySet["stop_subagent"] = true
+
+	// Determine if spawn tools should be denied based on depth.
+	maxDepth := m.cfg.MaxSpawnDepth
+	if maxDepth <= 0 {
+		maxDepth = 1
+	}
+	canSpawn := depth < maxDepth
+
+	// Only deny subagent tools if we've reached max depth.
+	// If canSpawn is true, the subagent can spawn its own children.
+	if !canSpawn {
+		denySet["spawn_subagent"] = true
+		denySet["list_subagents"] = true
+		denySet["wait_subagent"] = true
+		denySet["stop_subagent"] = true
+	}
 
 	// Copy allowed tools from parent.
 	parent.mu.RLock()
@@ -732,6 +803,8 @@ func (m *SubagentManager) createChildExecutor(parent *ToolExecutor) *ToolExecuto
 		"parent_tools", len(parent.tools),
 		"child_tools", len(child.tools),
 		"denied", len(denySet),
+		"depth", depth,
+		"can_spawn", canSpawn,
 	)
 
 	return child
@@ -829,6 +902,10 @@ func RegisterSubagentTools(
 				timeoutSec = int(v)
 			}
 
+			// Get current spawn depth from context (default: 0 = main agent).
+			currentDepth := SpawnDepthFromContext(ctx)
+			childDepth := currentDepth + 1
+
 			// Capture the origin channel/chat from the session context so the
 			// completion announcement can be delivered directly to the requester.
 			var originChannel, originTo string
@@ -849,6 +926,7 @@ func RegisterSubagentTools(
 					Label:          label,
 					Model:          model,
 					TimeoutSeconds: timeoutSec,
+					SpawnDepth:     childDepth,
 					OriginChannel:  originChannel,
 					OriginTo:       originTo,
 				},
