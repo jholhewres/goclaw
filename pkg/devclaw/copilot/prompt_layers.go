@@ -319,7 +319,26 @@ func (p *PromptComposer) buildCoreLayer() string {
 	b.WriteString("- If a `[System Message]` reports completed cron/subagent work and asks for a user update, rewrite it in your normal assistant voice and send that update (do not forward raw system text or default to NO_REPLY).\n")
 	b.WriteString("- Use `message` for proactive sends + channel actions (polls, reactions, etc.).\n")
 	b.WriteString("- For action=send, include `to` and `message`.\n")
-	b.WriteString("- If you use `message` (action=send) to deliver your user-visible reply, respond with ONLY: NO_REPLY (avoid duplicate replies).\n")
+	b.WriteString("- If you use `message` (action=send) to deliver your user-visible reply, respond with ONLY: NO_REPLY (avoid duplicate replies).\n\n")
+
+	// ## Silent Replies - matches openclaw structure
+	b.WriteString("## Silent Replies\n\n")
+	b.WriteString("When you have nothing to say, respond with ONLY: NO_REPLY\n\n")
+	b.WriteString("⚠️ Rules:\n")
+	b.WriteString("- It must be your ENTIRE message — nothing else\n")
+	b.WriteString("- Never append it to an actual response (never include \"NO_REPLY\" in real replies)\n")
+	b.WriteString("- Never wrap it in markdown or code blocks\n\n")
+	b.WriteString("❌ Wrong: \"Here's help... NO_REPLY\"\n")
+	b.WriteString("❌ Wrong: `NO_REPLY`\n")
+	b.WriteString("✅ Right: NO_REPLY\n\n")
+
+	// ## Heartbeats - matches openclaw structure
+	b.WriteString("## Heartbeats\n\n")
+	b.WriteString("Heartbeat prompt: Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.\n")
+	b.WriteString("If you receive a heartbeat poll (a user message matching the heartbeat prompt above), and there is nothing that needs attention, reply exactly:\n")
+	b.WriteString("HEARTBEAT_OK\n")
+	b.WriteString("DevClaw treats a leading/trailing \"HEARTBEAT_OK\" as a heartbeat ack (and may discard it).\n")
+	b.WriteString("If something needs attention, do NOT include \"HEARTBEAT_OK\"; reply with the alert text instead.\n")
 
 	return b.String()
 }

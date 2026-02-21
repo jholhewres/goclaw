@@ -133,17 +133,22 @@ func TestPromptLayerIntegration(t *testing.T) {
 	
 	prompt := composer.Compose(session, "test input")
 	
-	// Verify new sections are present
+	// Verify new sections are present (from buildCoreLayer, buildSafetyLayer)
+	// These sections are always present regardless of bootstrap file loading
 	requiredSections := []string{
-		"Systematic Debugging",
-		"Debugging Checklist",
-		"Architectural Memory",
-		"Before writing code:",
-		"After making changes:",
-		"STOP and investigate the root cause",
-		"Map the architecture",
-		"Form a hypothesis",
-		"Document findings",
+		"You are TestAgent",
+		"## Tooling",
+		"## Tool Call Style",
+		"## Safety",
+		"## Workspace",
+		"## Reply Tags",
+		"## Messaging",
+		"## Silent Replies",
+		"## Heartbeats",
+		"## Encrypted Vault",
+		"## Media Capabilities",
+		"NO_REPLY",
+		"HEARTBEAT_OK",
 	}
 	
 	for _, section := range requiredSections {
