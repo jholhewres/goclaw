@@ -2,6 +2,26 @@
 
 All notable changes to DevClaw are documented in this file.
 
+## [1.8.1] - 2025-02-22
+
+### Fixed
+
+- **Provider-specific API keys**: Changed from generic `DEVCLAW_API_KEY` to standard names (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, etc.)
+- **Tool schema validation**: Fixed `team_list` tool missing `properties` field causing OpenAI API 400 errors
+- **Setup wizard**: Now saves API keys with correct provider-specific names in vault
+- **Vault injection**: All secrets are now injected as environment variables with their original names
+
+### Changed
+
+- **LLM client**: `resolveAPIKey()` now looks for provider-specific env vars first, then generic fallback
+- **Key resolution priority**: Config key → Provider env var → Generic `API_KEY`
+- `DEVCLAW_API_KEY` is now reserved for DevClaw gateway authentication (not LLM providers)
+
+### Security
+
+- Removed hardcoded API keys from example configs
+- Vault now injects all secrets as env vars at runtime (no plaintext in config files)
+
 ## [Unreleased]
 
 ### WebUI Configuration Pages — Complete Settings UI
