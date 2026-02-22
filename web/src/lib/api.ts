@@ -226,6 +226,38 @@ export interface DomainConfigUpdate {
   tailscale_port?: number
 }
 
+/* ── MCP Server Types ── */
+
+export interface MCPServerInfo {
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  enabled: boolean
+  status: string
+  error?: string
+}
+
+export interface MCPServerListResponse {
+  servers: MCPServerInfo[]
+}
+
+/* ── Database Types ── */
+
+export interface DatabaseStatusInfo {
+  name: string
+  healthy: boolean
+  latency: number
+  version: string
+  open_connections: number
+  in_use: number
+  idle: number
+  wait_count: number
+  wait_duration: number
+  max_open_conns: number
+  error?: string
+}
+
 /* ── API Methods ── */
 
 export const api = {
@@ -375,5 +407,32 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ password }),
       }),
+  },
+
+  /* MCP Servers */
+  mcp: {
+    list: () => request<MCPServerListResponse>('/mcp/servers'),
+    create: (name: string, command: string, args: string[] = [], env: Record<string, string> = {}) =>
+      request<{ status: string }>('/mcp/servers', {
+        method: 'POST',
+        body: JSON.stringify({ name, command, args, env }),
+      }),
+    get: (name: string) => request<MCPServerInfo>(`/mcp/servers/${name}`),
+    update: (name: string, enabled: boolean) =>
+      request<{ status: string }>(`/mcp/servers/${name}`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled }),
+      }),
+    delete: (name: string) =>
+      request<{ status: string }>(`/mcp/servers/${name}`, { method: 'DELETE' }),
+    start: (name: string) =>
+      request<{ status: string }>(`/mcp/servers/${name}/start`, { method: 'POST' }),
+    stop: (name: string) =>
+      request<{ status: string }>(`/mcp/servers/${name}/stop`, { method: 'POST' }),
+  },
+
+  /* Database */
+  database: {
+    status: () => request<DatabaseStatusInfo>('/database/status'),
   },
 }

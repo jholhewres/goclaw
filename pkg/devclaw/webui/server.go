@@ -97,6 +97,17 @@ type AssistantAPI interface {
 	ToggleHook(name string, enabled bool) error
 	UnregisterHook(name string) error
 	GetHookEvents() []HookEventInfo
+
+	// MCP Servers
+	ListMCPServers() []MCPServerInfo
+	CreateMCPServer(name, command string, args []string, env map[string]string) error
+	UpdateMCPServer(name string, enabled bool) error
+	DeleteMCPServer(name string) error
+	StartMCPServer(name string) error
+	StopMCPServer(name string) error
+
+	// Database
+	GetDatabaseStatus() DatabaseStatusInfo
 }
 
 // SessionInfo contains session metadata for the UI.
@@ -167,6 +178,32 @@ type HookEventInfo struct {
 	Event       string   `json:"event"`
 	Description string   `json:"description"`
 	Hooks       []string `json:"hooks"` // names of hooks subscribed to this event
+}
+
+// MCPServerInfo contains MCP server info for the UI.
+type MCPServerInfo struct {
+	Name    string            `json:"name"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env"`
+	Enabled bool              `json:"enabled"`
+	Status  string            `json:"status"` // running, stopped, error
+	Error   string            `json:"error,omitempty"`
+}
+
+// DatabaseStatusInfo contains database health status for the UI.
+type DatabaseStatusInfo struct {
+	Name           string `json:"name"`
+	Healthy        bool   `json:"healthy"`
+	Latency        int64  `json:"latency"` // ms
+	Version        string `json:"version"`
+	OpenConns      int    `json:"open_connections"`
+	InUse          int    `json:"in_use"`
+	Idle           int    `json:"idle"`
+	WaitCount      int    `json:"wait_count"`
+	WaitDuration   int64  `json:"wait_duration"` // ms
+	MaxOpenConns   int    `json:"max_open_conns"`
+	Error          string `json:"error,omitempty"`
 }
 
 // WebhookInfo contains webhook metadata for the UI.
@@ -317,6 +354,13 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/security/", s.authMiddleware(s.requireAssistant(s.handleAPISecurity)))
 	mux.HandleFunc("/api/security", s.authMiddleware(s.requireAssistant(s.handleAPISecurity)))
 	mux.HandleFunc("/api/chat/", s.authMiddleware(s.requireAssistant(s.handleAPIChat)))
+
+	// MCP Servers
+	mux.HandleFunc("/api/mcp/servers", s.authMiddleware(s.requireAssistant(s.handleAPIMCPServers)))
+	mux.HandleFunc("/api/mcp/servers/", s.authMiddleware(s.requireAssistant(s.handleAPIMCPServerByName)))
+
+	// Database
+	mux.HandleFunc("/api/database/status", s.authMiddleware(s.requireAssistant(s.handleAPIDatabaseStatus)))
 
 	// Media routes (if media service is configured)
 	if s.mediaAPI != nil {

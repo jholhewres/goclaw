@@ -17,6 +17,13 @@ import { Login } from '@/pages/Login'
 import { SetupWizard } from '@/pages/Setup/SetupWizard'
 import { WhatsAppConnect } from '@/pages/WhatsAppConnect'
 import { System } from '@/pages/System'
+import { ApiConfig } from '@/pages/ApiConfig'
+import { Access } from '@/pages/Access'
+import { Budget } from '@/pages/Budget'
+import { Memory } from '@/pages/Memory'
+import { DatabasePage } from '@/pages/Database'
+import { Groups } from '@/pages/Groups'
+import { Mcp } from '@/pages/Mcp'
 
 /** Estado global de autenticação obtido de /api/auth/status */
 interface AuthState {
@@ -137,6 +144,13 @@ export function App() {
           <Route path="/channels" element={<Channels />} />
           <Route path="/channels/whatsapp" element={<WhatsAppConnect />} />
           <Route path="/config" element={<Config />} />
+          <Route path="/api-config" element={<ApiConfig />} />
+          <Route path="/access" element={<Access />} />
+          <Route path="/budget" element={<Budget />} />
+          <Route path="/memory" element={<Memory />} />
+          <Route path="/database" element={<DatabasePage />} />
+          <Route path="/groups" element={<Groups />} />
+          <Route path="/mcp" element={<Mcp />} />
           <Route path="/system" element={<System />} />
           <Route path="/domain" element={<Domain />} />
           <Route path="/webhooks" element={<Webhooks />} />

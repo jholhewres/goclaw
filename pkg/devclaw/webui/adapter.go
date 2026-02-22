@@ -79,6 +79,17 @@ type AssistantAdapter struct {
 	ToggleHookFn     func(name string, enabled bool) error
 	UnregisterHookFn func(name string) error
 	GetHookEventsFn  func() []HookEventInfo
+
+	// MCP Servers
+	ListMCPServersFn    func() []MCPServerInfo
+	CreateMCPServerFn   func(name, command string, args []string, env map[string]string) error
+	UpdateMCPServerFn   func(name string, enabled bool) error
+	DeleteMCPServerFn   func(name string) error
+	StartMCPServerFn    func(name string) error
+	StopMCPServerFn     func(name string) error
+
+	// Database
+	GetDatabaseStatusFn func() DatabaseStatusInfo
 }
 
 func (a *AssistantAdapter) GetConfigMap() map[string]any {
@@ -297,6 +308,59 @@ func (a *AssistantAdapter) GetHookEvents() []HookEventInfo {
 		return a.GetHookEventsFn()
 	}
 	return nil
+}
+
+// ── MCP Servers ──
+
+func (a *AssistantAdapter) ListMCPServers() []MCPServerInfo {
+	if a.ListMCPServersFn != nil {
+		return a.ListMCPServersFn()
+	}
+	return nil
+}
+
+func (a *AssistantAdapter) CreateMCPServer(name, command string, args []string, env map[string]string) error {
+	if a.CreateMCPServerFn != nil {
+		return a.CreateMCPServerFn(name, command, args, env)
+	}
+	return errors.New("not implemented")
+}
+
+func (a *AssistantAdapter) UpdateMCPServer(name string, enabled bool) error {
+	if a.UpdateMCPServerFn != nil {
+		return a.UpdateMCPServerFn(name, enabled)
+	}
+	return errors.New("not implemented")
+}
+
+func (a *AssistantAdapter) DeleteMCPServer(name string) error {
+	if a.DeleteMCPServerFn != nil {
+		return a.DeleteMCPServerFn(name)
+	}
+	return errors.New("not implemented")
+}
+
+func (a *AssistantAdapter) StartMCPServer(name string) error {
+	if a.StartMCPServerFn != nil {
+		return a.StartMCPServerFn(name)
+	}
+	return errors.New("not implemented")
+}
+
+func (a *AssistantAdapter) StopMCPServer(name string) error {
+	if a.StopMCPServerFn != nil {
+		return a.StopMCPServerFn(name)
+	}
+	return errors.New("not implemented")
+}
+
+// ── Database ──
+
+func (a *AssistantAdapter) GetDatabaseStatus() DatabaseStatusInfo {
+	if a.GetDatabaseStatusFn != nil {
+		return a.GetDatabaseStatusFn()
+	}
+	return DatabaseStatusInfo{}
 }
 
 // ── Media API Adapter ──

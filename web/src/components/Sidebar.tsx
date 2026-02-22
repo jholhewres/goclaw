@@ -21,6 +21,13 @@ import {
   BarChart3,
   Menu,
   X,
+  Key,
+  Users,
+  DollarSign,
+  Brain,
+  Database,
+  UsersRound,
+  Cable,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -77,6 +84,13 @@ const menuItems: MenuItem[] = [
     icon: Settings,
     sectionKey: 'sidebarSections.settings',
     submenu: [
+      { nameKey: 'sidebar.apiConfig', icon: Key, route: '/api-config' },
+      { nameKey: 'sidebar.access', icon: Users, route: '/access' },
+      { nameKey: 'sidebar.budget', icon: DollarSign, route: '/budget' },
+      { nameKey: 'sidebar.memory', icon: Brain, route: '/memory' },
+      { nameKey: 'sidebar.database', icon: Database, route: '/database' },
+      { nameKey: 'sidebar.groups', icon: UsersRound, route: '/groups' },
+      { nameKey: 'sidebar.mcp', icon: Cable, route: '/mcp' },
       { nameKey: 'sidebar.llmProviders', icon: Cpu, route: '/config' },
       { nameKey: 'sidebar.system', icon: Bot, route: '/system' },
       { nameKey: 'sidebar.domainNetwork', icon: Globe, route: '/domain' },

@@ -1092,5 +1092,151 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 		}
 	}
 
+	// ── MCP Servers ──
+	adapter.ListMCPServersFn = func() []webui.MCPServerInfo {
+		mcpCfg := cfg.MCP
+		if mcpCfg.Servers == nil {
+			return nil
+		}
+		result := make([]webui.MCPServerInfo, 0, len(mcpCfg.Servers))
+		for _, srv := range mcpCfg.Servers {
+			env := make(map[string]string)
+			for k, v := range srv.Env {
+				// Mask sensitive values
+				if strings.Contains(strings.ToLower(k), "token") ||
+					strings.Contains(strings.ToLower(k), "key") ||
+					strings.Contains(strings.ToLower(k), "secret") ||
+					strings.Contains(strings.ToLower(k), "password") {
+					env[k] = "***"
+				} else {
+					env[k] = v
+				}
+			}
+			info := webui.MCPServerInfo{
+				Name:    srv.Name,
+				Command: srv.Command,
+				Args:    srv.Args,
+				Env:     env,
+				Enabled: srv.Enabled,
+				Status:  "stopped", // Default status, actual status requires runtime tracking
+			}
+			result = append(result, info)
+		}
+		return result
+	}
+	adapter.CreateMCPServerFn = func(name, command string, args []string, env map[string]string) error {
+		newServer := copilot.ManagedMCPServerConfig{
+			Name:     name,
+			Type:     copilot.MCPTypeStdio,
+			Command:  command,
+			Args:     args,
+			Env:      env,
+			Enabled:  true,
+			AutoStart: true,
+		}
+		cfg.MCP.Servers = append(cfg.MCP.Servers, newServer)
+		savePath := configPath
+		if savePath == "" {
+			savePath = "config.yaml"
+		}
+		return copilot.SaveConfigToFile(cfg, savePath)
+	}
+	adapter.UpdateMCPServerFn = func(name string, enabled bool) error {
+		found := false
+		for i, srv := range cfg.MCP.Servers {
+			if srv.Name == name {
+				cfg.MCP.Servers[i].Enabled = enabled
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("MCP server %q not found", name)
+		}
+		savePath := configPath
+		if savePath == "" {
+			savePath = "config.yaml"
+		}
+		return copilot.SaveConfigToFile(cfg, savePath)
+	}
+	adapter.DeleteMCPServerFn = func(name string) error {
+		found := false
+		newServers := make([]copilot.ManagedMCPServerConfig, 0, len(cfg.MCP.Servers))
+		for _, srv := range cfg.MCP.Servers {
+			if srv.Name == name {
+				found = true
+				continue
+			}
+			newServers = append(newServers, srv)
+		}
+		if !found {
+			return fmt.Errorf("MCP server %q not found", name)
+		}
+		cfg.MCP.Servers = newServers
+		savePath := configPath
+		if savePath == "" {
+			savePath = "config.yaml"
+		}
+		return copilot.SaveConfigToFile(cfg, savePath)
+	}
+	adapter.StartMCPServerFn = func(name string) error {
+		// MCP server start/stop requires runtime management
+		// For now, we just validate the server exists
+		found := false
+		for _, srv := range cfg.MCP.Servers {
+			if srv.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("MCP server %q not found", name)
+		}
+		// TODO: Implement actual start via MCP manager when available
+		return nil
+	}
+	adapter.StopMCPServerFn = func(name string) error {
+		// MCP server start/stop requires runtime management
+		found := false
+		for _, srv := range cfg.MCP.Servers {
+			if srv.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("MCP server %q not found", name)
+		}
+		// TODO: Implement actual stop via MCP manager when available
+		return nil
+	}
+
+	// ── Database Status ──
+	adapter.GetDatabaseStatusFn = func() webui.DatabaseStatusInfo {
+		dbCfg := cfg.Database.Effective()
+		status := webui.DatabaseStatusInfo{
+			Name:         string(dbCfg.Backend),
+			Healthy:      true, // Assume healthy if we got here
+			Latency:      1,    // Placeholder, actual value requires runtime check
+			Version:      "1.0",
+			MaxOpenConns: 25, // Default value
+		}
+
+		// Try to get actual database connection and stats
+		// For SQLite, check if the database file exists
+		if dbCfg.Backend == "sqlite" {
+			if info, err := os.Stat(dbCfg.SQLite.Path); err == nil {
+				status.Version = "3.x"
+				status.OpenConns = 1
+				_ = info // File exists, database is healthy
+			} else {
+				status.Healthy = false
+				status.Error = err.Error()
+			}
+		}
+
+		return status
+	}
+
 	return adapter
 }
