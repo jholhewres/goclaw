@@ -17,6 +17,33 @@ import (
 	"github.com/jholhewres/devclaw/pkg/devclaw/webui"
 )
 
+// ProviderKeyNames maps provider IDs to their standard API key variable names.
+// These follow industry conventions (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+var ProviderKeyNames = map[string]string{
+	"openai":      "OPENAI_API_KEY",
+	"anthropic":   "ANTHROPIC_API_KEY",
+	"google":      "GOOGLE_API_KEY",
+	"xai":         "XAI_API_KEY",
+	"groq":        "GROQ_API_KEY",
+	"zai":         "ZAI_API_KEY",
+	"mistral":     "MISTRAL_API_KEY",
+	"openrouter":  "OPENROUTER_API_KEY",
+	"cerebras":    "CEREBRAS_API_KEY",
+	"minimax":     "MINIMAX_API_KEY",
+	"huggingface": "HUGGINGFACE_API_KEY",
+	"deepseek":    "DEEPSEEK_API_KEY",
+	"custom":      "CUSTOM_API_KEY",
+}
+
+// GetProviderKeyName returns the standard API key variable name for a provider.
+// Falls back to "API_KEY" for unknown providers.
+func GetProviderKeyName(provider string) string {
+	if name, ok := ProviderKeyNames[strings.ToLower(provider)]; ok {
+		return name
+	}
+	return "API_KEY"
+}
+
 // Config holds all assistant configuration.
 type Config struct {
 	// Name is the assistant name shown in responses.

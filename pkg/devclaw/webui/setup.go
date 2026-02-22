@@ -16,6 +16,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// providerKeyNames maps provider IDs to their standard API key variable names.
+// This is a copy of copilot.ProviderKeyNames to avoid import cycles.
+var providerKeyNames = map[string]string{
+	"openai":      "OPENAI_API_KEY",
+	"anthropic":   "ANTHROPIC_API_KEY",
+	"google":      "GOOGLE_API_KEY",
+	"xai":         "XAI_API_KEY",
+	"groq":        "GROQ_API_KEY",
+	"zai":         "ZAI_API_KEY",
+	"mistral":     "MISTRAL_API_KEY",
+	"openrouter":  "OPENROUTER_API_KEY",
+	"cerebras":    "CEREBRAS_API_KEY",
+	"minimax":     "MINIMAX_API_KEY",
+	"huggingface": "HUGGINGFACE_API_KEY",
+	"deepseek":    "DEEPSEEK_API_KEY",
+	"custom":      "CUSTOM_API_KEY",
+}
+
+// getProviderKeyName returns the standard API key variable name for a provider.
+func getProviderKeyName(provider string) string {
+	if name, ok := providerKeyNames[strings.ToLower(provider)]; ok {
+		return name
+	}
+	return "API_KEY"
+}
+
 // SetupRequest contains all data from the setup wizard frontend.
 type SetupRequest struct {
 	Name          string          `json:"name"`
@@ -163,12 +189,16 @@ func (s *Server) handleSetupFinalize(w http.ResponseWriter, r *http.Request) {
 	vaultOK := false
 	if s.onVaultInit != nil {
 		// Store ALL secrets in the vault — never leave them in plain text.
+		// Provider API keys use standard names (OPENAI_API_KEY, etc.)
+		// DEVCLAW_API_KEY is for DevClaw gateway authentication.
 		secrets := make(map[string]string)
 		if setup.APIKey != "" {
-			secrets["api_key"] = setup.APIKey
+			// Use provider-specific key name (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+			providerKey := getProviderKeyName(setup.Provider)
+			secrets[providerKey] = setup.APIKey
 		}
 		if setup.WebuiPassword != "" {
-			secrets["webui_token"] = setup.WebuiPassword
+			secrets["DEVCLAW_WEBUI_TOKEN"] = setup.WebuiPassword
 		}
 
 		if len(secrets) > 0 {

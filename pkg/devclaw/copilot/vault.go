@@ -245,6 +245,32 @@ func (v *Vault) List() []string {
 	return keys
 }
 
+// InjectProviderKeys injects all secrets from the vault into environment variables.
+// This allows LLM clients to find their API keys via standard variable names
+// (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) without the config needing to
+// reference them explicitly.
+//
+// The vault must be unlocked before calling this method.
+func (v *Vault) InjectProviderKeys() error {
+	if !v.IsUnlocked() {
+		return fmt.Errorf("vault is locked")
+	}
+
+	keys := v.List()
+	for _, key := range keys {
+		val, err := v.Get(key)
+		if err != nil || val == "" {
+			continue
+		}
+
+		// Inject with uppercase key name as environment variable.
+		// e.g., "OPENAI_API_KEY" -> OPENAI_API_KEY env var
+		os.Setenv(key, val)
+	}
+
+	return nil
+}
+
 // ChangePassword re-encrypts all entries with a new master password.
 // The vault must be unlocked.
 func (v *Vault) ChangePassword(newPassword string) error {

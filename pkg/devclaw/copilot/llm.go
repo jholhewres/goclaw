@@ -141,6 +141,28 @@ func detectProvider(baseURL string) string {
 	}
 }
 
+// resolveAPIKey returns the API key to use for this client.
+// Priority: 1) explicitly set key, 2) provider-specific env var, 3) generic API_KEY.
+func (c *LLMClient) resolveAPIKey() string {
+	// Priority 1: Key explicitly set in config (backwards compat)
+	if c.apiKey != "" {
+		return c.apiKey
+	}
+
+	// Priority 2: Provider-specific env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+	keyName := GetProviderKeyName(c.provider)
+	if key := os.Getenv(keyName); key != "" {
+		return key
+	}
+
+	// Priority 3: Generic API_KEY fallback
+	if key := os.Getenv("API_KEY"); key != "" {
+		return key
+	}
+
+	return c.apiKey // returns empty string if nothing found
+}
+
 // normalizeGeminiModelID converts short Gemini model aliases to their full API names.
 // This allows users to specify "gemini-3.1-pro" and get "gemini-3.1-pro-preview".
 // If the model is not a Gemini model or doesn't need normalization, returns unchanged.
@@ -264,7 +286,7 @@ func (c *LLMClient) audioAPIKey(media *MediaConfig) string {
 	if media != nil && media.TranscriptionAPIKey != "" {
 		return media.TranscriptionAPIKey
 	}
-	return c.apiKey
+	return c.resolveAPIKey()
 }
 
 // supportsWhisper returns true if the provider natively supports
@@ -1254,7 +1276,7 @@ func (c *LLMClient) TranscribeAudio(ctx context.Context, audioData []byte, filen
 		"size_bytes", len(audioData),
 		"endpoint", endpoint,
 		"provider", c.provider,
-		"using_separate_key", apiKey != c.apiKey,
+		"using_separate_key", apiKey != c.resolveAPIKey(),
 	)
 
 	start := time.Now()
@@ -1344,9 +1366,9 @@ func (c *LLMClient) completeOnceAnthropic(ctx context.Context, model string, mes
 	c.setAnthropicBetaHeaders(req, model)
 	// Z.Ai Anthropic Proxy expects Authorization: Bearer; native Anthropic uses x-api-key.
 	if c.provider == "zai-anthropic" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Authorization", "Bearer "+c.resolveAPIKey())
 	} else {
-		req.Header.Set("x-api-key", c.apiKey)
+		req.Header.Set("x-api-key", c.resolveAPIKey())
 	}
 
 	c.logger.Debug("sending anthropic chat completion",
@@ -1439,7 +1461,7 @@ func (c *LLMClient) completeOnceOpenAI(ctx context.Context, model string, messag
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+c.resolveAPIKey())
 	c.setProviderHeaders(req)
 
 	c.logger.Debug("sending chat completion",
@@ -1558,8 +1580,8 @@ func (c *LLMClient) CompleteWithToolsStream(ctx context.Context, messages []chat
 // when non-empty. Empty = use c.model. Includes retry for transient HTTP errors
 // before falling back to non-streaming.
 func (c *LLMClient) CompleteWithToolsStreamUsingModel(ctx context.Context, modelOverride string, messages []chatMessage, tools []ToolDefinition, onChunk StreamCallback) (*LLMResponse, error) {
-	if c.apiKey == "" && c.provider != "ollama" {
-		return nil, fmt.Errorf("API key not configured. Run 'devclaw config set-key' or set DEVCLAW_API_KEY")
+	if c.resolveAPIKey() == "" && c.provider != "ollama" {
+		return nil, fmt.Errorf("API key not configured. Set %s in vault or environment", GetProviderKeyName(c.provider))
 	}
 
 	model := c.model
@@ -1645,9 +1667,9 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 	c.setAnthropicBetaHeaders(req, model)
 	// Z.Ai Anthropic Proxy expects Authorization: Bearer; native Anthropic uses x-api-key.
 	if c.provider == "zai-anthropic" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Authorization", "Bearer "+c.resolveAPIKey())
 	} else {
-		req.Header.Set("x-api-key", c.apiKey)
+		req.Header.Set("x-api-key", c.resolveAPIKey())
 	}
 
 	start := time.Now()
@@ -1879,7 +1901,7 @@ func (c *LLMClient) completeOnceStreamOpenAI(ctx context.Context, model string, 
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+c.resolveAPIKey())
 	req.Header.Set("Accept", "text/event-stream")
 	c.setProviderHeaders(req)
 
@@ -2098,8 +2120,8 @@ func (c *LLMClient) isInCooldown(model string) bool {
 // calls use fallback models. Near cooldown expiry, a probe is sent to the
 // primary model to check if it recovered. On success, cooldown is cleared.
 func (c *LLMClient) CompleteWithFallbackUsingModel(ctx context.Context, modelOverride string, messages []chatMessage, tools []ToolDefinition) (*LLMResponse, error) {
-	if c.apiKey == "" && c.provider != "ollama" {
-		return nil, fmt.Errorf("API key not configured. Run 'devclaw config set-key' or set DEVCLAW_API_KEY")
+	if c.resolveAPIKey() == "" && c.provider != "ollama" {
+		return nil, fmt.Errorf("API key not configured. Set %s in vault or environment", GetProviderKeyName(c.provider))
 	}
 
 	primary := c.model

@@ -58,14 +58,6 @@ func KeyringAvailable() bool {
 	return true
 }
 
-// vaultEnvMapping maps vault key names to the environment variables they
-// should be injected as. This ensures ${DEVCLAW_*} references in config.yaml
-// resolve correctly even when the only on-disk secret is the vault password.
-var vaultEnvMapping = map[string]string{
-	"api_key":     "DEVCLAW_API_KEY",
-	"webui_token": "DEVCLAW_WEBUI_TOKEN",
-}
-
 // ResolveAPIKey resolves the API key using the priority chain:
 // vault → keyring → env var → config value.
 // Also updates the config in-place with the resolved value.
@@ -132,33 +124,36 @@ func ResolveAPIKey(cfg *Config, logger *slog.Logger) *Vault {
 }
 
 // injectVaultSecrets reads all secrets from the unlocked vault, sets them as
-// environment variables (DEVCLAW_<KEY>), and resolves known config fields.
-// This allows config.yaml to use ${DEVCLAW_API_KEY}, ${DEVCLAW_WEBUI_TOKEN},
-// etc. without those values ever touching .env or config files in plain text.
+// environment variables, and resolves known config fields.
+// Provider API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.) are injected
+// with their original names, allowing LLM clients to find them automatically.
 func injectVaultSecrets(vault *Vault, cfg *Config, logger *slog.Logger) {
+	// Inject all provider keys into environment variables.
+	// This allows LLM clients to find their keys via standard names.
+	if err := vault.InjectProviderKeys(); err != nil {
+		logger.Warn("failed to inject provider keys", "error", err)
+	}
+
+	// Count how many keys were injected.
 	keys := vault.List()
-	injected := 0
+	injected := len(keys)
 
-	for _, key := range keys {
-		val, err := vault.Get(key)
-		if err != nil || val == "" {
-			continue
-		}
-
-		// Inject as env var if there's a known mapping.
-		if envName, ok := vaultEnvMapping[key]; ok {
-			os.Setenv(envName, val)
-			injected++
-			logger.Debug("vault secret injected as env var", "key", key, "env", envName)
-		}
-	}
-
-	// Resolve known config fields from the injected env vars.
-	if val, err := vault.Get("api_key"); err == nil && val != "" {
+	// Resolve known config fields from the vault.
+	// First try provider-specific key based on current provider.
+	providerKey := GetProviderKeyName(cfg.API.Provider)
+	if val, err := vault.Get(providerKey); err == nil && val != "" {
 		cfg.API.APIKey = val
-		logger.Debug("API key loaded from encrypted vault")
+		logger.Debug("API key loaded from encrypted vault", "provider", cfg.API.Provider, "key", providerKey)
 	}
-	if val, err := vault.Get("webui_token"); err == nil && val != "" {
+
+	// Also check for DEVCLAW_API_KEY (for DevClaw gateway auth).
+	if val, err := vault.Get("DEVCLAW_API_KEY"); err == nil && val != "" {
+		os.Setenv("DEVCLAW_API_KEY", val)
+		logger.Debug("DEVCLAW_API_KEY loaded from vault")
+	}
+
+	// WebUI auth token.
+	if val, err := vault.Get("DEVCLAW_WEBUI_TOKEN"); err == nil && val != "" {
 		cfg.WebUI.AuthToken = val
 		logger.Debug("WebUI auth token loaded from encrypted vault")
 	}
