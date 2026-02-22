@@ -3,6 +3,7 @@ package webui
 import (
 	"context"
 	"errors"
+	"net/http"
 )
 
 // WhatsAppQREvent mirrors whatsapp.QREvent without importing the channel package.
@@ -296,4 +297,47 @@ func (a *AssistantAdapter) GetHookEvents() []HookEventInfo {
 		return a.GetHookEventsFn()
 	}
 	return nil
+}
+
+// ── Media API Adapter ──
+
+// MediaAdapter wraps a MediaService to implement the MediaAPI interface.
+// This avoids importing the media package directly in webui.
+type MediaAdapter struct {
+	UploadFn func(r *http.Request, sessionID string) (mediaID string, mediaType string, filename string, size int64, err error)
+	GetFn    func(mediaID string) ([]byte, string, string, error)
+	ListFn   func(sessionID string, mediaType string, limit int) ([]MediaInfo, error)
+	DeleteFn func(mediaID string) error
+}
+
+// Upload implements MediaAPI.Upload.
+func (m *MediaAdapter) Upload(r *http.Request, sessionID string) (string, string, string, int64, error) {
+	if m.UploadFn != nil {
+		return m.UploadFn(r, sessionID)
+	}
+	return "", "", "", 0, errors.New("media upload not available")
+}
+
+// Get implements MediaAPI.Get.
+func (m *MediaAdapter) Get(mediaID string) ([]byte, string, string, error) {
+	if m.GetFn != nil {
+		return m.GetFn(mediaID)
+	}
+	return nil, "", "", errors.New("media get not available")
+}
+
+// List implements MediaAPI.List.
+func (m *MediaAdapter) List(sessionID string, mediaType string, limit int) ([]MediaInfo, error) {
+	if m.ListFn != nil {
+		return m.ListFn(sessionID, mediaType, limit)
+	}
+	return nil, errors.New("media list not available")
+}
+
+// Delete implements MediaAPI.Delete.
+func (m *MediaAdapter) Delete(mediaID string) error {
+	if m.DeleteFn != nil {
+		return m.DeleteFn(mediaID)
+	}
+	return errors.New("media delete not available")
 }

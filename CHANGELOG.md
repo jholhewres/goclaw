@@ -4,6 +4,94 @@ All notable changes to DevClaw are documented in this file.
 
 ## [Unreleased]
 
+### Database Hub — Multi-Backend Support
+
+Complete database abstraction layer with SQLite (default) and PostgreSQL/Supabase support:
+
+- **Multi-Backend Architecture**: Unified interface for SQLite, PostgreSQL, and future backends (MySQL)
+- **Connection Pool Management**: Full pool metrics (open/in-use/idle connections, wait count/duration)
+- **Vector Search**: In-memory for SQLite, pgvector for PostgreSQL with HNSW/IVFFlat indexes
+- **Schema Migrations**: Automatic schema creation and version tracking for all backends
+- **Health Monitoring**: Detailed health status with pool metrics and latency tracking
+
+**Security Improvements:**
+- SQL injection prevention in `db_hub_schema` (table name validation)
+- Path traversal prevention in `db_hub_backup` (path sanitization)
+- Rate limiting in `db_hub_raw` (10 ops/sec per session)
+
+**New Agent Tools:**
+- `db_hub_status`: Health status with pool metrics
+- `db_hub_query`: Execute SELECT queries (validated)
+- `db_hub_execute`: Execute INSERT/UPDATE/DELETE
+- `db_hub_schema`: View schema/tables (SQL injection protected)
+- `db_hub_migrate`: Run schema migrations
+- `db_hub_backup`: Create SQLite backups (path traversal protected)
+- `db_hub_backends`: List available backends
+- `db_hub_raw`: Execute raw SQL (rate-limited)
+
+**Configuration:**
+```yaml
+database:
+  hub:
+    backend: "sqlite"  # sqlite | postgresql
+    sqlite:
+      path: "./data/devclaw.db"
+      journal_mode: "WAL"
+    postgresql:
+      host: "localhost"
+      port: 5432
+      vector:
+        enabled: true
+        dimensions: 1536
+        index_type: "hnsw"
+```
+
+**Testing:**
+- Unit tests for SQLite backend (62% coverage)
+- Integration tests for PostgreSQL (run with `-tags=integration`)
+- Rate limiter tests with concurrent access
+
+### Native Media Handling
+
+Complete native media system for receiving, processing, and sending images, audio, and documents across all channels:
+
+- **MediaService**: Channel-agnostic media handling with upload, enrichment, and send capabilities
+- **MediaStore**: File-based storage with automatic cleanup of temporary files
+- **Validator**: MIME type detection using magic bytes + extension heuristics
+- **WebUI API**: REST endpoints for media upload/download at `/api/media`
+
+**New Media Tools:**
+- `send_image`: Send images to users via media_id, file_path, or URL
+- `send_audio`: Send audio files to users
+- `send_document`: Send documents (PDF, DOCX, TXT) to users
+
+**Enrichment Features:**
+- **Images**: Auto-description via Vision API (configurable model with fallback)
+- **Audio**: Auto-transcription via Whisper API (configurable model with fallback)
+- **Documents**: Text extraction from PDF (pdftotext), DOCX (unzip), and plain text
+
+**Configuration:**
+```yaml
+native_media:
+  enabled: true
+  store:
+    base_dir: "./data/media"
+    temp_dir: "./data/media/temp"
+  service:
+    max_image_size: 20MB
+    max_audio_size: 25MB
+    max_doc_size: 50MB
+  enrichment:
+    auto_enrich_images: true     # requires media.vision_enabled
+    auto_enrich_audio: true      # requires media.transcription_enabled
+    auto_enrich_documents: true  # works independently
+```
+
+**Model Selection:**
+- Vision uses `media.vision_model` (falls back to main model)
+- Transcription uses `media.transcription_model`
+- Set specific models for better quality or cost optimization
+
 ### Teams System — Persistent Agents & Shared Memory
 
 Complete team coordination system with persistent agents, shared memory, and real-time collaboration:

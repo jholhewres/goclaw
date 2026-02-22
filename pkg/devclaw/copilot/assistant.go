@@ -19,6 +19,8 @@ import (
 	"github.com/jholhewres/devclaw/pkg/devclaw/channels"
 	"github.com/jholhewres/devclaw/pkg/devclaw/copilot/memory"
 	"github.com/jholhewres/devclaw/pkg/devclaw/copilot/security"
+	"github.com/jholhewres/devclaw/pkg/devclaw/database"
+	"github.com/jholhewres/devclaw/pkg/devclaw/media"
 	"github.com/jholhewres/devclaw/pkg/devclaw/sandbox"
 	"github.com/jholhewres/devclaw/pkg/devclaw/scheduler"
 	"github.com/jholhewres/devclaw/pkg/devclaw/skills"
@@ -116,6 +118,11 @@ type Assistant struct {
 	// scheduler, session persistence, and audit logger.
 	devclawDB *sql.DB
 
+	// dbHub is the Database Hub providing unified database access with
+	// multi-backend support (SQLite, PostgreSQL, MySQL). When using SQLite,
+	// dbHub.DB() returns the same connection as devclawDB.
+	dbHub *database.Hub
+
 	// ttsProvider handles text-to-speech synthesis (nil if TTS is disabled).
 	ttsProvider tts.Provider
 
@@ -157,6 +164,9 @@ type Assistant struct {
 
 	// memoryIndexer performs background memory indexing.
 	memoryIndexer *MemoryIndexer
+
+	// mediaSvc provides native media handling (upload, enrich, send).
+	mediaSvc *media.MediaService
 
 	// configMu protects hot-reloadable config fields.
 	configMu sync.RWMutex
@@ -383,21 +393,25 @@ func (a *Assistant) Start(ctx context.Context) error {
 	})
 
 	// 0c. Open the central devclaw.db and wire all SQLite-backed storage.
-	dbPath := a.config.Database.Path
-	if dbPath == "" {
-		dbPath = "./data/devclaw.db"
-	}
-	devclawDB, dbErr := OpenDatabase(dbPath)
-	if dbErr != nil {
-		a.logger.Error("failed to open central database, falling back to file-based storage",
-			"path", dbPath, "error", dbErr)
+	// Uses the Database Hub for unified access (supports SQLite, PostgreSQL, MySQL).
+	hubConfig := a.config.Database.Effective()
+	dbHub, hubErr := database.NewHub(hubConfig, a.logger.With("component", "database-hub"))
+	if hubErr != nil {
+		a.logger.Error("failed to initialize database hub, falling back to file-based storage",
+			"backend", hubConfig.Backend, "error", hubErr)
 	} else {
-		a.devclawDB = devclawDB
-		a.logger.Info("central database opened", "path", dbPath)
+		a.dbHub = dbHub
+		// Get the underlying DB connection for backward compatibility
+		if dbHub.DB() != nil {
+			a.devclawDB = dbHub.DB()
+			a.logger.Info("database hub initialized",
+				"backend", hubConfig.Backend,
+				"path", hubConfig.SQLite.Path)
 
-		// Migrate legacy JSON/JSONL data to SQLite (one-time, idempotent).
-		dataDir := filepath.Dir(dbPath)
-		MigrateToSQLite(devclawDB, dataDir, a.logger.With("component", "migrate"))
+			// Migrate legacy JSON/JSONL data to SQLite (one-time, idempotent).
+			dataDir := filepath.Dir(hubConfig.SQLite.Path)
+			MigrateToSQLite(a.devclawDB, dataDir, a.logger.With("component", "migrate"))
+		}
 	}
 
 	// 0c-1. Session persistence: prefer SQLite, fall back to JSONL.
@@ -578,6 +592,83 @@ func (a *Assistant) Start(ctx context.Context) error {
 		go a.memoryIndexer.Start(a.ctx)
 	}
 
+	// 5d. Initialize native media service if enabled.
+	if a.config.NativeMedia.Enabled {
+		// Create media store
+		storeCfg := media.StoreConfig{
+			BaseDir:     a.config.NativeMedia.Store.BaseDir,
+			TempDir:     a.config.NativeMedia.Store.TempDir,
+			MaxFileSize: a.config.NativeMedia.Store.MaxFileSize,
+		}
+		mediaStore := media.NewFileSystemStore(storeCfg, a.logger)
+
+		// Create service config
+		svcCfg := media.ServiceConfig{
+			Enabled:         true,
+			MaxImageSize:    a.config.NativeMedia.Service.MaxImageSize,
+			MaxAudioSize:    a.config.NativeMedia.Service.MaxAudioSize,
+			MaxDocSize:      a.config.NativeMedia.Service.MaxDocSize,
+			TempTTL:         a.config.NativeMedia.Service.TempTTL,
+			CleanupEnabled:  a.config.NativeMedia.Service.CleanupEnabled,
+			CleanupInterval: a.config.NativeMedia.Service.CleanupInterval,
+		}
+
+		// Get effective media config to check model capabilities
+		mCfg := a.config.Media.Effective()
+
+		// Create enrichment config - sync with model capabilities
+		enrichCfg := media.EnrichmentConfig{
+			// Only auto-enrich images if vision is enabled AND config says so
+			AutoEnrichImages:    mCfg.VisionEnabled && a.config.NativeMedia.Enrichment.AutoEnrichImages,
+			// Only auto-enrich audio if transcription is enabled AND config says so
+			AutoEnrichAudio:     mCfg.TranscriptionEnabled && a.config.NativeMedia.Enrichment.AutoEnrichAudio,
+			// Documents don't depend on external APIs
+			AutoEnrichDocuments: a.config.NativeMedia.Enrichment.AutoEnrichDocuments,
+		}
+
+		// Build options list for media service
+		opts := []media.MediaServiceOption{
+			media.WithEnrichmentConfig(enrichCfg),
+			media.WithDocumentExtraction(func(ctx context.Context, data []byte, mimeType string) (string, error) {
+				return extractDocumentText(data, mimeType, "document", a.logger), nil
+			}),
+		}
+
+		// Add vision callback only if supported
+		if mCfg.VisionEnabled && a.llmClient != nil {
+			opts = append(opts, media.WithVision(func(ctx context.Context, imageData []byte, mimeType string) (string, error) {
+				encoded := base64.StdEncoding.EncodeToString(imageData)
+				prompt := "Describe this image in detail. Include any visible text, objects, and context."
+				// Pass vision model if configured, otherwise falls back to main model
+				return a.llmClient.CompleteWithVision(ctx, "", encoded, mimeType, prompt, mCfg.VisionDetail, mCfg.VisionModel)
+			}))
+		}
+
+		// Add transcription callback only if supported
+		if mCfg.TranscriptionEnabled && a.llmClient != nil {
+			opts = append(opts, media.WithTranscription(func(ctx context.Context, audioData []byte, filename string) (string, error) {
+				return a.llmClient.TranscribeAudio(ctx, audioData, filename, mCfg.TranscriptionModel, mCfg)
+			}))
+		}
+
+		// Create media service
+		a.mediaSvc = media.NewMediaService(mediaStore, a.channelMgr, svcCfg, a.logger, opts...)
+
+		// Start cleanup goroutine if enabled
+		if a.config.NativeMedia.Service.CleanupEnabled {
+			go a.mediaSvc.StartCleanup(a.ctx)
+		}
+
+		a.logger.Info("native media service initialized",
+			"base_dir", storeCfg.BaseDir,
+			"max_file_size", storeCfg.MaxFileSize,
+			"vision_enabled", mCfg.VisionEnabled,
+			"vision_model", mCfg.VisionModel,
+			"transcription_enabled", mCfg.TranscriptionEnabled,
+			"transcription_model", mCfg.TranscriptionModel,
+		)
+	}
+
 	// 6. Start main message processing loop.
 	go a.messageLoop()
 
@@ -650,6 +741,12 @@ func (a *Assistant) runBootOnce() {
 	a.logger.Info("BOOT.md execution completed",
 		"result_preview", truncate(result, 200),
 	)
+}
+
+// GetMediaService returns the media service for WebUI adapter wiring.
+// Returns nil if native media is not enabled.
+func (a *Assistant) GetMediaService() *media.MediaService {
+	return a.mediaSvc
 }
 
 // Stop gracefully shuts down all subsystems.
@@ -2011,10 +2108,16 @@ func (a *Assistant) registerSystemTools() {
 	// Register media tools (describe_image, transcribe_audio).
 	RegisterMediaTools(a.toolExecutor, a.llmClient, a.config, a.logger)
 
+	// Register native media tools (send_image, send_audio, send_document).
+	if a.mediaSvc != nil {
+		RegisterNativeMediaTools(a.toolExecutor, a.mediaSvc, a.channelMgr, a.logger)
+	}
+
 	// Register native developer tools (git, docker, db, env, utils, codebase, testing, ops, product, IDE).
 	RegisterGitTools(a.toolExecutor)
 	RegisterDockerTools(a.toolExecutor)
 	RegisterDBTools(a.toolExecutor)
+	RegisterDBHubTools(a.toolExecutor, a.dbHub) // Database hub management tools
 	RegisterEnvTools(a.toolExecutor)
 	RegisterDevUtilTools(a.toolExecutor)
 	RegisterCodebaseTools(a.toolExecutor)

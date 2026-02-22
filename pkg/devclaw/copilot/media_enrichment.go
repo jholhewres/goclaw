@@ -73,14 +73,17 @@ func extractPDFText(data []byte, logger *slog.Logger) string {
 	// Check if pdftotext is available.
 	if _, err := exec.LookPath("pdftotext"); err != nil {
 		logger.Warn("pdftotext not found — install poppler-utils for PDF support")
-		return "[PDF received but pdftotext is not installed. Install poppler-utils to enable PDF reading.]"
+		return "[Unable to read PDF: the 'pdftotext' tool is not installed on this server. " +
+			"To enable PDF text extraction, the administrator needs to install poppler-utils " +
+			"(Ubuntu/Debian: apt install poppler-utils, macOS: brew install poppler). " +
+			"You can still describe what you know about this document or ask the user to share its content as text.]"
 	}
 
 	// Write to temp file (pdftotext needs a file).
 	tmpFile, err := os.CreateTemp("", "devclaw-pdf-*.pdf")
 	if err != nil {
 		logger.Warn("failed to create temp file for PDF", "error", err)
-		return ""
+		return "[Unable to read PDF: temporary file creation failed.]"
 	}
 	defer os.Remove(tmpFile.Name())
 	// Restrict to owner-only: prevent other users on the host from reading
@@ -88,13 +91,13 @@ func extractPDFText(data []byte, logger *slog.Logger) string {
 	if err := os.Chmod(tmpFile.Name(), 0o600); err != nil {
 		tmpFile.Close()
 		logger.Warn("failed to chmod PDF temp file", "error", err)
-		return ""
+		return "[Unable to read PDF: file permission error.]"
 	}
 
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
 		logger.Warn("failed to write PDF temp file", "error", err)
-		return ""
+		return "[Unable to read PDF: file write error.]"
 	}
 	tmpFile.Close()
 
@@ -106,13 +109,14 @@ func extractPDFText(data []byte, logger *slog.Logger) string {
 
 	if err := cmd.Run(); err != nil {
 		logger.Warn("pdftotext failed", "error", err, "stderr", stderr.String())
-		return ""
+		return "[Unable to read PDF: text extraction failed. The file may be corrupted or password-protected.]"
 	}
 
 	text := strings.TrimSpace(stdout.String())
 	if text == "" {
 		logger.Debug("pdftotext returned empty (possibly scanned PDF)")
-		return "[PDF received but contains no extractable text (scanned/image PDF).]"
+		return "[This PDF appears to contain no extractable text. It may be a scanned document or image-based PDF. " +
+			"If you have vision capabilities enabled, you could try describing individual pages as images.]"
 	}
 	return text
 }
@@ -124,19 +128,19 @@ func extractDOCXText(data []byte, logger *slog.Logger) string {
 	tmpFile, err := os.CreateTemp("", "devclaw-docx-*.docx")
 	if err != nil {
 		logger.Warn("failed to create temp file for DOCX", "error", err)
-		return ""
+		return "[Unable to read DOCX: temporary file creation failed.]"
 	}
 	defer os.Remove(tmpFile.Name())
 	// Restrict to owner-only: DOCX may contain confidential content.
 	if err := os.Chmod(tmpFile.Name(), 0o600); err != nil {
 		tmpFile.Close()
 		logger.Warn("failed to chmod DOCX temp file", "error", err)
-		return ""
+		return "[Unable to read DOCX: file permission error.]"
 	}
 
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
-		return ""
+		return "[Unable to read DOCX: file write error.]"
 	}
 	tmpFile.Close()
 
@@ -147,14 +151,14 @@ func extractDOCXText(data []byte, logger *slog.Logger) string {
 
 	if err := cmd.Run(); err != nil {
 		logger.Warn("failed to extract DOCX content", "error", err)
-		return ""
+		return "[Unable to read DOCX: the file may be corrupted or not a valid Word document.]"
 	}
 
 	// Strip XML tags to get plain text.
 	text := stripXMLTags(stdout.String())
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return "[DOCX received but contains no extractable text.]"
+		return "[This DOCX appears to contain no extractable text. It may be an image-based document.]"
 	}
 	return text
 }

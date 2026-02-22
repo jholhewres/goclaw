@@ -29,6 +29,7 @@ Thumbs.db
 /data/
 /sessions/
 /memory/
+/media/              # Media files from all channels (images, audio, documents)
 *.db
 *.db-shm
 *.db-wal

@@ -91,6 +91,7 @@ All secrets are stored in the encrypted vault (`.devclaw.vault`), never in plain
 - **9 LLM providers** — OpenAI, Anthropic, Ollama, Groq, Google AI, Z.AI, xAI, OpenRouter, and any OpenAI-compatible endpoint
 - **N-provider fallback chain** — rate-limited model → fallback → local Ollama, with per-model cooldowns and budget tracking
 - **90+ built-in tools** — Git, Docker, databases, testing, deploy, DORA metrics, team coordination, and much more
+- **Native media** — receive/send images, audio, documents with auto-enrichment (vision, transcription, text extraction)
 - **Teams system** — persistent agents with roles, shared memory, tasks, documents, and @mention notifications
 - **MCP server** — any IDE (Cursor, VSCode, Claude Code, Windsurf) connects via Model Context Protocol
 - **Pipe mode** — `git diff | devclaw diff` or `npm build 2>&1 | devclaw fix`
@@ -172,7 +173,7 @@ All secrets are stored in the encrypted vault (`.devclaw.vault`), never in plain
 | **Subagents** | spawn_subagent, list_subagents, wait_subagent, stop_subagent |
 | **Plugins** | plugin_list, plugin_install, plugin_call (GitHub, Jira, Sentry) |
 | **Teams** | create/list teams & agents, tasks CRUD, @mentions, shared facts, documents, working state |
-| **Team** | team_users (RBAC), shared_memory |
+| **Media** | describe_image (vision), transcribe_audio (Whisper), send_image, send_audio, send_document |
 | **IDE** | ide_configure (VSCode, Cursor, JetBrains, Neovim) |
 | **Remote** | SSH exec, SCP upload/download |
 | **Web** | search, fetch, browser automation |
@@ -274,6 +275,16 @@ webui:
 ```
 
 See [`configs/devclaw.example.yaml`](configs/devclaw.example.yaml) for the full reference.
+
+---
+
+## Database
+
+DevClaw uses **SQLite by default** — zero configuration required. Just run and it works.
+
+For production or multi-user setups, you can optionally switch to **PostgreSQL or Supabase** with pgvector support for faster vector search at scale.
+
+The agent can manage the database through 8 built-in tools: check status, run queries, view schema, create backups, and more. All database operations include security protections against SQL injection and abuse.
 
 ---
 

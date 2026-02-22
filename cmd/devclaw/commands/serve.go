@@ -3,7 +3,9 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/jholhewres/devclaw/pkg/devclaw/channels/whatsapp"
 	"github.com/jholhewres/devclaw/pkg/devclaw/copilot"
 	"github.com/jholhewres/devclaw/pkg/devclaw/gateway"
+	"github.com/jholhewres/devclaw/pkg/devclaw/media"
 	"github.com/jholhewres/devclaw/pkg/devclaw/plugins"
 	"github.com/jholhewres/devclaw/pkg/devclaw/webui"
 	"github.com/spf13/cobra"
@@ -182,6 +185,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// ── Wire webhook management to WebUI adapter ──
 	if webServer != nil {
 		wireWebhookAdapter(adapter, gw)
+	}
+
+	// ── Wire media service to WebUI ──
+	if webServer != nil {
+		wireMediaAdapter(webServer, assistant, logger)
 	}
 
 	// ── Start config watcher for hot-reload ──
@@ -429,6 +437,86 @@ func wireWebhookAdapter(adapter *webui.AssistantAdapter, gw *gateway.Gateway) {
 	adapter.GetValidWebhookEventsFn = func() []string {
 		return gateway.ValidWebhookEvents
 	}
+}
+
+// wireMediaAdapter connects the MediaService to the WebUI server.
+func wireMediaAdapter(webServer *webui.Server, assistant *copilot.Assistant, logger *slog.Logger) {
+	mediaSvc := assistant.GetMediaService()
+	if mediaSvc == nil {
+		logger.Debug("native media service not available")
+		return
+	}
+
+	adapter := &webui.MediaAdapter{
+		UploadFn: func(r *http.Request, sessionID string) (string, string, string, int64, error) {
+			// Parse multipart form
+			if err := r.ParseMultipartForm(50 * 1024 * 1024); err != nil {
+				return "", "", "", 0, fmt.Errorf("failed to parse form: %w", err)
+			}
+
+			file, header, err := r.FormFile("file")
+			if err != nil {
+				return "", "", "", 0, fmt.Errorf("no file provided: %w", err)
+			}
+			defer file.Close()
+
+			// Read file data
+			data, err := io.ReadAll(file)
+			if err != nil {
+				return "", "", "", 0, fmt.Errorf("failed to read file: %w", err)
+			}
+
+			// Upload to media service
+			media, err := mediaSvc.Upload(r.Context(), media.UploadRequest{
+				Data:      data,
+				Filename:  header.Filename,
+				Channel:   "ui",
+				SessionID: sessionID,
+				Temporary: r.FormValue("temporary") == "true",
+			})
+			if err != nil {
+				return "", "", "", 0, err
+			}
+
+			return media.ID, string(media.Type), media.Filename, media.Size, nil
+		},
+		GetFn: func(mediaID string) ([]byte, string, string, error) {
+			data, storedMedia, err := mediaSvc.Get(context.Background(), mediaID)
+			if err != nil {
+				return nil, "", "", err
+			}
+			return data, storedMedia.MimeType, storedMedia.Filename, nil
+		},
+		ListFn: func(sessionID string, mediaType string, limit int) ([]webui.MediaInfo, error) {
+			medias, err := mediaSvc.List(context.Background(), media.ListFilter{
+				SessionID: sessionID,
+				Type:      media.MediaType(mediaType),
+				Limit:     limit,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			result := make([]webui.MediaInfo, len(medias))
+			for i, m := range medias {
+				result[i] = webui.MediaInfo{
+					ID:        m.ID,
+					Filename:  m.Filename,
+					Type:      string(m.Type),
+					Size:      m.Size,
+					URL:       mediaSvc.URL(m.ID),
+					CreatedAt: m.CreatedAt.Format(time.RFC3339),
+				}
+			}
+			return result, nil
+		},
+		DeleteFn: func(mediaID string) error {
+			return mediaSvc.Delete(context.Background(), mediaID)
+		},
+	}
+
+	webServer.SetMediaAPI(adapter)
+	logger.Info("media API wired to web UI")
 }
 
 // buildWebUIAdapter creates the adapter that bridges the Assistant to the WebUI.

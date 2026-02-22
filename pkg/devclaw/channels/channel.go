@@ -143,8 +143,23 @@ type OutgoingMessage struct {
 	// ReplyTo contains the ID of the message to reply to.
 	ReplyTo string
 
+	// Attachments contains media attachments to send with the message.
+	Attachments []*MediaAttachment
+
 	// Metadata contains additional channel-specific data.
 	Metadata map[string]any
+}
+
+// MediaAttachment references stored media for sending.
+type MediaAttachment struct {
+	// MediaID is the stored media identifier.
+	MediaID string
+
+	// Type is the media type (for convenience).
+	Type MessageType
+
+	// Caption is the text accompanying the media.
+	Caption string
 }
 
 // MediaMessage represents a media file to be sent.

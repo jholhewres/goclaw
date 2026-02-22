@@ -250,6 +250,9 @@ type Server struct {
 	// onVaultInit is called during setup finalize to create the encrypted vault.
 	// Receives (masterPassword, secrets map[name]value) and returns error.
 	onVaultInit func(password string, secrets map[string]string) error
+
+	// mediaAPI provides media upload/download operations (optional).
+	mediaAPI MediaAPI
 }
 
 // New creates a new web UI server.
@@ -278,6 +281,11 @@ func (s *Server) OnSetupDone(fn func()) { s.onSetupDone = fn }
 // OnVaultInit registers a callback to create the encrypted vault during setup.
 func (s *Server) OnVaultInit(fn func(password string, secrets map[string]string) error) {
 	s.onVaultInit = fn
+}
+
+// SetMediaAPI sets the media API for file upload/download operations.
+func (s *Server) SetMediaAPI(api MediaAPI) {
+	s.mediaAPI = api
 }
 
 // Start begins serving the web UI.
@@ -309,6 +317,12 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/security/", s.authMiddleware(s.requireAssistant(s.handleAPISecurity)))
 	mux.HandleFunc("/api/security", s.authMiddleware(s.requireAssistant(s.handleAPISecurity)))
 	mux.HandleFunc("/api/chat/", s.authMiddleware(s.requireAssistant(s.handleAPIChat)))
+
+	// Media routes (if media service is configured)
+	if s.mediaAPI != nil {
+		mux.HandleFunc("/api/media", s.authMiddleware(s.requireAssistant(s.handleAPIMedia)))
+		mux.HandleFunc("/api/media/", s.authMiddleware(s.requireAssistant(s.handleAPIMediaByID)))
+	}
 
 	// ── SPA (React) fallback ──
 	sub, err := fs.Sub(distFS, "dist")

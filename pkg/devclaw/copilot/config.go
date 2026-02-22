@@ -11,6 +11,7 @@ import (
 	"github.com/jholhewres/devclaw/pkg/devclaw/channels/whatsapp"
 	"github.com/jholhewres/devclaw/pkg/devclaw/copilot/memory"
 	"github.com/jholhewres/devclaw/pkg/devclaw/copilot/security"
+	"github.com/jholhewres/devclaw/pkg/devclaw/database"
 	"github.com/jholhewres/devclaw/pkg/devclaw/plugins"
 	"github.com/jholhewres/devclaw/pkg/devclaw/sandbox"
 	"github.com/jholhewres/devclaw/pkg/devclaw/webui"
@@ -132,6 +133,9 @@ type Config struct {
 
 	// Routines configures background routines (metrics, memory indexer, etc).
 	Routines RoutinesConfig `yaml:"routines"`
+
+	// NativeMedia configures the native media handling system.
+	NativeMedia NativeMediaConfig `yaml:"native_media"`
 }
 
 // RoutinesConfig configures background routines for metrics and memory indexing.
@@ -151,10 +155,121 @@ func DefaultRoutinesConfig() RoutinesConfig {
 	}
 }
 
-// DatabaseConfig configures the central devclaw.db SQLite database.
+// NativeMediaConfig configures the native media handling system.
+type NativeMediaConfig struct {
+	// Enabled activates native media features (default: true after setup).
+	Enabled bool `yaml:"enabled"`
+
+	// Store configures media storage.
+	Store NativeMediaStoreConfig `yaml:"store"`
+
+	// Service configures the media service.
+	Service NativeMediaServiceConfig `yaml:"service"`
+
+	// Enrichment configures automatic media enrichment.
+	Enrichment NativeMediaEnrichmentConfig `yaml:"enrichment"`
+}
+
+// NativeMediaStoreConfig configures media storage.
+type NativeMediaStoreConfig struct {
+	// BaseDir is the permanent storage directory.
+	BaseDir string `yaml:"base_dir"`
+
+	// TempDir is the temporary storage directory.
+	TempDir string `yaml:"temp_dir"`
+
+	// MaxFileSize is the maximum file size in bytes.
+	MaxFileSize int64 `yaml:"max_file_size"`
+}
+
+// NativeMediaServiceConfig configures the media service.
+type NativeMediaServiceConfig struct {
+	// MaxImageSize is the maximum image size in bytes.
+	MaxImageSize int64 `yaml:"max_image_size"`
+
+	// MaxAudioSize is the maximum audio size in bytes.
+	MaxAudioSize int64 `yaml:"max_audio_size"`
+
+	// MaxDocSize is the maximum document size in bytes.
+	MaxDocSize int64 `yaml:"max_doc_size"`
+
+	// TempTTL is the time-to-live for temporary files.
+	TempTTL string `yaml:"temp_ttl"`
+
+	// CleanupEnabled enables automatic cleanup of expired files.
+	CleanupEnabled bool `yaml:"cleanup_enabled"`
+
+	// CleanupInterval is the interval between cleanup runs.
+	CleanupInterval string `yaml:"cleanup_interval"`
+}
+
+// NativeMediaEnrichmentConfig configures automatic media enrichment.
+type NativeMediaEnrichmentConfig struct {
+	// AutoEnrichImages runs vision on received images.
+	AutoEnrichImages bool `yaml:"auto_enrich_images"`
+
+	// AutoEnrichAudio transcribes received audio.
+	AutoEnrichAudio bool `yaml:"auto_enrich_audio"`
+
+	// AutoEnrichDocuments extracts text from documents.
+	AutoEnrichDocuments bool `yaml:"auto_enrich_documents"`
+}
+
+// DefaultNativeMediaConfig returns sensible defaults for native media.
+// Note: The enrichment flags (AutoEnrichImages, AutoEnrichAudio) are set to true
+// by default, but they will only work if the corresponding MediaConfig capabilities
+// (VisionEnabled, TranscriptionEnabled) are also enabled. Documents always work
+// as they don't depend on external APIs.
+func DefaultNativeMediaConfig() NativeMediaConfig {
+	return NativeMediaConfig{
+		Enabled: true,
+		Store: NativeMediaStoreConfig{
+			BaseDir:     "./data/media",
+			TempDir:     "./data/media/temp",
+			MaxFileSize: 50 * 1024 * 1024, // 50MB
+		},
+		Service: NativeMediaServiceConfig{
+			MaxImageSize:    20 * 1024 * 1024, // 20MB
+			MaxAudioSize:    25 * 1024 * 1024, // 25MB (Whisper limit)
+			MaxDocSize:      50 * 1024 * 1024, // 50MB
+			TempTTL:         "24h",
+			CleanupEnabled:  true,
+			CleanupInterval: "1h",
+		},
+		Enrichment: NativeMediaEnrichmentConfig{
+			// These flags request enrichment, but actual enrichment
+			// depends on MediaConfig.VisionEnabled and TranscriptionEnabled
+			AutoEnrichImages:    true,
+			AutoEnrichAudio:     true,
+			AutoEnrichDocuments: true,
+		},
+	}
+}
+
+// DatabaseConfig configures the central database using the Database Hub.
+// Supports SQLite (default), PostgreSQL, and MySQL backends.
 type DatabaseConfig struct {
-	// Path is the database file path (default: "./data/devclaw.db").
+	// Path is the database file path for SQLite (default: "./data/devclaw.db").
+	// Kept for backward compatibility with existing configs.
 	Path string `yaml:"path"`
+
+	// Hub enables the new Database Hub system with multi-backend support.
+	// When Hub.Backend is not set, falls back to Path for SQLite.
+	Hub database.HubConfig `yaml:"hub"`
+}
+
+// Effective returns the effective Hub configuration, applying defaults.
+func (c DatabaseConfig) Effective() database.HubConfig {
+	if c.Hub.Backend != "" {
+		return c.Hub.Effective()
+	}
+
+	// Fallback to legacy Path-based config
+	hub := database.DefaultHubConfig()
+	if c.Path != "" {
+		hub.SQLite.Path = c.Path
+	}
+	return hub
 }
 
 // GatewayConfig configures the HTTP API gateway.
@@ -643,6 +758,7 @@ func DefaultConfig() *Config {
 		},
 		Database: DatabaseConfig{
 			Path: "./data/devclaw.db",
+			Hub:  database.DefaultHubConfig(),
 		},
 		Gateway: GatewayConfig{
 			Enabled: false,

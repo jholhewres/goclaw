@@ -156,3 +156,84 @@ routines:
   memory_indexer:
     enabled: true                      # Enable background memory indexing
     interval: 5m                       # Indexing interval
+
+# ── Native Media ───────────────────────────────────────────
+# Native media handling for receiving, processing, and sending
+# images, audio, and documents across all channels.
+#
+# IMPORTANT: Enrichment features depend on the 'media' config above:
+#   - auto_enrich_images requires media.vision_enabled: true
+#   - auto_enrich_audio requires media.transcription_enabled: true
+#   - auto_enrich_documents works independently (uses pdftotext/unzip)
+native_media:
+  enabled: true                        # Enable native media features
+
+  store:
+    base_dir: "./data/media"           # Permanent storage directory
+    temp_dir: "./data/media/temp"      # Temporary uploads directory
+    max_file_size: 52428800            # 50MB max file size
+
+  service:
+    max_image_size: 20971520           # 20MB max image size
+    max_audio_size: 26214400           # 25MB max audio size (Whisper limit)
+    max_doc_size: 52428800             # 50MB max document size
+    temp_ttl: "24h"                    # Temporary file lifetime
+    cleanup_enabled: true              # Auto cleanup of expired files
+    cleanup_interval: "1h"             # Cleanup check interval
+
+  enrichment:
+    auto_enrich_images: true           # Run vision on received images (requires media.vision_enabled)
+    auto_enrich_audio: true            # Transcribe received audio (requires media.transcription_enabled)
+    auto_enrich_documents: true        # Extract text from documents (requires pdftotext for PDFs)
+
+# ── Database Hub ────────────────────────────────────────────
+# The Database Hub provides unified access to multiple database backends.
+# SQLite is the default (zero config). PostgreSQL/Supabase optional.
+database:
+  # Legacy path (backward compatible)
+  path: "./data/devclaw.db"
+
+  # Hub configuration (new multi-backend system)
+  hub:
+    # Backend type: sqlite (default) | postgresql | mysql
+    backend: "sqlite"
+
+    # SQLite configuration (default backend)
+    sqlite:
+      path: "./data/devclaw.db"
+      journal_mode: "WAL"              # WAL | DELETE | TRUNCATE
+      busy_timeout: 5000               # ms to wait for locks
+      foreign_keys: true               # Enable foreign key constraints
+
+    # PostgreSQL configuration (optional, for production)
+    # postgresql:
+    #   host: "localhost"
+    #   port: 5432
+    #   database: "devclaw"
+    #   user: "devclaw"
+    #   password: "${POSTGRES_PASSWORD}"
+    #   ssl_mode: "require"             # disable | require | verify-full
+    #
+    #   # Connection pooling
+    #   max_open_conns: 25
+    #   max_idle_conns: 10
+    #   conn_max_lifetime: "30m"
+    #
+    #   # Vector search (pgvector)
+    #   vector:
+    #     enabled: true
+    #     dimensions: 1536              # OpenAI embedding dimensions
+    #     index_type: "hnsw"            # hnsw | ivfflat
+
+    # Supabase configuration (alternative to PostgreSQL)
+    # postgresql:
+    #   supabase_url: "${SUPABASE_URL}"
+    #   password: "${SUPABASE_DB_PASSWORD}"
+    #   vector:
+    #     enabled: true
+
+    # Memory database (can use different backend)
+    memory:
+      backend: "sqlite"                # or use primary backend
+      path: "./data/memory.db"
+
