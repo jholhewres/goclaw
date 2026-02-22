@@ -138,8 +138,9 @@ func RegisterGitTools(executor *ToolExecutor) {
 			Name:        "git_status",
 			Description: "Get structured Git repository status: branch, ahead/behind, staged/unstaged/untracked files, and conflicts.",
 			Parameters: mustJSON(map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			}),
 		},
 	}, func(_ context.Context, _ map[string]any) (any, error) {

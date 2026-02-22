@@ -377,6 +377,17 @@ func shouldEnable(name string, filter []string, defaultEnabled bool) bool {
 	return false
 }
 
+// anySliceToStringSlice converts []any to []string.
+func anySliceToStringSlice(items []any) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 // wireWebhookAdapter connects webhook management functions to the WebUI adapter.
 // Called after the gateway is created (may be nil if gateway is disabled).
 func wireWebhookAdapter(adapter *webui.AssistantAdapter, gw *gateway.Gateway) {
@@ -543,6 +554,14 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 					"transcription_api_key":   media.TranscriptionAPIKey != "",
 					"transcription_language":  media.TranscriptionLanguage,
 				},
+				"access": map[string]any{
+					"default_policy":  cfg.Access.DefaultPolicy,
+					"owners":          cfg.Access.Owners,
+					"admins":          cfg.Access.Admins,
+					"allowed_users":   cfg.Access.AllowedUsers,
+					"blocked_users":   cfg.Access.BlockedUsers,
+					"pending_message": cfg.Access.PendingMessage,
+				},
 			}
 		},
 		UpdateConfigMapFn: func(updates map[string]any) error {
@@ -592,6 +611,31 @@ func buildWebUIAdapter(assistant *copilot.Assistant, cfg *copilot.Config, wa *wh
 					assistant.UpdateMediaConfig(media)
 				}
 			}
+
+			// Update access config.
+			if accessRaw, ok := updates["access"]; ok {
+				if accessMap, ok := accessRaw.(map[string]any); ok {
+					if v, ok := accessMap["default_policy"].(string); ok {
+						cfg.Access.DefaultPolicy = copilot.AccessPolicy(v)
+					}
+					if v, ok := accessMap["owners"].([]any); ok {
+						cfg.Access.Owners = anySliceToStringSlice(v)
+					}
+					if v, ok := accessMap["admins"].([]any); ok {
+						cfg.Access.Admins = anySliceToStringSlice(v)
+					}
+					if v, ok := accessMap["allowed_users"].([]any); ok {
+						cfg.Access.AllowedUsers = anySliceToStringSlice(v)
+					}
+					if v, ok := accessMap["blocked_users"].([]any); ok {
+						cfg.Access.BlockedUsers = anySliceToStringSlice(v)
+					}
+					if v, ok := accessMap["pending_message"].(string); ok {
+						cfg.Access.PendingMessage = v
+					}
+				}
+			}
+
 			savePath := configPath
 			if savePath == "" {
 				savePath = "config.yaml"

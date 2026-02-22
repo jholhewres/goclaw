@@ -45,8 +45,9 @@ func RegisterEnvTools(executor *ToolExecutor) {
 			Name:        "env_info",
 			Description: "Get system environment information: OS, architecture, shell, user, hostname, CPU count, working directory.",
 			Parameters: mustJSON(map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			}),
 		},
 	}, func(_ context.Context, _ map[string]any) (any, error) {

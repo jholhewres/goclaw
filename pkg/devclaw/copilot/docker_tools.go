@@ -163,8 +163,9 @@ func RegisterDockerTools(executor *ToolExecutor) {
 			Name:        "docker_images",
 			Description: "List Docker images. Returns structured JSON with repository, tag, size.",
 			Parameters: mustJSON(map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			}),
 		},
 	}, func(_ context.Context, _ map[string]any) (any, error) {

@@ -1403,8 +1403,9 @@ func registerMemoryTools(executor *ToolExecutor, store *memory.FileStore, sqlite
 	if sqliteStore != nil {
 		executor.Register(
 			MakeToolDefinition("memory_index", "Manually re-index all memory files for semantic search. Run this after adding or modifying memory files.", map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			}),
 			func(ctx context.Context, _ map[string]any) (any, error) {
 				memDir := filepath.Join(filepath.Dir(cfg.Path), "memory")
@@ -1510,8 +1511,9 @@ func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler) {
 	// cron_list
 	executor.Register(
 		MakeToolDefinition("cron_list", "List all scheduled jobs/tasks.", map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
+			"type":                 "object",
+			"properties":           map[string]any{},
+			"additionalProperties": false,
 		}),
 		func(_ context.Context, _ map[string]any) (any, error) {
 			jobs := sched.List()
@@ -1628,8 +1630,9 @@ func registerVaultTools(executor *ToolExecutor, vault *Vault) {
 	// vault_list — list all secret names in the vault (without values).
 	executor.Register(
 		MakeToolDefinition("vault_list", "List all secret names stored in the encrypted vault. Returns only names, not values.", map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
+			"type":                 "object",
+			"properties":           map[string]any{},
+			"additionalProperties": false,
 		}),
 		func(_ context.Context, _ map[string]any) (any, error) {
 			names := vault.List()

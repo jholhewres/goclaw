@@ -247,8 +247,9 @@ func RegisterPluginTools(executor *ToolExecutor, pm *PluginManager) {
 			Name:        "plugin_list",
 			Description: "List all installed plugins with their status and available tools.",
 			Parameters: mustJSON(map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			}),
 		},
 	}, func(_ context.Context, _ map[string]any) (any, error) {

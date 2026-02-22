@@ -192,8 +192,9 @@ metadata: %s
 	// list_skills
 	executor.Register(
 		MakeToolDefinition("list_skills", "List all installed skills (both built-in and user-created).", map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
+			"type":                 "object",
+			"properties":           map[string]any{},
+			"additionalProperties": false,
 		}),
 		func(_ context.Context, _ map[string]any) (any, error) {
 			allSkills := registry.List()
@@ -357,8 +358,9 @@ metadata: %s
 	// skill_defaults_list — list available default skills.
 	executor.Register(
 		MakeToolDefinition("skill_defaults_list", "List all default skills bundled with DevClaw that can be installed instantly (no internet required).", map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
+			"type":                 "object",
+			"properties":           map[string]any{},
+			"additionalProperties": false,
 		}),
 		func(_ context.Context, _ map[string]any) (any, error) {
 			defaults := skills.DefaultSkills()

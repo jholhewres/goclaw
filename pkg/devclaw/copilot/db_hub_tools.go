@@ -504,8 +504,9 @@ func RegisterDBHubTools(executor *ToolExecutor, hub *database.Hub) {
 			Name:        "db_hub_backends",
 			Description: "List all registered database backends with their types and capabilities.",
 			Parameters: mustJSON(map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			}),
 		},
 	}, func(ctx context.Context, args map[string]any) (any, error) {

@@ -406,8 +406,9 @@ func RegisterDaemonTools(executor *ToolExecutor, dm *DaemonManager) {
 			Name:        "daemon_list",
 			Description: "List all managed daemons with their PID, status, port, and uptime.",
 			Parameters: mustJSON(map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			}),
 		},
 	}, func(_ context.Context, _ map[string]any) (any, error) {

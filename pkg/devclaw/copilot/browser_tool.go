@@ -507,8 +507,9 @@ func RegisterBrowserTools(executor *ToolExecutor, browserMgr *BrowserManager, lo
 		MakeToolDefinition("browser_screenshot",
 			"Take a screenshot of the current browser page. Returns base64-encoded PNG.",
 			map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			},
 		),
 		func(ctx context.Context, args map[string]any) (any, error) {
@@ -529,8 +530,9 @@ func RegisterBrowserTools(executor *ToolExecutor, browserMgr *BrowserManager, lo
 			"Get the text content of the current browser page. Useful for reading web pages "+
 				"without rendering. Returns the visible text, truncated if too long.",
 			map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			},
 		),
 		func(ctx context.Context, args map[string]any) (any, error) {

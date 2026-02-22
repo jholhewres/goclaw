@@ -107,8 +107,9 @@ func registerTeamManagementTools(executor *ToolExecutor, teamMgr *TeamManager, l
 		MakeToolDefinition("team_list",
 			"List all teams with their agents.",
 			map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": false,
 			},
 		),
 		func(ctx context.Context, args map[string]any) (any, error) {

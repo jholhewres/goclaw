@@ -836,8 +836,9 @@ func SkillToolToDefinition(name string, tool skills.Tool) ToolDefinition {
 // The name is automatically sanitized to match OpenAI's pattern.
 func MakeToolDefinition(name, description string, params map[string]any) ToolDefinition {
 	schema := map[string]any{
-		"type":       "object",
-		"properties": map[string]any{},
+		"type":                 "object",
+		"properties":           map[string]any{},
+		"additionalProperties": false,
 	}
 	if params != nil {
 		schema = params
