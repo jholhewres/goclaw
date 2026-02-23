@@ -52,6 +52,16 @@ type handlerContext struct {
 	logger  *slog.Logger
 }
 
+// resolveTeamID resolves a team reference (ID, name, or empty for default)
+// and returns the team ID. Returns error if team cannot be resolved.
+func (h *handlerContext) resolveTeamID(teamRef string) (string, error) {
+	team, err := h.teamMgr.ResolveTeam(teamRef)
+	if err != nil {
+		return "", err
+	}
+	return team.ID, nil
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // TEAM MANAGE DISPATCHER
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -152,17 +162,11 @@ func (h *handlerContext) handleTeamList(args map[string]any) (any, error) {
 }
 
 func (h *handlerContext) handleTeamGet(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
-	}
+	teamRef, _ := args["team_id"].(string)
 
-	team, err := h.teamMgr.GetTeam(teamID)
+	team, err := h.teamMgr.ResolveTeam(teamRef)
 	if err != nil {
 		return nil, err
-	}
-	if team == nil {
-		return nil, fmt.Errorf("team not found: %s", teamID)
 	}
 
 	return fmt.Sprintf("Team: %s\n  ID: %s\n  Description: %s\n  Owner: %s\n  Model: %s\n  Enabled: %v",
@@ -170,18 +174,12 @@ func (h *handlerContext) handleTeamGet(args map[string]any) (any, error) {
 }
 
 func (h *handlerContext) handleTeamUpdate(ctx context.Context, args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
-	}
+	teamRef, _ := args["team_id"].(string)
 
 	// Get existing team
-	team, err := h.teamMgr.GetTeam(teamID)
+	team, err := h.teamMgr.ResolveTeam(teamRef)
 	if err != nil {
 		return nil, err
-	}
-	if team == nil {
-		return nil, fmt.Errorf("team not found: %s", teamID)
 	}
 
 	// Update fields if provided
@@ -200,21 +198,23 @@ func (h *handlerContext) handleTeamUpdate(ctx context.Context, args map[string]a
 		return nil, err
 	}
 
-	return fmt.Sprintf("Team %s updated successfully", teamID), nil
+	return fmt.Sprintf("Team %s updated successfully", team.ID), nil
 }
 
 func (h *handlerContext) handleTeamDelete(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
-	}
+	teamRef, _ := args["team_id"].(string)
 
-	err := h.teamMgr.DeleteTeam(teamID)
+	team, err := h.teamMgr.ResolveTeam(teamRef)
 	if err != nil {
 		return nil, err
 	}
 
-	return fmt.Sprintf("Team %s deleted successfully", teamID), nil
+	err = h.teamMgr.DeleteTeam(team.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return fmt.Sprintf("Team %s deleted successfully", team.ID), nil
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -326,9 +326,10 @@ func registerTeamAgentDispatcher(executor *ToolExecutor, hctx *handlerContext) {
 }
 
 func (h *handlerContext) handleAgentCreate(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 	name, _ := args["name"].(string)
 	if name == "" {
@@ -370,9 +371,10 @@ func (h *handlerContext) handleAgentCreate(args map[string]any) (any, error) {
 }
 
 func (h *handlerContext) handleAgentList(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 
 	agents, err := h.teamMgr.ListAgents(teamID)
@@ -671,9 +673,10 @@ func registerTeamTaskDispatcher(executor *ToolExecutor, hctx *handlerContext) {
 }
 
 func (h *handlerContext) handleTaskCreate(ctx context.Context, args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 
 	title, _ := args["title"].(string)
@@ -698,9 +701,10 @@ func (h *handlerContext) handleTaskCreate(ctx context.Context, args map[string]a
 }
 
 func (h *handlerContext) handleTaskList(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 
 	statusFilter, _ := args["status_filter"].(string)
@@ -928,9 +932,10 @@ func (h *handlerContext) handleFactSave(ctx context.Context, args map[string]any
 }
 
 func (h *handlerContext) handleFactList(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 
 	teamMem := h.teamMgr.GetTeamMemory(teamID)
@@ -1001,9 +1006,10 @@ func (h *handlerContext) handleDocCreate(ctx context.Context, args map[string]an
 }
 
 func (h *handlerContext) handleDocList(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 
 	docType, _ := args["doc_type"].(string)
@@ -1091,9 +1097,10 @@ func (h *handlerContext) handleDocDelete(args map[string]any) (any, error) {
 }
 
 func (h *handlerContext) handleStandup(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 
 	teamMem := h.teamMgr.GetTeamMemory(teamID)
@@ -1290,9 +1297,10 @@ func (h *handlerContext) handleSendMessage(ctx context.Context, args map[string]
 }
 
 func (h *handlerContext) handleNotify(ctx context.Context, args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 
 	notifType, _ := args["type"].(string)
@@ -1363,9 +1371,10 @@ func (h *handlerContext) handleNotify(ctx context.Context, args map[string]any) 
 }
 
 func (h *handlerContext) handleNotifyList(args map[string]any) (any, error) {
-	teamID, _ := args["team_id"].(string)
-	if teamID == "" {
-		return nil, fmt.Errorf("team_id is required")
+	teamRef, _ := args["team_id"].(string)
+	teamID, err := h.resolveTeamID(teamRef)
+	if err != nil {
+		return nil, err
 	}
 
 	limit, _ := args["limit"].(float64)
@@ -1380,7 +1389,6 @@ func (h *handlerContext) handleNotifyList(args map[string]any) (any, error) {
 	}
 
 	var notifications []*TeamNotification
-	var err error
 
 	if unreadOnly {
 		notifications, err = h.teamMgr.notifDisp.GetUnreadNotifications(context.Background(), teamID)

@@ -122,6 +122,88 @@ func (tm *TeamManager) GetTeam(teamID string) (*Team, error) {
 	return &team, nil
 }
 
+// ResolveTeam resolves a team by ID or name.
+// If teamRef is empty and there's only one team, returns that team.
+// If teamRef is empty and there are multiple teams, returns an error asking to specify.
+// Normalizes names: case insensitive, spaces/hyphens/underscores are equivalent.
+func (tm *TeamManager) ResolveTeam(teamRef string) (*Team, error) {
+	// If teamRef provided, try to find by ID or name
+	if teamRef != "" {
+		// Try by ID first
+		team, err := tm.GetTeam(teamRef)
+		if err != nil {
+			return nil, err
+		}
+		if team != nil {
+			return team, nil
+		}
+
+		// Try by name (case insensitive, normalized)
+		normalizedRef := normalizeTeamName(teamRef)
+		teams, err := tm.ListTeams()
+		if err != nil {
+			return nil, err
+		}
+
+		var matches []*Team
+		for _, t := range teams {
+			if normalizeTeamName(t.Name) == normalizedRef {
+				matches = append(matches, t)
+			}
+		}
+
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
+		if len(matches) > 1 {
+			var names []string
+			for _, t := range matches {
+				names = append(names, fmt.Sprintf("%s (ID: %s)", t.Name, t.ID))
+			}
+			return nil, fmt.Errorf("multiple teams match '%s': %s. Please specify the team ID", teamRef, strings.Join(names, ", "))
+		}
+
+		return nil, fmt.Errorf("team not found: %s. Use team_manage(action='list') to see available teams", teamRef)
+	}
+
+	// No teamRef provided - check if there's a single default team
+	teams, err := tm.ListTeams()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(teams) == 0 {
+		return nil, fmt.Errorf("no teams exist. Create one with team_manage(action='create')")
+	}
+
+	if len(teams) == 1 {
+		tm.logger.Debug("using single team as default", "team_id", teams[0].ID, "name", teams[0].Name)
+		return teams[0], nil
+	}
+
+	// Multiple teams - ask user to specify
+	var teamNames []string
+	for _, t := range teams {
+		teamNames = append(teamNames, fmt.Sprintf("- %s (ID: %s)", t.Name, t.ID))
+	}
+	return nil, fmt.Errorf("multiple teams exist, please specify which team to use:\n%s\n\nExample: team_agent(action='list', team_id='%s')",
+		strings.Join(teamNames, "\n"), teams[0].ID)
+}
+
+// normalizeTeamName normalizes a team name for comparison.
+// Case insensitive, replaces spaces/hyphens/underscores with single space, trims.
+func normalizeTeamName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	// Replace hyphens and underscores with spaces
+	name = strings.ReplaceAll(name, "-", " ")
+	name = strings.ReplaceAll(name, "_", " ")
+	// Collapse multiple spaces
+	for strings.Contains(name, "  ") {
+		name = strings.ReplaceAll(name, "  ", " ")
+	}
+	return name
+}
+
 // ListTeams lists all teams.
 func (tm *TeamManager) ListTeams() ([]*Team, error) {
 	rows, err := tm.db.Query(`
