@@ -662,16 +662,22 @@ func describeToolAction(name string, args map[string]any) string {
 		return "🌐 Acessando página..."
 
 	// ── Memory ──
-	case "memory_save":
-		return "💾 Salvando na memória..."
-	case "memory_search":
-		q, _ := args["query"].(string)
-		if q != "" {
-			return "🧠 Lembrando: " + q
+	case "memory":
+		action, _ := args["action"].(string)
+		switch action {
+		case "save":
+			return "💾 Saving to memory..."
+		case "search":
+			q, _ := args["query"].(string)
+			if q != "" {
+				return "🧠 Recalling: " + q
+			}
+			return "🧠 Searching memory..."
+		case "list", "index":
+			return "🧠 Organizing memories..."
+		default:
+			return "🧠 Memory..."
 		}
-		return "🧠 Buscando na memória..."
-	case "memory_list", "memory_index":
-		return "🧠 Organizando memórias..."
 
 	// ── Remote ──
 	case "ssh":

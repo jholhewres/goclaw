@@ -89,11 +89,8 @@ var DefaultSubagentDeniedTools = []string{
 	"list_subagents",
 	"wait_subagent",
 	"stop_subagent",
-	// Memory tools (subagents should not pollute parent's memory).
-	"memory_save",
-	"memory_search",
-	"memory_list",
-	"memory_index",
+	// Memory tool (subagents should not pollute parent's memory).
+	"memory",
 	// Scheduler tools (subagents should not create cron jobs).
 	"cron_add",
 	"cron_remove",

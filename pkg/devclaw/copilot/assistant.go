@@ -2247,7 +2247,7 @@ func (a *Assistant) doCompactSession(session *Session) {
 // autoCaptureFacts performs lightweight fact extraction from a conversation turn.
 // Runs asynchronously — should not block message delivery.
 // Scans for memory triggers (preferences, decisions, entities, facts) and
-// saves them via memory_save.
+// saves them via memory tool.
 func (a *Assistant) autoCaptureFacts(userMessage, assistantResponse, sessionID string) {
 	// Only capture from substantive exchanges (skip greetings, short replies).
 	if len(userMessage) < 30 && len(assistantResponse) < 100 {
@@ -2355,7 +2355,7 @@ func (a *Assistant) compactSummarize(session *Session, threshold int) {
 			"capture durable memories to disk.\n" +
 			"IMPORTANT: If the file already exists, APPEND new content only and do not overwrite existing entries.\n\n" +
 			"Extract the most important facts, preferences, decisions, and information from this conversation " +
-			"that should be remembered long-term. Save them using the memory_save tool. " +
+			"that should be remembered long-term. Save them using the memory(action=\"save\", ...) tool. " +
 			"If nothing important, reply with NO_REPLY."
 
 		agent := NewAgentRunWithConfig(a.llmClient, a.toolExecutor, a.config.Agent, a.logger)

@@ -270,7 +270,7 @@ func (p *PromptComposer) buildCoreLayer() string {
 	b.WriteString("- bash: Run shell commands\n")
 	b.WriteString("- web_search: Search the web\n")
 	b.WriteString("- web_fetch: Fetch and extract content from URLs\n")
-	b.WriteString("- memory_save/memory_search/memory_list: Long-term memory\n")
+	b.WriteString("- memory: Long-term memory (save, search, list, index)\n")
 	b.WriteString("- cron_add/cron_remove: Schedule jobs and reminders\n")
 	b.WriteString("- message: Send messages and channel actions\n")
 	b.WriteString("- vault_save/vault_get/vault_list: Encrypted secret storage\n")
@@ -668,7 +668,7 @@ func (p *PromptComposer) buildMemoryLayer(session *Session, input string) string
 		)
 		if err == nil && len(results) > 0 {
 			var b strings.Builder
-			b.WriteString("## Memory Recall\n\nBefore answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search to recall relevant information.\n\n")
+			b.WriteString("## Memory Recall\n\nBefore answering anything about prior work, decisions, dates, people, preferences, or todos: run memory(action=\"search\", query=\"...\") to recall relevant information.\n\n")
 			for _, r := range results {
 				text := r.Text
 				if len(text) > 500 {

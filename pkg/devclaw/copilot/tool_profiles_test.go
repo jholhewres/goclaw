@@ -247,12 +247,9 @@ func TestExpandProfileList_Group(t *testing.T) {
 		expandedMap[t] = true
 	}
 
-	// Verify some memory tools are included.
-	if !expandedMap["memory_save"] {
-		t.Error("expected memory_save from group:memory")
-	}
-	if !expandedMap["memory_search"] {
-		t.Error("expected memory_search from group:memory")
+	// Verify memory tool is included.
+	if !expandedMap["memory"] {
+		t.Error("expected memory from group:memory")
 	}
 }
 

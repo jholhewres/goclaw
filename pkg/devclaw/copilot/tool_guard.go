@@ -81,7 +81,7 @@ type ToolGuardConfig struct {
 	BlockSudo bool `yaml:"block_sudo"`
 
 	// AutoApprove lists tools that can execute without any permission check,
-	// even for regular users. Use with caution. Example: ["web_search", "memory_search"]
+	// even for regular users. Use with caution. Example: ["web_search", "memory"]
 	AutoApprove []string `yaml:"auto_approve"`
 
 	// RequireConfirmation lists tools that require the user to confirm via
@@ -124,9 +124,7 @@ func DefaultToolGuardConfig() ToolGuardConfig {
 			"list_skills":   "user",
 			"test_skill":    "user",
 			// Memory.
-			"memory_save":   "user",
-			"memory_search": "user",
-			"memory_list":   "user",
+			"memory": "user",
 			// Scheduler.
 			"cron_add":    "admin",
 			"cron_list":   "user",
@@ -145,7 +143,7 @@ func DefaultToolGuardConfig() ToolGuardConfig {
 // ToolGroups maps group names to tool name lists.
 // Allows policy management at a higher level than individual tools.
 var ToolGroups = map[string][]string{
-	"group:memory":    {"memory_save", "memory_search", "memory_list", "memory_index"},
+	"group:memory":    {"memory"},
 	"group:web":       {"web_search", "web_fetch"},
 	"group:fs":        {"read_file", "write_file", "edit_file", "list_files", "search_files", "glob_files"},
 	"group:runtime":   {"bash", "exec", "ssh", "scp", "set_env"},
