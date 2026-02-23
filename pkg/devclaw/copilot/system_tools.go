@@ -1358,20 +1358,28 @@ func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler) {
 
 	// cron_remove
 	executor.Register(
-		MakeToolDefinition("cron_remove", "Remove a scheduled job by its ID.", map[string]any{
+		MakeToolDefinition("cron_remove", "Remove a scheduled job by its ID. IMPORTANT: Only use when the user explicitly asks to remove/delete a specific job. Do NOT remove multiple jobs without explicit user confirmation for each.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"id": map[string]any{
 					"type":        "string",
 					"description": "The job ID to remove",
 				},
+				"confirm": map[string]any{
+					"type":        "boolean",
+					"description": "Set to true to confirm removal. Required for safety.",
+				},
 			},
-			"required": []string{"id"},
+			"required": []string{"id", "confirm"},
 		}),
 		func(_ context.Context, args map[string]any) (any, error) {
 			id, _ := args["id"].(string)
+			confirm, _ := args["confirm"].(bool)
 			if id == "" {
 				return nil, fmt.Errorf("id is required")
+			}
+			if !confirm {
+				return nil, fmt.Errorf("removal not confirmed. Set confirm=true to remove job '%s'", id)
 			}
 			if err := sched.Remove(id); err != nil {
 				return nil, err

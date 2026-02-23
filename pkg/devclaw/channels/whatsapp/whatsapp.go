@@ -488,6 +488,13 @@ func (w *WhatsApp) attemptReconnect() {
 		return
 	}
 
+	// Disconnect first to clear any stale websocket state.
+	// This fixes "websocket is already connected" error on reconnect.
+	if w.client.IsConnected() {
+		w.client.Disconnect()
+		time.Sleep(100 * time.Millisecond) // Brief pause to allow cleanup.
+	}
+
 	err := w.client.Connect()
 	if err != nil {
 		w.logger.Warn("whatsapp: reconnect failed", "error", err)
