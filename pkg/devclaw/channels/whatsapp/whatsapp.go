@@ -72,6 +72,9 @@ type Config struct {
 
 	// MaxReconnectAttempts is the maximum number of reconnection attempts (0 = unlimited).
 	MaxReconnectAttempts int `yaml:"max_reconnect_attempts"`
+
+	// HealthMonitor configures proactive connection health monitoring.
+	HealthMonitor HealthMonitorConfig `yaml:"health_monitor"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -87,6 +90,7 @@ func DefaultConfig() Config {
 		MaxMediaSizeMB:      16,
 		ReconnectBackoff:    5 * time.Second,
 		MaxReconnectAttempts: 10,
+		HealthMonitor:       DefaultHealthMonitorConfig(),
 	}
 }
 
@@ -126,8 +130,8 @@ type WhatsApp struct {
 	// errorCount tracks consecutive errors.
 	errorCount atomic.Int64
 
-	// reconnectAttempts tracks reconnection tries.
-	reconnectAttempts int
+	// reconnectAttempts tracks reconnection tries (thread-safe).
+	reconnectAttempts atomic.Int32
 
 	// qrObservers receives QR events (for web UI).
 	qrObservers   []chan QREvent
@@ -361,6 +365,10 @@ func (w *WhatsApp) Connect(ctx context.Context) error {
 	w.connected.Store(true)
 	w.logger.Info("whatsapp: connected (existing session)",
 		"jid", w.getClientJID())
+
+	// Start health monitoring.
+	w.StartHealthMonitor(w.ctx, w.cfg.HealthMonitor)
+
 	return nil
 }
 
@@ -442,10 +450,10 @@ func (w *WhatsApp) attemptReconnect() {
 		return // Context cancelled, don't reconnect.
 	}
 
-	w.reconnectAttempts++
-	if w.cfg.MaxReconnectAttempts > 0 && w.reconnectAttempts > w.cfg.MaxReconnectAttempts {
+	attempts := w.reconnectAttempts.Add(1)
+	if w.cfg.MaxReconnectAttempts > 0 && attempts > int32(w.cfg.MaxReconnectAttempts) {
 		w.logger.Error("whatsapp: max reconnect attempts reached",
-			"attempts", w.reconnectAttempts)
+			"attempts", attempts)
 		w.notifyConnectionChange(ConnectionEvent{
 			State:     StateDisconnected,
 			Timestamp: time.Now(),
@@ -457,13 +465,13 @@ func (w *WhatsApp) attemptReconnect() {
 	previous := w.getState()
 	w.setState(StateReconnecting)
 
-	backoff := w.cfg.ReconnectBackoff * time.Duration(w.reconnectAttempts)
+	backoff := w.cfg.ReconnectBackoff * time.Duration(attempts)
 	if backoff > 5*time.Minute {
 		backoff = 5 * time.Minute // Cap at 5 minutes.
 	}
 
 	w.logger.Info("whatsapp: attempting reconnect",
-		"attempt", w.reconnectAttempts,
+		"attempt", attempts,
 		"backoff", backoff)
 
 	// Notify observers.
@@ -473,7 +481,7 @@ func (w *WhatsApp) attemptReconnect() {
 		Timestamp: time.Now(),
 		Reason:    "connection_lost",
 		Details: map[string]any{
-			"attempt":     w.reconnectAttempts,
+			"attempt":     attempts,
 			"backoff_sec": backoff.Seconds(),
 		},
 	})
@@ -554,7 +562,7 @@ func (w *WhatsApp) Health() channels.HealthStatus {
 		h.Details["jid"] = w.client.Store.ID.String()
 		h.Details["platform"] = w.client.Store.Platform
 	}
-	h.Details["reconnect_attempts"] = w.reconnectAttempts
+	h.Details["reconnect_attempts"] = w.reconnectAttempts.Load()
 	return h
 }
 
@@ -700,7 +708,7 @@ func (w *WhatsApp) loginWithQR(ctx context.Context) error {
 
 		case "success":
 			w.connected.Store(true)
-			w.reconnectAttempts = 0
+			w.reconnectAttempts.Store(0)
 			w.setState(StateConnected)
 			w.logger.Info("whatsapp: login successful!")
 			w.notifyQR(QREvent{

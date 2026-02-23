@@ -88,6 +88,10 @@ type ToolGuardConfig struct {
 	// the chat before executing. The agent will ask "Confirm: <action>?" and
 	// wait for approval. Example: ["bash", "ssh", "scp", "write_file"]
 	RequireConfirmation []string `yaml:"require_confirmation"`
+
+	// DestructiveProtection configures rate limiting and batch detection for
+	// destructive tools like cron_remove, vault_delete, etc.
+	DestructiveProtection DestructiveToolsConfig `yaml:"destructive_protection"`
 }
 
 // DefaultToolGuardConfig returns safe defaults for the tool security guard.
@@ -184,6 +188,9 @@ type ToolGuard struct {
 	// SQLite audit logger (optional; when set, replaces the file-based audit).
 	sqliteAudit *SQLiteAuditLogger
 
+	// Destructive tool tracker for rate limiting and batch detection.
+	destructiveTracker *DestructiveTracker
+
 	// Compiled patterns.
 	dangerousPatterns   []*regexp.Regexp
 	defaultPatternCount []bool // tracks which indices are default patterns
@@ -202,6 +209,9 @@ func NewToolGuard(cfg ToolGuardConfig, logger *slog.Logger) *ToolGuard {
 		cfg:    cfg,
 		logger: logger.With("component", "tool_guard"),
 	}
+
+	// Initialize destructive tool tracker.
+	guard.destructiveTracker = NewDestructiveTracker(cfg.DestructiveProtection, logger)
 
 	// Compile dangerous command patterns.
 	guard.compileDangerousPatterns()
@@ -318,6 +328,35 @@ func (g *ToolGuard) Check(toolName string, callerLevel AccessLevel, args map[str
 	for _, name := range g.cfg.AutoApprove {
 		if name == toolName {
 			return ToolCheckResult{Allowed: true}
+		}
+	}
+
+	// 0.5. Check destructive tool protection (rate limiting, batch detection).
+	if g.destructiveTracker != nil && g.destructiveTracker.IsDestructive(toolName) {
+		destructResult := g.destructiveTracker.Check(toolName)
+		if !destructResult.Allowed {
+			return ToolCheckResult{
+				Allowed: false,
+				Reason:  destructResult.Reason,
+			}
+		}
+		// Record the call for rate limiting (even if blocked later by permissions).
+		defer g.destructiveTracker.RecordCall(toolName)
+
+		// If batch warning, inject into reason (but don't block).
+		if destructResult.BatchWarning != "" {
+			g.logger.Warn("destructive batch detected",
+				"tool", toolName,
+				"warning", destructResult.BatchWarning)
+		}
+
+		// If requires interactive confirmation, set flag.
+		if destructResult.RequiresUserInput {
+			return ToolCheckResult{
+				Allowed:              true,
+				RequiresConfirmation: true,
+				Reason:               destructResult.BatchWarning,
+			}
 		}
 	}
 

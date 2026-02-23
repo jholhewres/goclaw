@@ -82,6 +82,12 @@ func (w *WhatsApp) handleEvent(rawEvt interface{}) {
 	case *events.KeepAliveRestored:
 		w.handleKeepAliveRestored(evt)
 
+	case *events.ConnectFailure:
+		w.handleConnectFailure(evt)
+
+	case *events.StreamError:
+		w.handleStreamError(evt)
+
 	case *events.HistorySync:
 		w.logger.Debug("whatsapp: history sync received")
 
@@ -102,7 +108,10 @@ func (w *WhatsApp) handleConnected(_ *events.Connected) {
 	previous := w.getState()
 	w.setState(StateConnected)
 	w.errorCount.Store(0)
-	w.reconnectAttempts = 0
+	w.reconnectAttempts.Store(0)
+
+	// Update last activity time for health monitoring.
+	w.UpdateLastMsgTime()
 
 	w.logger.Info("whatsapp: connected",
 		"jid", w.getClientJID(),
@@ -247,6 +256,89 @@ func (w *WhatsApp) handleKeepAliveRestored(_ *events.KeepAliveRestored) {
 	w.errorCount.Store(0)
 }
 
+// handleConnectFailure handles connection failure events from WhatsApp server.
+func (w *WhatsApp) handleConnectFailure(evt *events.ConnectFailure) {
+	previous := w.getState()
+	w.setState(StateDisconnected)
+	w.connected.Store(false)
+
+	reason := "unknown"
+	if evt.Reason != 0 {
+		reason = evt.Reason.String()
+	}
+
+	permanent := evt.PermanentDisconnectDescription()
+
+	w.logger.Error("whatsapp: connect failure",
+		"reason", reason,
+		"message", evt.Message,
+		"permanent", permanent)
+
+	// Notify connection observers.
+	w.notifyConnectionChange(ConnectionEvent{
+		State:     StateDisconnected,
+		Previous:  previous,
+		Timestamp: time.Now(),
+		Reason:    "connect_failure",
+		Details: map[string]any{
+			"reason":    reason,
+			"message":   evt.Message,
+			"permanent": permanent,
+		},
+	})
+
+	// Only attempt reconnect if not permanent and context is valid.
+	if permanent == "" && w.ctx.Err() == nil {
+		go w.attemptReconnect()
+	}
+}
+
+// handleStreamError handles stream error events from WhatsApp server.
+func (w *WhatsApp) handleStreamError(evt *events.StreamError) {
+	previous := w.getState()
+
+	w.logger.Error("whatsapp: stream error",
+		"code", evt.Code)
+
+	// Stream errors often indicate connection issues.
+	// Check if this is a disconnect-type error.
+	isDisconnect := evt.Code == "540" || evt.Code == "541" || evt.Code == "503"
+
+	if isDisconnect {
+		w.setState(StateDisconnected)
+		w.connected.Store(false)
+
+		// Notify connection observers.
+		w.notifyConnectionChange(ConnectionEvent{
+			State:     StateDisconnected,
+			Previous:  previous,
+			Timestamp: time.Now(),
+			Reason:    "stream_error",
+			Details: map[string]any{
+				"code":   evt.Code,
+				"message": "Stream error, connection lost",
+			},
+		})
+
+		// Attempt reconnect if context is valid.
+		if w.ctx.Err() == nil {
+			go w.attemptReconnect()
+		}
+	} else {
+		// Non-disconnect stream error - just log and notify.
+		w.notifyConnectionChange(ConnectionEvent{
+			State:     previous,
+			Previous:  previous,
+			Timestamp: time.Now(),
+			Reason:    "stream_error_non_fatal",
+			Details: map[string]any{
+				"code":    evt.Code,
+				"message": "Non-fatal stream error",
+			},
+		})
+	}
+}
+
 // handlePairSuccess handles successful device pairing.
 func (w *WhatsApp) handlePairSuccess(evt *events.PairSuccess) {
 	w.logger.Info("whatsapp: device paired",
@@ -263,6 +355,9 @@ func (w *WhatsApp) handlePairSuccess(evt *events.PairSuccess) {
 
 // handleMessageEvt processes an incoming WhatsApp message event.
 func (w *WhatsApp) handleMessageEvt(evt *events.Message) {
+	// Update last activity time for health monitoring.
+	w.UpdateLastMsgTime()
+
 	// Skip messages from self.
 	if evt.Info.IsFromMe {
 		return

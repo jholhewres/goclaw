@@ -79,7 +79,19 @@ type toolCallEntry struct {
 // knownNoProgressTools are tools that frequently poll external state without
 // making progress. These get hard-blocked earlier than generic repeats.
 var knownNoProgressTools = map[string]map[string]bool{
-	"process": {"poll": true, "log": true},
+	"process":   {"poll": true, "log": true},
+	"cron_list": {"": true},
+}
+
+// destructiveTools are tools that can cause data loss or irreversible changes.
+// These get additional batch detection to prevent accidental mass operations.
+var destructiveTools = map[string]bool{
+	"cron_remove":     true,
+	"vault_delete":    true,
+	"sessions_delete": true,
+	"team_agent":      true, // Can delete agents
+	"team_manage":     true, // Can delete teams
+	"team_task":       true, // Can delete tasks
 }
 
 // ToolLoopDetector tracks tool call history and detects loops.
@@ -92,6 +104,11 @@ type ToolLoopDetector struct {
 	sameErrorCount  int            // consecutive calls with same error
 	warningBucket   map[string]int // tool → warning count (coalesce repeated warnings)
 	logger          *slog.Logger
+
+	// Destructive batch tracking
+	destructiveStreak     int    // consecutive destructive tool calls
+	lastDestructiveTool   string // last destructive tool called
+	destructiveBatchCount int    // total destructive calls in session
 }
 
 // NewToolLoopDetector creates a new detector with the given config.
@@ -254,6 +271,34 @@ func (d *ToolLoopDetector) RecordAndCheck(toolName string, args map[string]any) 
 				Pattern: "known_poll",
 			}
 		}
+	}
+
+	// 2b. Destructive batch detection: warn on consecutive destructive calls.
+	if destructiveTools[toolName] {
+		d.destructiveBatchCount++
+		if toolName == d.lastDestructiveTool {
+			d.destructiveStreak++
+			if d.destructiveStreak >= 3 {
+				d.logger.Warn("destructive batch pattern detected",
+					"tool", toolName, "streak", d.destructiveStreak, "total", d.destructiveBatchCount)
+				return LoopDetectionResult{
+					Severity: LoopCritical,
+					Message: fmt.Sprintf(
+						"DESTRUCTIVE BATCH: You have called '%s' %d times consecutively. "+
+							"This is a potentially dangerous pattern. STOP and confirm with the user before proceeding with more deletions. "+
+							"Total destructive calls this session: %d",
+						toolName, d.destructiveStreak, d.destructiveBatchCount),
+					Streak:  d.destructiveStreak,
+					Pattern: "destructive_batch",
+				}
+			}
+		} else {
+			d.destructiveStreak = 1
+			d.lastDestructiveTool = toolName
+		}
+	} else {
+		// Non-destructive tool resets the consecutive count.
+		d.destructiveStreak = 0
 	}
 
 	// 3. Check generic repeat and ping-pong patterns.
