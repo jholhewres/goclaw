@@ -983,14 +983,24 @@ func (h *handlerContext) handleDocCreate(ctx context.Context, args map[string]an
 		return nil, fmt.Errorf("team_id, title, and content are required")
 	}
 
+	// Validate doc_type
+	validDocTypes := map[string]bool{"deliverable": true, "research": true, "protocol": true, "notes": true}
 	docType, _ := args["doc_type"].(string)
 	if docType == "" {
 		docType = "deliverable"
+	} else if !validDocTypes[docType] {
+		return nil, fmt.Errorf("invalid doc_type: %s (valid: deliverable, research, protocol, notes)", docType)
 	}
+
 	taskID, _ := args["task_id"].(string)
+
+	// Validate format
+	validFormats := map[string]bool{"markdown": true, "text": true, "html": true, "code": true, "json": true}
 	format, _ := args["format"].(string)
 	if format == "" {
 		format = "markdown"
+	} else if !validFormats[format] {
+		return nil, fmt.Errorf("invalid format: %s (valid: markdown, text, html, code, json)", format)
 	}
 	author := getCallerID(ctx)
 
@@ -1303,9 +1313,16 @@ func (h *handlerContext) handleNotify(ctx context.Context, args map[string]any) 
 		return nil, err
 	}
 
+	// Validate notification type
+	validNotifTypes := map[string]bool{
+		"task_completed": true, "task_failed": true, "task_blocked": true,
+		"task_progress": true, "agent_error": true,
+	}
 	notifType, _ := args["type"].(string)
 	if notifType == "" {
 		return nil, fmt.Errorf("type is required")
+	} else if !validNotifTypes[notifType] {
+		return nil, fmt.Errorf("invalid type: %s (valid: task_completed, task_failed, task_blocked, task_progress, agent_error)", notifType)
 	}
 
 	message, _ := args["message"].(string)
@@ -1314,9 +1331,13 @@ func (h *handlerContext) handleNotify(ctx context.Context, args map[string]any) 
 	}
 
 	taskID, _ := args["task_id"].(string)
+
+	// Validate priority (1-5 range)
 	priority, _ := args["priority"].(float64)
 	if priority == 0 {
 		priority = 3
+	} else if priority < 1 || priority > 5 {
+		priority = 3 // Default to normal for invalid values
 	}
 
 	agentID := getAgentIDFromContext(ctx)
@@ -1377,9 +1398,14 @@ func (h *handlerContext) handleNotifyList(args map[string]any) (any, error) {
 		return nil, err
 	}
 
-	limit, _ := args["limit"].(float64)
-	if limit == 0 {
-		limit = 20
+	// Validate and cap limit
+	maxLimit := 100
+	limit := 20
+	if l, ok := args["limit"].(float64); ok && l > 0 {
+		limit = int(l)
+		if limit > maxLimit {
+			limit = maxLimit
+		}
 	}
 
 	unreadOnly, _ := args["unread_only"].(bool)

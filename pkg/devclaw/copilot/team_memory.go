@@ -977,7 +977,12 @@ func (tm *TeamMemory) NotifySubscribers(threadID, fromAgent, content string, exc
 		// Trigger immediate run via TeamManager if available
 		if tm.teamManager != nil {
 			notification := fmt.Sprintf("New activity in thread %s", threadID)
-			go tm.teamManager.SendToAgent(context.TODO(), agentID, fromAgent, notification)
+			go func() {
+				// Use timeout to prevent goroutine leak on shutdown
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				tm.teamManager.SendToAgent(ctx, agentID, fromAgent, notification)
+			}()
 		}
 	}
 

@@ -25,7 +25,7 @@ Best for: Simple queries, read-only access
 ```yaml
 Allow:
   - group:web        # web_search, web_fetch
-  - group:memory     # memory_save, memory_search, memory_list
+  - group:memory     # memory (save, search, list, index)
   - read_file
   - list_files
   - search_files
@@ -181,7 +181,7 @@ Available tool groups for use in profiles:
 
 | Group | Tools |
 |-------|-------|
-| `group:memory` | memory_save, memory_search, memory_list, memory_index |
+| `group:memory` | memory (action: save, search, list, index) |
 | `group:web` | web_search, web_fetch |
 | `group:fs` | read_file, write_file, edit_file, list_files, search_files, glob_files |
 | `group:runtime` | bash, exec, ssh, scp, set_env |

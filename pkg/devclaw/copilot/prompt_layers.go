@@ -27,12 +27,13 @@ import (
 type PromptLayer int
 
 const (
-	LayerCore         PromptLayer = 0  // Base identity and tooling.
-	LayerSafety       PromptLayer = 5  // Safety rules.
-	LayerIdentity     PromptLayer = 10 // Custom instructions.
-	LayerThinking     PromptLayer = 12 // Extended thinking level hint (from /think).
-	LayerBootstrap    PromptLayer = 15 // SOUL.md, AGENTS.md, etc.
-	LayerBusiness     PromptLayer = 20 // User/workspace context.
+	LayerCore          PromptLayer = 0  // Base identity and tooling.
+	LayerSafety        PromptLayer = 5  // Safety rules.
+	LayerIdentity      PromptLayer = 10 // Custom instructions.
+	LayerThinking      PromptLayer = 12 // Extended thinking level hint (from /think).
+	LayerBootstrap     PromptLayer = 15 // SOUL.md, AGENTS.md, etc.
+	LayerBuiltinSkills PromptLayer = 18 // Built-in tool guides (memory, teams, etc.)
+	LayerBusiness      PromptLayer = 20 // User/workspace context.
 	LayerSkills       PromptLayer = 40 // Active skill instructions.
 	LayerMemory       PromptLayer = 50 // Long-term memory facts.
 	LayerTemporal     PromptLayer = 60 // Date/time context.
@@ -181,7 +182,7 @@ func (p *PromptComposer) Compose(session *Session, input string) string {
 		layers = append(layers, layerEntry{layer: LayerBootstrap, content: bootstrap})
 	}
 	if builtinSkills := p.buildBuiltinSkillsLayer(); builtinSkills != "" {
-		layers = append(layers, layerEntry{layer: LayerBootstrap, content: builtinSkills})
+		layers = append(layers, layerEntry{layer: LayerBuiltinSkills, content: builtinSkills})
 	}
 	if skills != "" {
 		layers = append(layers, layerEntry{layer: LayerSkills, content: skills})
@@ -878,17 +879,18 @@ func (p *PromptComposer) assembleLayers(layers []layerEntry) string {
 
 	// Per-layer budgets (soft limits): use config if > 0, else proportional.
 	layerBudgets := map[PromptLayer]int{
-		LayerCore:         p.config.TokenBudget.System,
-		LayerSafety:       500,  // safety is short and critical
-		LayerIdentity:     1000, // custom instructions
-		LayerThinking:     200,  // thinking hint
-		LayerBootstrap:    4000, // bootstrap files
-		LayerBusiness:     1000, // workspace context
-		LayerSkills:       p.config.TokenBudget.Skills,
-		LayerMemory:       p.config.TokenBudget.Memory,
-		LayerTemporal:     200, // timestamp
-		LayerConversation: p.config.TokenBudget.History,
-		LayerRuntime:      200, // runtime line
+		LayerCore:          p.config.TokenBudget.System,
+		LayerSafety:        500,  // safety is short and critical
+		LayerIdentity:      1000, // custom instructions
+		LayerThinking:      200,  // thinking hint
+		LayerBootstrap:     4000, // bootstrap files
+		LayerBuiltinSkills: 2000, // built-in tool guides
+		LayerBusiness:      1000, // workspace context
+		LayerSkills:        p.config.TokenBudget.Skills,
+		LayerMemory:        p.config.TokenBudget.Memory,
+		LayerTemporal:      200, // timestamp
+		LayerConversation:  p.config.TokenBudget.History,
+		LayerRuntime:       200, // runtime line
 	}
 
 	// Phase 1: include all layers, tracking total.

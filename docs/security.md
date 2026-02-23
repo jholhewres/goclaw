@@ -93,7 +93,7 @@ Each tool has a minimum access level:
 |------------|-------|
 | `owner` | `bash`, `ssh`, `set_env` |
 | `admin` | `scp`, `exec`, `schedule_add`, `schedule_remove`, `install_skill`, `remove_skill`, `spawn_subagent` |
-| `user` | `read_file`, `search_files`, `glob_files`, `list_files`, `web_search`, `web_fetch`, `memory_save`, `memory_search`, `memory_list`, `describe_image`, `transcribe_audio`, `list_skills`, `search_skills`, `schedule_list` |
+| `user` | `read_file`, `search_files`, `glob_files`, `list_files`, `web_search`, `web_fetch`, `memory`, `describe_image`, `transcribe_audio`, `list_skills`, `search_skills`, `schedule_list` |
 | `public` | None by default (configurable) |
 
 ### Destructive Command Blocking

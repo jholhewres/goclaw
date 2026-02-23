@@ -174,7 +174,7 @@ func (bs *BuiltinSkills) FormatForPrompt() string {
 			continue
 		}
 
-		sb.WriteString(fmt.Sprintf("\n## %s\n\n", strings.Title(name)))
+		sb.WriteString(fmt.Sprintf("\n## %s\n\n", titleCase(name)))
 		if skill.Description != "" {
 			sb.WriteString(fmt.Sprintf("%s\n\n", skill.Description))
 		}
@@ -193,10 +193,19 @@ func (bs *BuiltinSkills) FormatSkillForPrompt(name string) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## %s\n\n", strings.Title(skill.Name)))
+	sb.WriteString(fmt.Sprintf("## %s\n\n", titleCase(skill.Name)))
 	if skill.Description != "" {
 		sb.WriteString(fmt.Sprintf("%s\n\n", skill.Description))
 	}
 	sb.WriteString(skill.Content)
 	return sb.String()
+}
+
+// titleCase capitalizes the first letter of a string.
+// Simple implementation for ASCII skill names (memory, teams, etc.)
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

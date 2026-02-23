@@ -103,10 +103,7 @@ Three strategies to keep the context within limits:
 
 | Tool | Description | Permission |
 |------|-------------|------------|
-| `memory_save` | Save facts to long-term memory. Triggers re-index | user |
-| `memory_search` | Hybrid semantic + keyword search (BM25 + cosine) | user |
-| `memory_list` | List recent memory entries | user |
-| `memory_index` | Manually re-index all memory files | admin |
+| `memory` | Manage long-term memory with actions: save, search, list, index | user |
 
 #### Scheduler
 

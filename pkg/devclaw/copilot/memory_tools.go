@@ -95,9 +95,13 @@ func handleMemorySave(_ context.Context, store *memory.FileStore, sqliteStore *m
 		return nil, fmt.Errorf("content is required for save action")
 	}
 
+	// Validate category
+	validCategories := map[string]bool{"fact": true, "preference": true, "event": true, "summary": true}
 	category, _ := args["category"].(string)
 	if category == "" {
 		category = "fact"
+	} else if !validCategories[category] {
+		return nil, fmt.Errorf("invalid category: %s (valid: fact, preference, event, summary)", category)
 	}
 
 	err := store.Save(memory.Entry{
@@ -118,7 +122,10 @@ func handleMemorySave(_ context.Context, store *memory.FileStore, sqliteStore *m
 			chunkCfg.MaxTokens = 500
 		}
 		go func() {
-			_ = sqliteStore.IndexMemoryDir(context.Background(), memDir, chunkCfg)
+			// Use timeout to prevent goroutine leak on shutdown
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = sqliteStore.IndexMemoryDir(ctx, memDir, chunkCfg)
 		}()
 	}
 
@@ -132,9 +139,13 @@ func handleMemorySearch(ctx context.Context, store *memory.FileStore, sqliteStor
 		return nil, fmt.Errorf("query is required for search action")
 	}
 
+	maxLimit := 100
 	limit := 10
 	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
+		if limit > maxLimit {
+			limit = maxLimit
+		}
 	}
 
 	// Try hybrid search first if SQLite is available.
@@ -177,9 +188,13 @@ func handleMemorySearch(ctx context.Context, store *memory.FileStore, sqliteStor
 
 // handleMemoryList lists recent memories.
 func handleMemoryList(_ context.Context, store *memory.FileStore, args map[string]any) (any, error) {
+	maxLimit := 100
 	limit := 20
 	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
+		if limit > maxLimit {
+			limit = maxLimit
+		}
 	}
 
 	entries, err := store.GetRecent(limit)

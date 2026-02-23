@@ -37,7 +37,7 @@ No heartbeat ou quando mencionado, o agente:
 team_comm(action="mention_check", agent_id="siri")
 
 # 2. Lista tarefas atribuídas
-team_task(action="list", team_id="devclaw-os", assignee="siri")
+team_task(action="list", team_id="devclaw-os", assignee_filter="siri")
 
 # 3. Atualiza estado de trabalho
 team_agent(
@@ -205,7 +205,7 @@ Unlike subagents (ephemeral), persistent agents have:
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ 3. CHECK TASKS                                               │
-│    team_task(action="list", assignee="siri")                │
+│    team_task(action="list", assignee_filter="siri")        │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
@@ -788,7 +788,7 @@ team_task(action="list", team_id="engineering")
 team_task(action="list", team_id="engineering", status="in_progress")
 
 # Filter tasks by assignee
-team_task(action="list", team_id="engineering", assignee="jarvis")
+team_task(action="list", team_id="engineering", assignee_filter="jarvis")
 
 # Get task details
 team_task(action="get", team_id="engineering", task_id="xyz78901")

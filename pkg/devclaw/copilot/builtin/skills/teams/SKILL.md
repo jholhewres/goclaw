@@ -41,7 +41,7 @@ team_task(action="list")
 ```
 1. CHECK INCOMING → team_comm(action="mention_check", agent_id="siri")
 2. CHECK WORKING  → team_agent(action="working_get", agent_id="siri")
-3. CHECK TASKS    → team_task(action="list", assignee="siri")
+3. CHECK TASKS    → team_task(action="list", assignee_filter="siri")
 4. DO WORK        → team_agent(action="working_update", ...)
 5. NOTIFY         → team_comm(action="notify", type="...", message="...")
 ```

@@ -284,7 +284,7 @@ type ToolGuardConfig struct {
 
 ```go
 var ToolGroups = map[string][]string{
-    "group:memory":    {"memory_save", "memory_search", "memory_list"},
+    "group:memory":    {"memory"},  // Dispatcher tool with actions
     "group:fs":        {"read_file", "write_file", "list_directory"},
     "group:runtime":   {"run_script", "bash"},
     "group:web":       {"web_search", "web_fetch"},
