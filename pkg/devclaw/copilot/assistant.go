@@ -392,6 +392,10 @@ func (a *Assistant) Start(ctx context.Context) error {
 		return skill, true
 	})
 
+	// Load built-in skills (embedded in binary).
+	builtinSkills := LoadBuiltinSkills(a.logger.With("component", "builtin-skills"))
+	a.promptComposer.SetBuiltinSkills(builtinSkills)
+
 	// 0c. Open the central devclaw.db and wire all SQLite-backed storage.
 	// Uses the Database Hub for unified access (supports SQLite, PostgreSQL, MySQL).
 	hubConfig := a.config.Database.Effective()

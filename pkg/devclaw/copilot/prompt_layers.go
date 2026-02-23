@@ -70,11 +70,12 @@ const promptLayerCacheTTL = 60 * time.Second
 
 // PromptComposer assembles the final system prompt from multiple layers.
 type PromptComposer struct {
-	config       *Config
-	memoryStore  *memory.FileStore
-	sqliteMemory *memory.SQLiteStore
-	skillGetter  func(name string) (interface{ SystemPrompt() string }, bool)
-	isSubagent   bool // When true, only AGENTS.md + TOOLS.md are loaded.
+	config        *Config
+	memoryStore   *memory.FileStore
+	sqliteMemory  *memory.SQLiteStore
+	skillGetter   func(name string) (interface{ SystemPrompt() string }, bool)
+	builtinSkills *BuiltinSkills
+	isSubagent    bool // When true, only AGENTS.md + TOOLS.md are loaded.
 
 	// bootstrapCache caches bootstrap file contents to avoid re-reading from disk
 	// on every prompt compose. Invalidated when file content changes (hash mismatch).
@@ -114,6 +115,11 @@ func (p *PromptComposer) SetSQLiteMemory(store *memory.SQLiteStore) {
 // SetSkillGetter sets the function used to retrieve skill system prompts.
 func (p *PromptComposer) SetSkillGetter(getter func(name string) (interface{ SystemPrompt() string }, bool)) {
 	p.skillGetter = getter
+}
+
+// SetBuiltinSkills sets the built-in skills for the prompt composer.
+func (p *PromptComposer) SetBuiltinSkills(skills *BuiltinSkills) {
+	p.builtinSkills = skills
 }
 
 // Compose builds the complete system prompt for a session and user input.
@@ -173,6 +179,9 @@ func (p *PromptComposer) Compose(session *Session, input string) string {
 
 	if bootstrap != "" {
 		layers = append(layers, layerEntry{layer: LayerBootstrap, content: bootstrap})
+	}
+	if builtinSkills := p.buildBuiltinSkillsLayer(); builtinSkills != "" {
+		layers = append(layers, layerEntry{layer: LayerBootstrap, content: builtinSkills})
 	}
 	if skills != "" {
 		layers = append(layers, layerEntry{layer: LayerSkills, content: skills})
@@ -802,6 +811,25 @@ func (p *PromptComposer) buildConversationLayer(session *Session) string {
 		b.WriteString("\n")
 	}
 
+	return b.String()
+}
+
+// buildBuiltinSkillsLayer creates a section with built-in skill documentation.
+// These are always loaded and provide guidance for using core tools.
+func (p *PromptComposer) buildBuiltinSkillsLayer() string {
+	if p.builtinSkills == nil {
+		return ""
+	}
+
+	content := p.builtinSkills.FormatForPrompt()
+	if content == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Built-in Tools Guide\n\n")
+	b.WriteString("The following tools have detailed usage guides. Reference them when using these tools:\n\n")
+	b.WriteString(content)
 	return b.String()
 }
 
