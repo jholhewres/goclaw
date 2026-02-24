@@ -378,3 +378,87 @@ func TestExtractErrorMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestToolLoopDetector_DestructiveBatch(t *testing.T) {
+	t.Parallel()
+	d := newTestDetector(ToolLoopConfig{
+		Enabled:                 true,
+		HistorySize:             30,
+		WarningThreshold:        8,
+		CriticalThreshold:       15,
+		CircuitBreakerThreshold: 25,
+	})
+
+	args := map[string]any{"key": "test_key_"}
+
+	// First two calls should not trigger
+	r1 := d.RecordAndCheck("vault_delete", args)
+	if r1.Severity != LoopNone {
+		t.Errorf("first vault_delete should return LoopNone, got %d", r1.Severity)
+	}
+
+	r2 := d.RecordAndCheck("vault_delete", args)
+	if r2.Severity != LoopNone {
+		t.Errorf("second vault_delete should return LoopNone, got %d", r2.Severity)
+	}
+
+	// Third consecutive call to same destructive tool should trigger LoopBreaker
+	r3 := d.RecordAndCheck("vault_delete", args)
+	if r3.Severity != LoopBreaker {
+		t.Errorf("third consecutive vault_delete should return LoopBreaker, got %d (pattern=%s)",
+			r3.Severity, r3.Pattern)
+	}
+	if r3.Pattern != "destructive_batch" {
+		t.Errorf("expected pattern 'destructive_batch', got %q", r3.Pattern)
+	}
+	if r3.Streak != 3 {
+		t.Errorf("expected streak 3, got %d", r3.Streak)
+	}
+}
+
+func TestToolLoopDetector_DestructiveBatch_ResetsOnOtherTool(t *testing.T) {
+	t.Parallel()
+	d := newTestDetector(ToolLoopConfig{
+		Enabled:                 true,
+		HistorySize:             30,
+		WarningThreshold:        8,
+		CriticalThreshold:       15,
+		CircuitBreakerThreshold: 25,
+	})
+
+	args := map[string]any{"key": "test_key_"}
+
+	// Two destructive calls
+	d.RecordAndCheck("vault_delete", args)
+	d.RecordAndCheck("vault_delete", args)
+
+	// Non-destructive tool should reset the streak
+	d.RecordAndCheck("bash", map[string]any{"command": "ls"})
+
+	// Now destructive calls should start fresh
+	r := d.RecordAndCheck("vault_delete", args)
+	if r.Severity != LoopNone {
+		t.Errorf("vault_delete after non-destructive should return LoopNone, got %d", r.Severity)
+	}
+}
+
+func TestToolLoopDetector_DestructiveBatch_DifferentToolsReset(t *testing.T) {
+	t.Parallel()
+	d := newTestDetector(ToolLoopConfig{
+		Enabled:                 true,
+		HistorySize:             30,
+		WarningThreshold:        8,
+		CriticalThreshold:       15,
+		CircuitBreakerThreshold: 25,
+	})
+
+	// Two vault_delete calls
+	d.RecordAndCheck("vault_delete", map[string]any{"key": "a"})
+	d.RecordAndCheck("vault_delete", map[string]any{"key": "b"})
+
+	// Different destructive tool resets streak
+	r := d.RecordAndCheck("cron_remove", map[string]any{"id": "1"})
+	if r.Severity != LoopNone {
+		t.Errorf("different destructive tool should reset streak, got %d", r.Severity)
+	}
+}

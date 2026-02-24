@@ -273,19 +273,23 @@ func (d *ToolLoopDetector) RecordAndCheck(toolName string, args map[string]any) 
 		}
 	}
 
-	// 2b. Destructive batch detection: warn on consecutive destructive calls.
+	// 2b. Destructive batch detection: BLOCK on consecutive destructive calls.
+	// Destructive operations (vault_delete, cron_remove, sessions_delete) should
+	// be limited to prevent accidental mass deletions. We use LoopBreaker (hard stop)
+	// because LoopCritical (warning) was insufficient - agents ignored it and continued.
 	if destructiveTools[toolName] {
 		d.destructiveBatchCount++
 		if toolName == d.lastDestructiveTool {
 			d.destructiveStreak++
 			if d.destructiveStreak >= 3 {
-				d.logger.Warn("destructive batch pattern detected",
+				d.logger.Error("destructive batch blocked - too many consecutive deletions",
 					"tool", toolName, "streak", d.destructiveStreak, "total", d.destructiveBatchCount)
 				return LoopDetectionResult{
-					Severity: LoopCritical,
+					Severity: LoopBreaker,
 					Message: fmt.Sprintf(
-						"DESTRUCTIVE BATCH: You have called '%s' %d times consecutively. "+
-							"This is a potentially dangerous pattern. STOP and confirm with the user before proceeding with more deletions. "+
+						"DESTRUCTIVE BATCH BLOCKED: You have called '%s' %d times consecutively. "+
+							"This run is being terminated to prevent accidental mass deletion. "+
+							"If you really need to delete more items, please start a new conversation and proceed carefully. "+
 							"Total destructive calls this session: %d",
 						toolName, d.destructiveStreak, d.destructiveBatchCount),
 					Streak:  d.destructiveStreak,
