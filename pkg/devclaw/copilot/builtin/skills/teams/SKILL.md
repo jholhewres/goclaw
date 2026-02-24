@@ -1,6 +1,6 @@
 ---
 name: teams
-description: "Manage persistent agents and team coordination"
+description: "Manage persistent agents and team coordination with shared memory"
 trigger: automatic
 ---
 
@@ -8,7 +8,38 @@ trigger: automatic
 
 Teams system for persistent agents with shared memory, tasks, and communication.
 
-## Quick Reference
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Team                                     │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    Shared Memory                         │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │    │
+│  │  │   Facts     │  │  Documents  │  │   Standup   │      │    │
+│  │  │ (key-value) │  │ (deliverables)│ │  (reports) │      │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │   Agent A   │  │   Agent B   │  │   Agent C   │              │
+│  │  (siri)     │  │  (jarvis)   │  │  (loki)     │              │
+│  │  ┌───────┐  │  │  ┌───────┐  │  │  ┌───────┐  │              │
+│  │  │Task 1 │  │  │  │Task 2 │  │  │  │Task 3 │  │              │
+│  │  └───────┘  │  │  └───────┘  │  │  └───────┘  │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+│         │                │                │                      │
+│         └────────────────┼────────────────┘                      │
+│                          │                                       │
+│                   ┌──────┴──────┐                               │
+│                   │ Communication│                               │
+│                   │ @mentions    │                               │
+│                   │ notifications│                               │
+│                   └─────────────┘                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Tools Overview
 
 | Tool | Actions |
 |------|---------|
@@ -34,55 +65,6 @@ team_task(action="list", team_id="DevClaw OS")
 team_task(action="list")
 ```
 
-## Agent Workflow
-
-### On Heartbeat/Trigger
-
-```
-1. CHECK INCOMING → team_comm(action="mention_check", agent_id="siri")
-2. CHECK WORKING  → team_agent(action="working_get", agent_id="siri")
-3. CHECK TASKS    → team_task(action="list", assignee_filter="siri")
-4. DO WORK        → team_agent(action="working_update", ...)
-5. NOTIFY         → team_comm(action="notify", type="...", message="...")
-```
-
-### Update Working State
-
-```bash
-team_agent(
-  action="working_update",
-  agent_id="siri",
-  current_task_id="abc12345",
-  status="working",
-  next_steps="1. Process request\n2. Send response",
-  context="Handling user query about documentation"
-)
-```
-
-## Notification Pattern
-
-Always notify on important events:
-
-| Type | When | Priority |
-|------|------|----------|
-| `task_completed` | Task finished successfully | 3 |
-| `task_failed` | Task execution failed | 2 |
-| `task_blocked` | Waiting for external input | 3 |
-| `task_progress` | Progress update (long tasks) | 4 |
-| `agent_error` | Internal agent error | 2 |
-
-### Send Notification
-
-```bash
-team_comm(
-  action="notify",
-  type="task_completed",
-  message="Report generated successfully",
-  task_id="abc12345",
-  priority=3
-)
-```
-
 ## Task Status Workflow
 
 ```
@@ -93,76 +75,175 @@ inbox → assigned → in_progress → review → done
                            └──→ cancelled
 ```
 
+## Agent Heartbeat Pattern
+
+On each heartbeat/trigger, agents should follow this pattern:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   AGENT HEARTBEAT                    │
+├─────────────────────────────────────────────────────┤
+│ 1. CHECK INCOMING                                   │
+│    team_comm(action="mention_check", agent_id="X")  │
+│                                                     │
+│ 2. CHECK WORKING STATE                              │
+│    team_agent(action="working_get", agent_id="X")   │
+│                                                     │
+│ 3. CHECK TASKS                                      │
+│    team_task(action="list", assignee_filter="X")    │
+│                                                     │
+│ 4. DO WORK                                          │
+│    team_agent(action="working_update", ...)         │
+│                                                     │
+│ 5. NOTIFY ON COMPLETION                             │
+│    team_comm(action="notify", type="...", ...)      │
+│                                                     │
+│ 6. CLEAR STATE WHEN DONE                            │
+│    team_agent(action="working_clear", ...)          │
+└─────────────────────────────────────────────────────┘
+```
+
+## Working State Management
+
+### Get Current State
+```bash
+team_agent(action="working_get", agent_id="siri")
+# Output:
+# status: idle
+# current_task: none
+# next_steps: []
+# context: ""
+```
+
+### Update Working State
+```bash
+team_agent(
+  action="working_update",
+  agent_id="siri",
+  current_task_id="abc12345",
+  status="working",
+  next_steps="1. Process request\n2. Send response",
+  context="Handling user query about documentation"
+)
+# Output: Working state updated for agent 'siri'
+```
+
+### Clear Working State
+```bash
+team_agent(action="working_clear", agent_id="siri")
+# Output: Working state cleared for agent 'siri'
+```
+
+## Notification Types
+
+| Type | When | Priority |
+|------|------|----------|
+| `task_completed` | Task finished successfully | 3 |
+| `task_failed` | Task execution failed | 2 |
+| `task_blocked` | Waiting for external input | 3 |
+| `task_progress` | Progress update (long tasks) | 4 |
+| `agent_error` | Internal agent error | 2 |
+
+### Send Notification
+```bash
+team_comm(
+  action="notify",
+  type="task_completed",
+  message="Report generated successfully",
+  task_id="abc12345",
+  priority=3
+)
+# Output: Notification sent
+```
+
+### List Notifications
+```bash
+team_comm(action="notify_list")
+# Output:
+# Notifications (3):
+# [14:30] task_completed: Report generated (siri)
+# [14:25] task_blocked: Waiting for API key (jarvis)
+# [14:20] agent_error: Connection timeout (loki)
+```
+
 ## Shared Memory
 
 ### Facts (Key-Value)
-
 ```bash
-# Save
+# Save fact
 team_memory(action="fact_save", key="api_version", value="v2.1.0")
+# Output: Fact 'api_version' saved
 
-# List
+# List facts
 team_memory(action="fact_list")
+# Output:
+# Facts (3):
+# - api_version: v2.1.0
+# - database: postgres
+# - region: us-east-1
 
-# Delete
-team_memory(action="fact_delete", key="api_version")
+# Delete fact
+team_memory(action="fact_delete", key="old_config")
+# Output: Fact 'old_config' deleted
 ```
 
 ### Documents
-
 ```bash
-# Create
+# Create document
 team_memory(
   action="doc_create",
-  title="API Design",
-  doc_type="deliverable",  # deliverable | research | protocol | notes
-  content="# API Design\n...",
+  title="API Design Document",
+  doc_type="deliverable",
+  content="# API Design\n\n## Endpoints\n- GET /users\n- POST /data",
   task_id="abc12345"
 )
+# Output: Document created with ID: doc-xyz
 
-# List
+# List documents
 team_memory(action="doc_list", doc_type="deliverable")
+# Output:
+# Documents (2):
+# - API Design Document (doc-xyz)
+# - Database Schema (doc-abc)
+
+# Get document
+team_memory(action="doc_get", doc_id="doc-xyz")
+# Output: Full document content...
 ```
 
 ## Communication
 
 ### Comment on Task
-
 ```bash
 team_comm(
   action="comment",
   task_id="abc12345",
-  content="@loki can you review this?"
+  content="@loki can you review this implementation?"
 )
+# Output: Comment added to task abc12345
+```
+
+### Check Mentions
+```bash
+team_comm(action="mention_check", agent_id="loki")
+# Output:
+# Mentions (1):
+# Task abc12345: "@loki can you review this implementation?"
 ```
 
 ### Send Direct Message
-
 ```bash
 team_comm(
   action="send_message",
   to_agent="jarvis",
-  content="Deployment complete"
+  content="Deployment complete. New version is live."
 )
+# Output: Message sent to jarvis
 ```
-
-### Check Mentions
-
-```bash
-team_comm(action="mention_check", agent_id="loki")
-```
-
-## Best Practices
-
-1. **Always update working state** - Before/after tasks
-2. **Notify on completion/errors** - Keep team informed
-3. **Use facts for shared knowledge** - Avoid duplication
-4. **Subscribe to threads** - Auto-subscribe when commenting
-5. **Clear working state when done** - `working_clear`
 
 ## Complete Workflow Examples
 
-### Heartbeat Cycle (Full Example)
+### Heartbeat Cycle (Full)
 ```bash
 # Step 1: Check for mentions
 team_comm(action="mention_check", agent_id="siri")
@@ -176,7 +257,7 @@ team_agent(action="working_get", agent_id="siri")
 team_task(action="list", assignee_filter="siri")
 # Output: 2 tasks: abc12345 (in_progress), def67890 (inbox)
 
-# Step 4: Start working
+# Step 4: Update working state
 team_agent(
   action="working_update",
   agent_id="siri",
@@ -185,8 +266,10 @@ team_agent(
   next_steps="1. Read API docs\n2. Test endpoint\n3. Report findings",
   context="Investigating API issue reported by user"
 )
+# Output: Working state updated
 
 # Step 5: Do the work...
+# ... perform task ...
 
 # Step 6: Complete and notify
 team_task(action="update", task_id="abc12345", status="done")
@@ -197,14 +280,16 @@ team_comm(
   task_id="abc12345",
   priority=3
 )
+# Output: Notification sent
 
 # Step 7: Clear working state
 team_agent(action="working_clear", agent_id="siri")
+# Output: Working state cleared
 ```
 
 ### Task Resolution Flow
 ```bash
-# User requests a feature
+# User requests a feature via any agent
 team_task(
   action="create",
   title="Add dark mode support",
@@ -214,11 +299,16 @@ team_task(
 )
 # Output: Created task xyz78901
 
-# Agent picks up task
+# Assigned agent picks up task
 team_task(action="update", task_id="xyz78901", status="in_progress")
-team_agent(action="working_update", agent_id="frontend-agent", current_task_id="xyz78901", status="working")
+team_agent(
+  action="working_update",
+  agent_id="frontend-agent",
+  current_task_id="xyz78901",
+  status="working"
+)
 
-# Agent completes work and documents it
+# Agent completes and documents
 team_memory(
   action="doc_create",
   title="Dark Mode Implementation",
@@ -228,10 +318,15 @@ team_memory(
 )
 
 # Notify completion
-team_comm(action="notify", type="task_completed", message="Dark mode implemented", task_id="xyz78901")
+team_comm(
+  action="notify",
+  type="task_completed",
+  message="Dark mode implemented and ready for review",
+  task_id="xyz78901"
+)
 
 # Close task
-team_task(action="update", task_id="xyz78901", status="done")
+team_task(action="update", task_id="xyz78901", status="review")
 ```
 
 ### Cross-Agent Collaboration
@@ -242,13 +337,21 @@ team_comm(
   to_agent="backend-agent",
   content="Need API endpoint for user preferences. Can you create GET /api/user/preferences?"
 )
+# Output: Message sent
 
-# Agent B receives and responds
+# Agent B checks messages
 team_comm(action="mention_check", agent_id="backend-agent")
 # Output: 1 message from frontend-agent
 
 # Agent B creates task and works on it
-team_task(action="create", title="User preferences API", assignee="backend-agent")
+team_task(
+  action="create",
+  title="User preferences API endpoint",
+  assignee="backend-agent",
+  priority=2
+)
+
+# Agent B responds when done
 team_comm(
   action="send_message",
   to_agent="frontend-agent",
@@ -258,10 +361,69 @@ team_comm(
 
 ### Standup Report
 ```bash
-# Generate standup summary
 team_memory(action="standup", agent_id="siri")
 # Output:
+# Standup for siri:
 # Yesterday: Completed 3 tasks, 1 blocked
 # Today: Working on API integration
 # Blockers: Waiting for credentials from ops team
 ```
+
+## Troubleshooting
+
+### "Team not found"
+
+**Cause:** Invalid team_id or team doesn't exist.
+
+**Solution:**
+```bash
+team_manage(action="list")
+# Shows all available teams
+```
+
+### "Agent not found"
+
+**Cause:** Agent doesn't exist in team.
+
+**Solution:**
+```bash
+team_agent(action="list")
+# Shows all agents in team
+```
+
+### "Task not found"
+
+**Cause:** Invalid task_id.
+
+**Solution:**
+```bash
+team_task(action="list")
+# Shows all tasks
+```
+
+### Mentions not triggering
+
+**Cause:** Agent not checking mentions.
+
+**Solution:**
+- Ensure agent runs `mention_check` on heartbeat
+- Verify agent_id is correct
+
+## Tips
+
+- **Always update working state**: Before/after tasks
+- **Notify on completion/errors**: Keep team informed
+- **Use facts for shared knowledge**: Avoid duplication
+- **Subscribe to threads**: Auto-subscribe when commenting
+- **Clear working state when done**: `working_clear`
+- **Use descriptive task IDs**: Easier to reference
+
+## Common Mistakes
+
+| Mistake | Correct Approach |
+|---------|-----------------|
+| Not updating working state | Update before/after each task |
+| Forgetting to notify | Always notify on task completion |
+| Hardcoding team_id | Use name resolution or empty for auto |
+| Not checking mentions | Include in heartbeat cycle |
+| Leaving working state stale | Clear when task complete |

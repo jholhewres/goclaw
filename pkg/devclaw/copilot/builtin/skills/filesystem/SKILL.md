@@ -8,16 +8,42 @@ trigger: automatic
 
 Read, write, search, and manage files and directories on the machine.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Agent Context                          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+       ┌───────────────────┼───────────────────┐
+       │                   │                   │
+       ▼                   ▼                   ▼
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  read_file  │    │ write_file  │    │ edit_file   │
+│  (100KB)    │    │ (overwrite) │    │ (replace)   │
+└─────────────┘    └─────────────┘    └─────────────┘
+       │                   │                   │
+       └───────────────────┼───────────────────┘
+                           │
+       ┌───────────────────┼───────────────────┐
+       │                   │                   │
+       ▼                   ▼                   ▼
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  list_files │    │search_files │    │ glob_files  │
+│  (ls -la)   │    │  (grep -r)  │    │  (find)     │
+└─────────────┘    └─────────────┘    └─────────────┘
+```
+
 ## Tools
 
-| Tool | Action |
-|------|--------|
-| `read_file` | Read file contents |
-| `write_file` | Create or overwrite a file |
-| `edit_file` | Replace specific text in a file |
-| `list_files` | List directory contents |
-| `search_files` | Search for text in files (grep) |
-| `glob_files` | Find files by pattern |
+| Tool | Action | Limit |
+|------|--------|-------|
+| `read_file` | Read file contents | 100KB max |
+| `write_file` | Create or overwrite | Full replacement |
+| `edit_file` | Replace specific text | Must match exactly |
+| `list_files` | List directory | Recursive |
+| `search_files` | Grep for text | Recursive |
+| `glob_files` | Pattern matching | `**/*.go` syntax |
 
 ## When to Use
 
@@ -34,7 +60,18 @@ Read, write, search, and manage files and directories on the machine.
 
 ```bash
 read_file(path="/home/user/project/main.go")
-# Output: File contents with line numbers
+# Output:
+#      1→ package main
+#      2→
+#      3→ func main() {
+#      4→     fmt.Println("Hello")
+#      5→ }
+```
+
+### With Limits
+```bash
+read_file(path="/var/log/syslog", offset=100, limit=50)
+# Reads lines 100-150
 ```
 
 ## Writing Files
@@ -44,19 +81,24 @@ write_file(
   path="/home/user/project/config.json",
   content='{"version": "1.0", "debug": true}'
 )
-# Output: File written successfully
+# Output: Successfully wrote to /home/user/project/config.json
 ```
 
 ## Editing Files
 
+**CRITICAL**: `old_string` must match EXACTLY (including whitespace, indentation).
+
 ```bash
-# Replace specific text
+# Read first to get exact content
+read_file(path="/home/user/project/main.go")
+
+# Then edit with exact match
 edit_file(
   path="/home/user/project/main.go",
   old_string="func main() {",
   new_string="func main() {\n\tlog.Println(\"Starting...\")"
 )
-# Output: File edited successfully
+# Output: Successfully edited /home/user/project/main.go
 ```
 
 ## Listing Files
@@ -64,10 +106,9 @@ edit_file(
 ```bash
 list_files(path="/home/user/project")
 # Output:
-# - src/ (directory)
-# - main.go (1.2KB, rw-r--r--)
-# - config.json (256B, rw-r--r--)
-# - README.md (3KB, rw-r--r--)
+# - src/ (directory, 755)
+# - main.go (1.2KB, 644, modified: 2026-02-24)
+# - config.json (256B, 644, modified: 2026-02-20)
 ```
 
 ## Searching Files
@@ -81,6 +122,7 @@ search_files(
 # Output:
 # src/main.go:45: // TODO: implement error handling
 # src/utils.go:12: // TODO: add tests
+# src/api.go:78: // TODO: handle timeout
 ```
 
 ## Glob Pattern Matching
@@ -91,26 +133,35 @@ glob_files(
   pattern="**/*.go"
 )
 # Output:
-# - src/main.go
-# - src/utils.go
-# - src/api/handler.go
-# - tests/main_test.go
+# src/main.go
+# src/utils.go
+# src/api/handler.go
+# src/api/middleware.go
+# tests/main_test.go
 ```
 
-## Workflow Examples
+## Common Patterns
 
 ### Create New File
 ```bash
 write_file(
   path="/home/user/project/hello.py",
-  content='#!/usr/bin/env python3\nprint("Hello, World!")'
+  content='#!/usr/bin/env python3
+def main():
+    print("Hello, World!")
+
+if __name__ == "__main__":
+    main()'
 )
 ```
 
-### Read and Modify
+### Read-Modify-Write Pattern
 ```bash
 # 1. Read current content
 read_file(path="/home/user/project/config.yaml")
+# Output:
+#      1→ debug: false
+#      2→ log_level: info
 
 # 2. Make precise edit
 edit_file(
@@ -122,43 +173,106 @@ edit_file(
 
 ### Find and Analyze
 ```bash
-# 1. Find all Go files
-glob_files(path="/home/user/project", pattern="**/*.go")
+# 1. Find all test files
+glob_files(path="/home/user/project", pattern="**/*_test.go")
 
 # 2. Search for specific pattern
-search_files(path="/home/user/project", pattern="func.*Handler")
+search_files(path="/home/user/project", pattern="func Test")
 
 # 3. Read interesting file
-read_file(path="/home/user/project/src/handler.go")
+read_file(path="/home/user/project/src/api_test.go")
 ```
 
-### Explore Project
+### Explore New Project
 ```bash
-# 1. List root directory
+# 1. List root
+list_files(path="/home/user/unknown-project")
+# Output: src/, cmd/, go.mod, README.md
+
+# 2. Find entry point
+glob_files(path="/home/user/unknown-project", pattern="**/main.go")
+
+# 3. Read entry point
+read_file(path="/home/user/unknown-project/cmd/main.go")
+```
+
+### Search and Replace Across Files
+```bash
+# 1. Find occurrences
+search_files(path="/home/user/project", pattern="oldFunction")
+
+# 2. Edit each file (repeat for each)
+edit_file(
+  path="/home/user/project/src/file1.go",
+  old_string="oldFunction",
+  new_string="newFunction"
+)
+```
+
+## Troubleshooting
+
+### "file not found" error
+
+**Cause:** Path doesn't exist or is incorrect.
+
+**Debug:**
+```bash
+# Check parent directory
 list_files(path="/home/user/project")
 
-# 2. List subdirectory
-list_files(path="/home/user/project/src")
-
-# 3. Find configuration files
-glob_files(path="/home/user/project", pattern="**/*.yaml")
+# Use absolute paths when unsure
+read_file(path="/home/user/project/file.txt")
 ```
 
-## Important Notes
+### "old_string not found" error
 
-| Note | Reason |
-|------|--------|
-| Paths can be relative or absolute | Both work |
-| `edit_file` requires exact match | `old_string` must exist exactly |
-| `write_file` overwrites | Destroys existing content |
-| `search_files` is recursive | Searches all subdirectories |
-| Line limit on `read_file` | Large files may be truncated |
+**Cause:** The text to replace doesn't match exactly.
+
+**Debug:**
+```bash
+# Read file to see exact content (including whitespace)
+read_file(path="/home/user/project/file.go")
+
+# Copy exact text from output, preserving indentation
+```
+
+### "content truncated" warning
+
+**Cause:** File exceeds 100KB limit.
+
+**Solution:**
+```bash
+# Use offset and limit to read in chunks
+read_file(path="/large/file.log", offset=1, limit=1000)
+```
+
+### Permission denied
+
+**Cause:** File or directory not readable.
+
+**Debug:**
+```bash
+# Check permissions in list_files output
+list_files(path="/home/user/project")
+# Look at the mode column (e.g., 644, 755)
+```
+
+## Tips
+
+- **Always read before edit**: Ensures exact match for `old_string`
+- **Use absolute paths**: Avoids confusion about working directory
+- **Glob before search**: Narrow down files to search
+- `write_file` overwrites: Destroys existing content completely
+- `search_files` is case-sensitive: Use `ignore_case=true` for flexibility
+- Line numbers in `read_file`: Use offset starting from 1
 
 ## Common Mistakes
 
 | Mistake | Correct Approach |
 |---------|-----------------|
-| Using `write_file` for edits | Use `edit_file` for modifications |
-| Wrong `old_string` | Copy exact text from `read_file` output |
-| Forgetting to escape quotes | Use proper escaping in content strings |
-| Not checking file exists | Use `list_files` first if unsure |
+| Using `write_file` for small edits | Use `edit_file` for modifications |
+| Guessing `old_string` | Copy exact text from `read_file` output |
+| Forgetting to escape quotes | Use proper escaping or different quotes |
+| Relative path confusion | Use absolute paths when unsure |
+| Not checking if file exists | Use `list_files` first |
+| `offset=0` | Line numbers start at 1, use `offset=1` |

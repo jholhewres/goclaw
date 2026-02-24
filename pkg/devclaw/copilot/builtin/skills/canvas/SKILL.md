@@ -8,123 +8,294 @@ trigger: automatic
 
 Persistent workspaces for long-running tasks, dashboards, and interactive content.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Agent Context                          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │ canvas_create   │
+                  │ (HTML/JS page)  │
+                  └────────┬────────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌───────────────┐  ┌───────────────┐
+│ canvas_update │  │ canvas_list   │  │ canvas_stop   │
+│ (refresh)     │  │ (status)      │  │ (cleanup)     │
+└───────────────┘  └───────────────┘  └───────────────┘
+        │
+        ▼
+┌───────────────────────────────────────────────────────┐
+│                   Canvas Server                        │
+│  http://localhost:PORT/__devclaw__/canvas/<id>.html   │
+└───────────────────────────────────────────────────────┘
+```
+
 ## Tools
 
-| Tool | Action |
-|------|--------|
-| `canvas_create` | Create a new canvas |
-| `canvas_update` | Update canvas content |
-| `canvas_list` | List all canvases |
-| `canvas_stop` | Stop/remove a canvas |
+| Tool | Action | Use When |
+|------|--------|----------|
+| `canvas_create` | Create new canvas | Need persistent display |
+| `canvas_update` | Update content | Refresh, show progress |
+| `canvas_list` | List all canvases | Check what's running |
+| `canvas_stop` | Stop canvas | Clean up when done |
 
 ## When to Use
 
-| Tool | When |
-|------|------|
-| `canvas_create` | Need persistent display/workspace |
-| `canvas_update` | Refresh content, show progress |
-| `canvas_list` | Check active canvases |
-| `canvas_stop` | Clean up when done |
+| Scenario | Canvas |
+|----------|--------|
+| Long-running task progress | Progress bar, status updates |
+| Live dashboard | System monitoring, metrics |
+| Interactive menu | User selection interface |
+| Live log viewer | Streaming output |
 
-## Workflow
+## Creating a Canvas
 
-```
-1. CREATE   → canvas_create(name="dashboard", content="...")
-2. UPDATE   → canvas_update(id="abc", content="New content")
-3. REFRESH  → Repeat updates as needed
-4. STOP     → canvas_stop(id="abc") when done
-```
-
-## Examples
-
-### Create Dashboard
 ```bash
 canvas_create(
   name="build-progress",
-  content="# Build Progress\n\n- [x] Download dependencies\n- [ ] Compile\n- [ ] Test\n- [ ] Deploy"
+  content="<h1>Build Progress</h1>
+<div id='status'>Starting...</div>
+<div id='steps'>
+  <p>✓ Dependencies</p>
+  <p>○ Compile</p>
+  <p>○ Test</p>
+</div>"
 )
-# Output: Canvas created with ID: abc123
+# Output: Canvas created with ID: canvas-abc123
+# URL: http://localhost:8080/__devclaw__/canvas/canvas-abc123.html
 ```
 
-### Update Progress
+## Updating Content
+
 ```bash
 canvas_update(
-  id="abc123",
-  content="# Build Progress\n\n- [x] Download dependencies\n- [x] Compile\n- [ ] Test\n- [ ] Deploy"
+  id="canvas-abc123",
+  content="<h1>Build Progress</h1>
+<div id='status'>Building...</div>
+<div id='steps'>
+  <p>✓ Dependencies</p>
+  <p>✓ Compile</p>
+  <p>○ Test</p>
+</div>"
 )
-# Output: Canvas abc123 updated
+# Output: Canvas canvas-abc123 updated
 ```
 
-### List Active Canvases
+## Listing Canvases
+
 ```bash
 canvas_list()
 # Output:
 # Active canvases (2):
-# - build-progress (abc123) - created 5m ago
-# - status-board (def456) - created 1h ago
+# - canvas-abc123 [build-progress]: running, 5m ago
+# - canvas-def456 [dashboard]: running, 1h ago
 ```
 
-### Stop Canvas
+## Stopping a Canvas
+
 ```bash
-canvas_stop(id="abc123")
-# Output: Canvas abc123 stopped and removed
+canvas_stop(id="canvas-abc123")
+# Output: Canvas canvas-abc123 stopped and removed
 ```
 
-## Use Cases
+## Common Patterns
 
-| Use Case | Description |
-|----------|-------------|
-| Progress tracking | Long-running task updates |
-| Status dashboard | System/service monitoring |
-| Interactive menu | User selection interface |
-| Live log viewer | Streaming log output |
-
-## Best Practices
-
-| Practice | Reason |
-|----------|--------|
-| Use descriptive names | Easy to identify in list |
-| Update regularly | Keep content fresh |
-| Clean up when done | Stop unused canvases |
-| Keep content concise | Better display on all devices |
-
-## Complete Example
-
-### Build Process Dashboard
+### Progress Dashboard
 ```bash
-# Start
+# Create
 canvas_create(
-  name="build-status",
-  content="# Build Status\n\nStatus: Starting...\n\n## Steps\n- [ ] Setup\n- [ ] Build\n- [ ] Test"
+  name="deploy-status",
+  content="<h1>🚀 Deployment Status</h1>
+<style>
+  .done { color: green; }
+  .doing { color: orange; }
+  .todo { color: gray; }
+</style>
+<div id='steps'>
+  <p class='doing'>⏳ Building...</p>
+  <p class='todo'>○ Testing</p>
+  <p class='todo'>○ Deploying</p>
+</div>
+<div id='time'>Started: 14:30</div>"
 )
 
-# After setup
-canvas_update(
-  id="build-status",
-  content="# Build Status\n\nStatus: Building...\n\n## Steps\n- [x] Setup\n- [ ] Build\n- [ ] Test"
-)
+# Update as progress happens
+canvas_update(id="canvas-abc", content="...building done, testing...")
 
-# After build
-canvas_update(
-  id="build-status",
-  content="# Build Status\n\nStatus: Testing...\n\n## Steps\n- [x] Setup\n- [x] Build\n- [ ] Test"
-)
+# Final state
+canvas_update(id="canvas-abc", content="...
+  <p class='done'>✓ Building</p>
+  <p class='done'>✓ Testing</p>
+  <p class='done'>✓ Deployed!</p>
+</div>
+<div id='time'>Completed: 14:35 (5m)</div>")
 
-# Complete
-canvas_update(
-  id="build-status",
-  content="# Build Status\n\nStatus: Complete!\n\n## Steps\n- [x] Setup\n- [x] Build\n- [x] Test\n\nDuration: 2m 34s"
-)
-
-# Clean up
-canvas_stop(id="build-status")
+# Clean up after delay
+canvas_stop(id="canvas-abc")
 ```
 
-## Important Notes
+### Live Metrics Dashboard
+```bash
+canvas_create(
+  name="system-metrics",
+  content="<h1>System Metrics</h1>
+<script>
+  setInterval(() => {
+    document.getElementById('time').textContent = new Date().toLocaleTimeString();
+  }, 1000);
+</script>
+<div id='time'>--:--:--</div>
+<div id='cpu'>CPU: --</div>
+<div id='memory'>Memory: --</div>"
+)
 
-| Note | Reason |
-|------|--------|
-| Canvases persist | Until explicitly stopped |
-| ID returned on create | Store it for updates |
-| Content is replaced | Not appended (update = full replace) |
-| One canvas per task | Keep focused, not cluttered |
+# Update periodically
+canvas_update(id="canvas-metrics", content="...
+<div id='cpu'>CPU: 45%</div>
+<div id='memory'>Memory: 2.1GB / 8GB</div>
+...")
+```
+
+### Interactive Selection Menu
+```bash
+canvas_create(
+  name="options-menu",
+  content="<h1>Select an Option</h1>
+<div id='options'>
+  <button onclick='select(1)'>Option 1: Quick Report</button>
+  <button onclick='select(2)'>Option 2: Full Report</button>
+  <button onclick='select(3)'>Option 3: Custom Range</button>
+</div>
+<script>
+  function select(opt) {
+    document.body.innerHTML = '<h1>Processing option ' + opt + '...</h1>';
+  }
+</script>"
+)
+```
+
+### Build Log Viewer
+```bash
+canvas_create(
+  name="build-logs",
+  content="<h1>Build Output</h1>
+<pre id='logs' style='font-family: monospace; font-size: 12px;'>
+Starting build...
+</pre>"
+)
+
+# Append logs by updating full content
+canvas_update(id="canvas-logs", content="...
+<pre id='logs'>
+Starting build...
+[14:30:01] Installing dependencies...
+[14:30:15] Dependencies installed
+[14:30:16] Compiling...
+</pre>")
+```
+
+## HTML Template
+
+Basic canvas template with live reload support:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Canvas Title</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 20px; }
+    .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+    .progress { background: #fff3cd; color: #856404; }
+  </style>
+</head>
+<body>
+  <h1>Title</h1>
+  <div id="content">
+    <!-- Dynamic content here -->
+  </div>
+</body>
+</html>
+```
+
+## Troubleshooting
+
+### Canvas not loading
+
+**Cause:** Server not running or wrong URL.
+
+**Debug:**
+```bash
+# Check if canvas server is running
+bash(command="curl http://localhost:8080/__devclaw__/canvas/")
+
+# List active canvases
+canvas_list()
+```
+
+### Update not reflecting
+
+**Cause:** Browser caching.
+
+**Solution:**
+```bash
+# Add cache-busting meta tag in content
+content="<meta http-equiv='refresh' content='5'>..."
+```
+
+### "Canvas not found"
+
+**Cause:** Invalid canvas ID.
+
+**Debug:**
+```bash
+# List all canvases to get correct ID
+canvas_list()
+```
+
+### Content too large
+
+**Cause:** HTML content exceeds limits.
+
+**Solution:**
+- Keep content concise
+- Use external styles when possible
+- Consider pagination for logs
+
+## Tips
+
+- **Keep content self-contained**: Inline CSS/JS for best results
+- **Use semantic HTML**: Clear structure helps readability
+- **Update frequency**: Balance between fresh data and performance
+- **Clean up when done**: Stop unused canvases
+- **One canvas per task**: Keep focused, not cluttered
+- **Test responsiveness**: Use viewport-friendly layouts
+
+## Common Mistakes
+
+| Mistake | Correct Approach |
+|---------|-----------------|
+| Not stopping canvases | Clean up with `canvas_stop` |
+| Content is replaced | Update = full content replacement |
+| No styling | Add inline CSS for readability |
+| Too frequent updates | Balance update frequency |
+| Missing ID storage | Save ID from `canvas_create` response |
+
+## Canvas vs Message
+
+| Use Canvas | Use Message |
+|------------|-------------|
+| Long-running status | Quick update |
+| Live updates | Static content |
+| Dashboard display | Simple text |
+| Progress tracking | One-time info |
+| Interactive content | Read-only info |

@@ -8,136 +8,303 @@ trigger: automatic
 
 Navigate websites, interact with elements, capture screenshots, and extract content.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Agent Context                          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │ browser_navigate│
+                  │   (load page)   │
+                  └────────┬────────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌───────────────┐  ┌───────────────┐
+│ browser_click │  │ browser_fill  │  │ browser_wait  │
+│ (interact)    │  │ (input text)  │  │ (for content) │
+└───────────────┘  └───────────────┘  └───────────────┘
+        │                  │                  │
+        └──────────────────┼──────────────────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌───────────────┐  ┌───────────────┐
+│browser_content│  │browser_screenshot│ │  browser_back │
+│ (extract text)│  │   (capture)     │ │   (navigate)  │
+└───────────────┘  └───────────────┘  └───────────────┘
+```
+
 ## Tools
 
-| Tool | Action |
-|------|--------|
-| `browser_navigate` | Navigate to a URL |
-| `browser_screenshot` | Capture current page |
-| `browser_content` | Get page content/text |
-| `browser_click` | Click an element |
-| `browser_fill` | Fill a form field |
-| `browser_wait` | Wait for element/content |
-| `browser_back` | Go back in history |
-
-## When to Use
-
-| Tool | When |
-|------|------|
-| `browser_navigate` | Start browsing a website |
-| `browser_screenshot` | Visual verification, debugging |
-| `browser_content` | Extract text, scrape data |
-| `browser_click` | Navigate, submit forms |
-| `browser_fill` | Enter text in inputs |
-| `browser_wait` | Page loads, dynamic content |
+| Tool | Action | Use When |
+|------|--------|----------|
+| `browser_navigate` | Go to URL | Starting browsing session |
+| `browser_screenshot` | Capture page | Visual verification, debugging |
+| `browser_content` | Get page text | Extract data, read content |
+| `browser_click` | Click element | Navigate, submit, interact |
+| `browser_fill` | Fill form field | Enter text in inputs |
+| `browser_wait` | Wait for content | Page loads, dynamic content |
+| `browser_back` | Go back | Navigate to previous page |
 
 ## Workflow Pattern
 
 ```
 1. NAVIGATE → browser_navigate(url="https://example.com")
-2. WAIT     → browser_wait(text="Welcome")
-3. INTERACT → browser_click(ref="login-button")
-4. FILL     → browser_fill(ref="email", value="user@example.com")
-5. CAPTURE  → browser_screenshot() or browser_content()
+2. WAIT     → browser_wait(text="Expected content")
+3. INTERACT → browser_click(ref="button-id") or browser_fill(...)
+4. EXTRACT  → browser_content() or browser_screenshot()
 ```
 
-## Examples
+## Navigation
 
-### Basic Navigation and Scraping
 ```bash
-# Navigate to site
 browser_navigate(url="https://example.com/products")
+# Output: Navigated to https://example.com/products
+# Page loaded successfully
+```
 
-# Wait for content to load
-browser_wait(text="Products")
+## Waiting for Content
 
-# Get page content
+Always wait after navigation for dynamic content to load:
+
+```bash
+# Wait for specific text
+browser_wait(text="Welcome")
+
+# Wait for element
+browser_wait(selector="#content")
+
+# Wait for time
+browser_wait(time=3)  # 3 seconds
+```
+
+## Getting Content
+
+### Page Text
+```bash
 browser_content()
 # Output: Full page text content...
-
-# Take screenshot
-browser_screenshot(filename="products-page.png")
+# Includes all visible text from the page
 ```
 
-### Form Interaction
+### Screenshot
 ```bash
-# Navigate to login page
-browser_navigate(url="https://example.com/login")
+browser_screenshot(filename="page.png")
+# Output: Screenshot saved to page.png
+# Returns: base64-encoded image
+```
 
-# Fill credentials
+## Interacting with Elements
+
+### Finding Element References
+
+After `browser_content()`, elements are shown with refs:
+
+```
+[button ref="submit-btn"] Submit [/button]
+[input ref="email" type="email"]
+[link ref="login-link"] Login [/link]
+[textarea ref="comments"]
+```
+
+### Clicking
+```bash
+browser_click(ref="submit-btn")
+# Output: Clicked element: submit-btn
+
+browser_click(ref="login-link")
+# Output: Clicked element: login-link
+```
+
+### Filling Forms
+```bash
 browser_fill(ref="email", value="user@example.com")
+# Output: Filled email with: user@example.com
+
 browser_fill(ref="password", value="secret123")
-
-# Submit form
-browser_click(ref="submit-button")
-
-# Wait for result
-browser_wait(text="Welcome")
+# Output: Filled password with: ********
 ```
-
-### Data Extraction
-```bash
-browser_navigate(url="https://example.com/articles")
-browser_wait(text="Articles")
-
-# Extract content
-content = browser_content()
-# Parse content for specific data...
-```
-
-## Element References
-
-After navigation, use `browser_content()` or snapshot to find element references:
-
-```
-[button id="submit-btn"] Submit [/button]
-[input id="email" type="email"]
-[link href="/dashboard"] Dashboard [/link]
-```
-
-Use these refs in `browser_click(ref="submit-btn")` or `browser_fill(ref="email", value="...")`.
-
-## Best Practices
-
-| Practice | Reason |
-|----------|--------|
-| Always wait after navigate | Pages need time to load |
-| Use screenshots for debugging | See what the browser sees |
-| Extract refs from content | Don't guess element IDs |
-| Handle errors gracefully | Sites may change or fail |
 
 ## Common Patterns
 
 ### Login Flow
 ```bash
-browser_navigate(url="https://site.com/login")
-browser_fill(ref="username", value="myuser")
-browser_fill(ref="password", value="mypass")
-browser_click(ref="login")
+# 1. Navigate to login page
+browser_navigate(url="https://example.com/login")
+
+# 2. Wait for form
+browser_wait(text="Email")
+
+# 3. Fill credentials
+browser_fill(ref="email", value="user@example.com")
+browser_fill(ref="password", value="secret123")
+
+# 4. Submit
+browser_click(ref="submit-btn")
+
+# 5. Wait for result
 browser_wait(text="Dashboard")
 ```
 
 ### Search and Extract
 ```bash
-browser_navigate(url="https://site.com/search?q=query")
+# 1. Navigate to search
+browser_navigate(url="https://example.com/search")
+
+# 2. Fill search
+browser_fill(ref="search-input", value="golang tutorial")
+browser_click(ref="search-btn")
+
+# 3. Wait for results
 browser_wait(text="Results")
+
+# 4. Extract content
 browser_content()
-# Extract relevant data from content
+# Parse results from content...
 ```
 
-### Multi-page Navigation
+### Form Submission
 ```bash
-browser_navigate(url="https://site.com/page1")
+# 1. Navigate to form
+browser_navigate(url="https://example.com/contact")
+
+# 2. Fill all fields
+browser_fill(ref="name", value="John Doe")
+browser_fill(ref="email", value="john@example.com")
+browser_fill(ref="message", value="Hello, this is my message.")
+
+# 3. Submit
+browser_click(ref="submit")
+
+# 4. Verify submission
+browser_wait(text="Thank you")
+```
+
+### Multi-Page Navigation
+```bash
+# Navigate through pages
+browser_navigate(url="https://example.com/page1")
+browser_content()
+
+# Click to next page
 browser_click(ref="next-page")
 browser_wait(text="Page 2")
 browser_content()
+
+# Go back if needed
+browser_back()
 ```
 
-## Important Notes
+### Screenshot Verification
+```bash
+# Navigate and capture
+browser_navigate(url="https://example.com/dashboard")
+browser_wait(text="Dashboard")
+browser_screenshot(filename="dashboard.png")
 
-| Note | Reason |
-|------|--------|
-| Sessions persist | Stay logged in across calls |
-| Elements may change | Sites update, verify refs |
-| Respect robots.txt | Don't scrape restricted pages |
-| Rate limiting | Don't overload servers |
+# Share with user
+send_image(image_path="dashboard.png", caption="Current dashboard state")
+```
+
+## Troubleshooting
+
+### "Element not found"
+
+**Cause:** Element ref doesn't exist or page not fully loaded.
+
+**Debug:**
+```bash
+# Get current content to see available refs
+browser_content()
+
+# Wait longer
+browser_wait(time=3)
+```
+
+### "Page not loading"
+
+**Cause:** Network issue, site down, or URL incorrect.
+
+**Debug:**
+```bash
+# Try screenshot to see current state
+browser_screenshot()
+
+# Check with bash
+bash(command="curl -I https://example.com")
+```
+
+### "Click had no effect"
+
+**Cause:** Element not clickable, covered by overlay, or needs scrolling.
+
+**Debug:**
+```bash
+# Screenshot to see page state
+browser_screenshot()
+
+# Try waiting first
+browser_wait(time=2)
+browser_click(ref="element")
+```
+
+### "Form not submitting"
+
+**Cause:** Missing required fields or validation error.
+
+**Debug:**
+```bash
+# Check content for error messages
+browser_content()
+
+# Screenshot to see visual errors
+browser_screenshot()
+```
+
+### "Content is empty"
+
+**Cause:** Page requires login or JavaScript rendering.
+
+**Debug:**
+```bash
+# Wait longer for JS
+browser_wait(time=5)
+
+# Check if login needed
+browser_content()
+```
+
+## Tips
+
+- **Always wait after navigate**: Pages need time to load
+- **Use screenshots for debugging**: See what the browser sees
+- **Extract refs from content**: Don't guess element IDs
+- **Chain operations**: navigate → wait → interact → extract
+- **Session persists**: Stay logged in across calls
+- **Handle errors gracefully**: Sites may change or fail
+
+## Common Mistakes
+
+| Mistake | Correct Approach |
+|---------|-----------------|
+| Not waiting after navigate | Always `browser_wait()` first |
+| Guessing element refs | Get refs from `browser_content()` |
+| Not handling dynamic content | Wait for specific text/elements |
+| Ignoring screenshots | Use for visual debugging |
+| Not checking for login | Verify session state |
+
+## Browser vs Bash curl
+
+| Use Browser | Use curl/bash |
+|-------------|---------------|
+| JavaScript-heavy sites | Static HTML pages |
+| Need to login | Public APIs |
+| Form interactions | Quick content fetch |
+| Screenshots needed | JSON responses |
+| Complex navigation | Simple GET requests |
