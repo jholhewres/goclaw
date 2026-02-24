@@ -75,7 +75,9 @@ type PromptComposer struct {
 	memoryStore   *memory.FileStore
 	sqliteMemory  *memory.SQLiteStore
 	skillGetter   func(name string) (interface{ SystemPrompt() string }, bool)
+	skillLister   func() []SkillInfo // Returns all available skills with name, description, tools
 	builtinSkills *BuiltinSkills
+	toolExecutor  *ToolExecutor // For dynamic tool list generation
 	isSubagent    bool // When true, only AGENTS.md + TOOLS.md are loaded.
 
 	// bootstrapCache caches bootstrap file contents to avoid re-reading from disk
@@ -87,6 +89,13 @@ type PromptComposer struct {
 	// prompt composition on I/O-heavy operations. Key: "sessionID:layerType".
 	layerCacheMu sync.RWMutex
 	layerCache   map[string]*promptLayerCache
+}
+
+// SkillInfo holds basic skill information for the Skill Discovery XML.
+type SkillInfo struct {
+	Name        string
+	Description string
+	Tools       []string
 }
 
 // NewPromptComposer creates a new prompt composer.
@@ -118,9 +127,19 @@ func (p *PromptComposer) SetSkillGetter(getter func(name string) (interface{ Sys
 	p.skillGetter = getter
 }
 
+// SetSkillLister sets the function used to list all available skills.
+func (p *PromptComposer) SetSkillLister(lister func() []SkillInfo) {
+	p.skillLister = lister
+}
+
 // SetBuiltinSkills sets the built-in skills for the prompt composer.
 func (p *PromptComposer) SetBuiltinSkills(skills *BuiltinSkills) {
 	p.builtinSkills = skills
+}
+
+// SetToolExecutor sets the tool executor for dynamic tool list generation.
+func (p *PromptComposer) SetToolExecutor(executor *ToolExecutor) {
+	p.toolExecutor = executor
 }
 
 // Compose builds the complete system prompt for a session and user input.
@@ -269,25 +288,41 @@ func (p *PromptComposer) buildCoreLayer() string {
 
 	b.WriteString(fmt.Sprintf("You are %s, a personal assistant running inside DevClaw.\n\n", p.config.Name))
 
-	// ## Tooling - matches structure exactly
+	// ## Tooling - DYNAMIC if toolExecutor available, fallback to hardcoded
 	b.WriteString("## Tooling\n\n")
 	b.WriteString("Tool availability (filtered by policy):\n")
-	b.WriteString("- read: Read file contents\n")
-	b.WriteString("- write: Create or overwrite files\n")
-	b.WriteString("- edit: Make precise edits to files\n")
-	b.WriteString("- grep: Search file contents for patterns\n")
-	b.WriteString("- glob: Find files by glob pattern\n")
-	b.WriteString("- bash: Run shell commands\n")
-	b.WriteString("- web_search: Search the web\n")
-	b.WriteString("- web_fetch: Fetch and extract content from URLs\n")
-	b.WriteString("- memory: Long-term memory (save, search, list, index)\n")
-	b.WriteString("- cron_add/cron_remove: Schedule jobs and reminders\n")
-	b.WriteString("- message: Send messages and channel actions\n")
-	b.WriteString("- vault_save/vault_get/vault_list: Encrypted secret storage\n")
+
+	// Generate tool list dynamically if toolExecutor is available
+	if p.toolExecutor != nil {
+		tools := p.toolExecutor.Tools()
+		b.WriteString(FormatToolsForPrompt(tools, 60))
+	} else {
+		// Fallback to hardcoded list (backward compatibility)
+		b.WriteString("- read: Read file contents\n")
+		b.WriteString("- write: Create or overwrite files\n")
+		b.WriteString("- edit: Make precise edits to files\n")
+		b.WriteString("- grep: Search file contents for patterns\n")
+		b.WriteString("- glob: Find files by glob pattern\n")
+		b.WriteString("- bash: Run shell commands\n")
+		b.WriteString("- web_search: Search the web\n")
+		b.WriteString("- web_fetch: Fetch and extract content from URLs\n")
+		b.WriteString("- memory: Long-term memory (save, search, list, index)\n")
+		b.WriteString("- cron_add/cron_remove: Schedule jobs and reminders\n")
+		b.WriteString("- message: Send messages and channel actions\n")
+		b.WriteString("- vault_save/vault_get/vault_list: Encrypted secret storage\n")
+	}
 	b.WriteString("\nTool names are case-sensitive. Call tools exactly as listed.\n")
+	b.WriteString("Use `list_capabilities` to see all available tools organized by category.\n")
 	b.WriteString("TOOLS.md does not control tool availability; it is user guidance for how to use external tools.\n")
 	b.WriteString("If a task is more complex or takes longer, spawn a sub-agent using `spawn_subagent`. Completion is push-based: it will auto-announce when done.\n")
 	b.WriteString("Do NOT poll in a loop. Check status on-demand only (for intervention, debugging, or when explicitly asked).\n\n")
+
+	// ## Memory Recall - NEW: explicit hint to search memory before answering
+	b.WriteString("## Memory Recall\n\n")
+	b.WriteString("Before answering questions about prior work, decisions, dates, people, preferences, or todos:\n")
+	b.WriteString("1. First search memory: memory(action='search', query='your search terms')\n")
+	b.WriteString("2. Then use the results to inform your response\n")
+	b.WriteString("This helps you recall relevant context from previous conversations.\n\n")
 
 	// ## Tool Call Style - matches exactly
 	b.WriteString("## Tool Call Style\n\n")

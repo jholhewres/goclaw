@@ -3,6 +3,7 @@
 package copilot
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -275,8 +276,7 @@ func MatchesPattern(toolName, pattern string) bool {
 	}
 
 	// Wildcard suffix
-	if strings.HasSuffix(pattern, "*") {
-		prefix := strings.TrimSuffix(pattern, "")
+	if prefix, found := strings.CutSuffix(pattern, "*"); found {
 		if strings.HasPrefix(toolName, prefix) {
 			return true
 		}
@@ -288,4 +288,183 @@ func MatchesPattern(toolName, pattern string) bool {
 		return false
 	}
 	return matched
+}
+
+// ---------- Tool Categorization for Prompt ----------
+
+// InferToolCategory determines the category of a tool from its name.
+// Used for grouping tools in the system prompt and list_capabilities output.
+func InferToolCategory(name string) string {
+	switch {
+	// Filesystem operations
+	case strings.Contains(name, "read") ||
+		strings.Contains(name, "write") ||
+		strings.Contains(name, "edit") ||
+		strings.Contains(name, "list_files") ||
+		strings.Contains(name, "glob") ||
+		strings.Contains(name, "search_files"):
+		return "Filesystem"
+
+	// Shell/execution
+	case name == "bash" ||
+		name == "exec" ||
+		name == "ssh" ||
+		name == "scp" ||
+		name == "set_env":
+		return "Execution"
+
+	// Web operations
+	case strings.Contains(name, "web_") ||
+		strings.Contains(name, "fetch"):
+		return "Web"
+
+	// Memory/knowledge
+	case strings.Contains(name, "memory"):
+		return "Memory"
+
+	// Scheduling
+	case strings.HasPrefix(name, "cron_"):
+		return "Scheduling"
+
+	// Vault/secrets
+	case strings.HasPrefix(name, "vault_"):
+		return "Vault"
+
+	// Sessions/agents
+	case strings.HasPrefix(name, "sessions_") ||
+		strings.Contains(name, "subagent"):
+		return "Agents"
+
+	// Git/version control
+	case strings.Contains(name, "git_") ||
+		name == "git":
+		return "Git"
+
+	// Docker/containers
+	case strings.Contains(name, "docker") ||
+		strings.Contains(name, "kubectl") ||
+		strings.Contains(name, "kubernetes"):
+		return "Containers"
+
+	// Cloud/infrastructure
+	case strings.Contains(name, "aws_") ||
+		strings.Contains(name, "gcloud_") ||
+		strings.Contains(name, "azure_") ||
+		strings.Contains(name, "terraform"):
+		return "Cloud"
+
+	// Development tools
+	case strings.Contains(name, "claude-code") ||
+		strings.Contains(name, "test") ||
+		strings.Contains(name, "debug"):
+		return "Development"
+
+	// Team tools
+	case strings.HasPrefix(name, "team_"):
+		return "Team"
+
+	// Skills management
+	case strings.HasSuffix(name, "_skill") ||
+		strings.Contains(name, "skill"):
+		return "Skills"
+
+	// Media
+	case strings.Contains(name, "image") ||
+		strings.Contains(name, "audio") ||
+		strings.Contains(name, "video") ||
+		strings.Contains(name, "transcribe"):
+		return "Media"
+
+	// Capabilities
+	case name == "list_capabilities":
+		return "Capabilities"
+
+	default:
+		return "Other"
+	}
+}
+
+// CategorizeTools groups tool definitions by category for display purposes.
+func CategorizeTools(tools []ToolDefinition) map[string][]ToolDefinition {
+	categories := make(map[string][]ToolDefinition)
+	for _, tool := range tools {
+		cat := InferToolCategory(tool.Function.Name)
+		categories[cat] = append(categories[cat], tool)
+	}
+	return categories
+}
+
+// CategorizeToolNames groups tool names by category.
+func CategorizeToolNames(names []string) map[string][]string {
+	categories := make(map[string][]string)
+	for _, name := range names {
+		cat := InferToolCategory(name)
+		categories[cat] = append(categories[cat], name)
+	}
+	return categories
+}
+
+// FormatToolsForPrompt formats tools as a compact list for the system prompt.
+// Groups by category and truncates descriptions to fit within budget.
+func FormatToolsForPrompt(tools []ToolDefinition, maxDescLen int) string {
+	categories := CategorizeTools(tools)
+
+	// Sort categories for consistent output
+	var cats []string
+	for cat := range categories {
+		cats = append(cats, cat)
+	}
+	// Sort alphabetically
+	for i := 0; i < len(cats); i++ {
+		for j := i + 1; j < len(cats); j++ {
+			if cats[j] < cats[i] {
+				cats[i], cats[j] = cats[j], cats[i]
+			}
+		}
+	}
+
+	var b strings.Builder
+	for _, cat := range cats {
+		b.WriteString(fmt.Sprintf("\n### %s\n", cat))
+		for _, tool := range categories[cat] {
+			desc := tool.Function.Description
+			if len(desc) > maxDescLen {
+				desc = desc[:maxDescLen-3] + "..."
+			}
+			// Clean up description (remove newlines)
+			desc = strings.ReplaceAll(desc, "\n", " ")
+			b.WriteString(fmt.Sprintf("- %s: %s\n", tool.Function.Name, desc))
+		}
+	}
+
+	return b.String()
+}
+
+// FormatToolNamesForPrompt formats tool names as a compact list for the system prompt.
+// Groups by category for better readability.
+func FormatToolNamesForPrompt(names []string) string {
+	categories := CategorizeToolNames(names)
+
+	// Sort categories
+	var cats []string
+	for cat := range categories {
+		cats = append(cats, cat)
+	}
+	for i := 0; i < len(cats); i++ {
+		for j := i + 1; j < len(cats); j++ {
+			if cats[j] < cats[i] {
+				cats[i], cats[j] = cats[j], cats[i]
+			}
+		}
+	}
+
+	var b strings.Builder
+	for _, cat := range cats {
+		b.WriteString(fmt.Sprintf("\n### %s\n", cat))
+		for _, name := range categories[cat] {
+			b.WriteString(fmt.Sprintf("- %s\n", name))
+		}
+	}
+
+	return b.String()
 }

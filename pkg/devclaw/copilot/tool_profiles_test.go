@@ -1,12 +1,14 @@
 package copilot
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
 func TestBuiltInProfiles_Exist(t *testing.T) {
 	// Verify all built-in profiles exist.
-	expectedProfiles := []string{"minimal", "coding", "messaging", "full"}
+	expectedProfiles := []string{"minimal", "coding", "messaging", "team", "full"}
 
 	for _, name := range expectedProfiles {
 		profile, ok := BuiltInProfiles[name]
@@ -408,5 +410,214 @@ func TestMatchesPattern_Glob(t *testing.T) {
 	// Test simple glob patterns.
 	if !MatchesPattern("test_bash", "test_*") {
 		t.Error("test_bash should match test_*")
+	}
+}
+
+// ========== Helper function to create ToolDefinition for tests ==========
+
+func makeTestTool(name, description string) ToolDefinition {
+	return ToolDefinition{
+		Type: "function",
+		Function: FunctionDef{
+			Name:        name,
+			Description: description,
+			Parameters:  json.RawMessage(`{"type":"object"}`),
+		},
+	}
+}
+
+// ========== Tests for InferToolCategory ==========
+
+func TestInferToolCategory(t *testing.T) {
+	tests := []struct {
+		toolName string
+		expected string
+	}{
+		// Filesystem
+		{"read_file", "Filesystem"},
+		{"write_file", "Filesystem"},
+		{"edit_file", "Filesystem"},
+		{"list_files", "Filesystem"},
+		{"glob_files", "Filesystem"},
+		{"search_files", "Filesystem"},
+
+		// Execution
+		{"bash", "Execution"},
+		{"exec", "Execution"},
+		{"ssh", "Execution"},
+		{"scp", "Execution"},
+		{"set_env", "Execution"},
+
+		// Web
+		{"web_search", "Web"},
+		{"web_fetch", "Web"},
+
+		// Memory
+		{"memory", "Memory"},
+
+		// Scheduling
+		{"cron_add", "Scheduling"},
+		{"cron_list", "Scheduling"},
+		{"cron_remove", "Scheduling"},
+
+		// Vault
+		{"vault_save", "Vault"},
+		{"vault_get", "Vault"},
+		{"vault_list", "Vault"},
+		{"vault_delete", "Vault"},
+
+		// Agents
+		{"sessions_list", "Agents"},
+		{"sessions_send", "Agents"},
+		{"spawn_subagent", "Agents"},
+		{"list_subagents", "Agents"},
+
+		// Git
+		{"git_status", "Git"},
+		{"git_commit", "Git"},
+		{"git", "Git"},
+
+		// Containers
+		{"docker_ps", "Containers"},
+		{"docker_run", "Containers"},
+		{"kubectl_get", "Containers"},
+		{"kubernetes_deploy", "Containers"},
+
+		// Cloud
+		{"aws_s3_ls", "Cloud"},
+		{"gcloud_compute", "Cloud"},
+		{"azure_vm", "Cloud"},
+		{"terraform_apply", "Cloud"},
+
+		// Team
+		{"team_manage", "Team"},
+		{"team_agent", "Team"},
+		{"team_task", "Team"},
+
+		// Skills
+		{"install_skill", "Skills"},
+		{"list_skills", "Skills"},
+		{"search_skills", "Skills"},
+
+		// Media
+		{"describe_image", "Media"},
+		{"transcribe_audio", "Media"},
+
+		// Capabilities
+		{"list_capabilities", "Capabilities"},
+
+		// Other
+		{"unknown_tool", "Other"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.toolName, func(t *testing.T) {
+			result := InferToolCategory(tt.toolName)
+			if result != tt.expected {
+				t.Errorf("InferToolCategory(%q) = %q, want %q", tt.toolName, result, tt.expected)
+			}
+		})
+	}
+}
+
+// ========== Tests for CategorizeTools ==========
+
+func TestCategorizeTools(t *testing.T) {
+	tools := []ToolDefinition{
+		makeTestTool("read_file", "Read file"),
+		makeTestTool("bash", "Run command"),
+		makeTestTool("web_search", "Search web"),
+		makeTestTool("memory", "Memory operations"),
+	}
+
+	result := CategorizeTools(tools)
+
+	// Verify categories exist
+	if len(result["Filesystem"]) == 0 {
+		t.Error("Expected Filesystem category to have tools")
+	}
+	if len(result["Execution"]) == 0 {
+		t.Error("Expected Execution category to have tools")
+	}
+	if len(result["Web"]) == 0 {
+		t.Error("Expected Web category to have tools")
+	}
+	if len(result["Memory"]) == 0 {
+		t.Error("Expected Memory category to have tools")
+	}
+}
+
+// ========== Tests for CategorizeToolNames ==========
+
+func TestCategorizeToolNames(t *testing.T) {
+	names := []string{"read_file", "write_file", "bash", "web_search"}
+
+	result := CategorizeToolNames(names)
+
+	if len(result["Filesystem"]) != 2 {
+		t.Errorf("Expected 2 Filesystem tools, got %d", len(result["Filesystem"]))
+	}
+	if len(result["Execution"]) != 1 {
+		t.Errorf("Expected 1 Execution tool, got %d", len(result["Execution"]))
+	}
+	if len(result["Web"]) != 1 {
+		t.Errorf("Expected 1 Web tool, got %d", len(result["Web"]))
+	}
+}
+
+// ========== Tests for FormatToolsForPrompt ==========
+
+func TestFormatToolsForPrompt(t *testing.T) {
+	tools := []ToolDefinition{
+		makeTestTool("read_file", "Read file contents from disk"),
+		makeTestTool("bash", "Run shell commands"),
+	}
+
+	result := FormatToolsForPrompt(tools, 60)
+
+	// Verify structure
+	if !strings.Contains(result, "### Filesystem") {
+		t.Error("Expected Filesystem category header")
+	}
+	if !strings.Contains(result, "### Execution") {
+		t.Error("Expected Execution category header")
+	}
+	if !strings.Contains(result, "read_file:") {
+		t.Error("Expected read_file in output")
+	}
+	if !strings.Contains(result, "bash:") {
+		t.Error("Expected bash in output")
+	}
+}
+
+func TestFormatToolsForPrompt_Truncation(t *testing.T) {
+	longDesc := "This is a very long description that should be truncated because it exceeds the maximum description length that we set for the prompt output and it keeps going on and on"
+	tools := []ToolDefinition{
+		makeTestTool("long_tool", longDesc),
+	}
+
+	result := FormatToolsForPrompt(tools, 30)
+
+	// Verify truncation occurred
+	if !strings.Contains(result, "...") && strings.Contains(result, longDesc) {
+		t.Error("Expected description to be truncated")
+	}
+}
+
+// ========== Tests for FormatToolNamesForPrompt ==========
+
+func TestFormatToolNamesForPrompt(t *testing.T) {
+	names := []string{"read_file", "bash", "web_search"}
+
+	result := FormatToolNamesForPrompt(names)
+
+	if !strings.Contains(result, "### Filesystem") {
+		t.Error("Expected Filesystem category header")
+	}
+	if !strings.Contains(result, "### Execution") {
+		t.Error("Expected Execution category header")
+	}
+	if !strings.Contains(result, "### Web") {
+		t.Error("Expected Web category header")
 	}
 }

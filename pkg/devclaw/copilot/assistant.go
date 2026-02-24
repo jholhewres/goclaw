@@ -396,6 +396,9 @@ func (a *Assistant) Start(ctx context.Context) error {
 	builtinSkills := LoadBuiltinSkills(a.logger.With("component", "builtin-skills"))
 	a.promptComposer.SetBuiltinSkills(builtinSkills)
 
+	// Wire tool executor to prompt composer for dynamic tool list generation.
+	a.promptComposer.SetToolExecutor(a.toolExecutor)
+
 	// 0c. Open the central devclaw.db and wire all SQLite-backed storage.
 	// Uses the Database Hub for unified access (supports SQLite, PostgreSQL, MySQL).
 	hubConfig := a.config.Database.Effective()

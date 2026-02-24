@@ -31,6 +31,7 @@ func RegisterSystemTools(executor *ToolExecutor, sandboxRunner *sandbox.Runner, 
 	registerWebFetchTool(executor, ssrfGuard)
 	registerFileTools(executor, dataDir)
 	registerBashTool(executor)
+	registerCapabilitiesTool(executor) // Agent self-discovery tool
 
 	if sandboxRunner != nil {
 		registerExecTool(executor, sandboxRunner)
@@ -1663,6 +1664,101 @@ func RegisterSessionTools(executor *ToolExecutor, wm *WorkspaceManager) {
 			)
 
 			return fmt.Sprintf("Message delivered to session %s (channel: %s).", sessionID, session.Channel), nil
+		},
+	)
+}
+
+// ---------- Capabilities Discovery Tool ----------
+
+// registerCapabilitiesTool registers the list_capabilities tool for agent self-discovery.
+// This tool allows the agent to discover what tools and skills it has available,
+// addressing the "agent doesn't know its capabilities" problem.
+func registerCapabilitiesTool(executor *ToolExecutor) {
+	executor.Register(
+		MakeToolDefinition("list_capabilities",
+			"List all available tools and skills with their descriptions. Use this to discover what you can do. "+
+				"Filter options: 'tools' (only tools), 'skills' (only skills), 'all' (both). "+
+				"This helps you understand your capabilities before attempting tasks.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"filter": map[string]any{
+						"type":        "string",
+						"enum":        []string{"tools", "skills", "all"},
+						"default":     "all",
+						"description": "What to list: 'tools' (only tools), 'skills' (only skills), 'all' (both)",
+					},
+					"category": map[string]any{
+						"type":        "string",
+						"description": "Filter tools by category (e.g. 'Filesystem', 'Web', 'Memory'). Empty = all categories.",
+					},
+				},
+			},
+		),
+		func(_ context.Context, args map[string]any) (any, error) {
+			filter, _ := args["filter"].(string)
+			if filter == "" {
+				filter = "all"
+			}
+			category, _ := args["category"].(string)
+
+			var sb strings.Builder
+			sb.WriteString("# Available Capabilities\n\n")
+
+			// List tools
+			if filter == "tools" || filter == "all" {
+				sb.WriteString("## Tools\n\n")
+				tools := executor.Tools()
+
+				// Categorize tools
+				categories := CategorizeTools(tools)
+
+				// Sort categories
+				var cats []string
+				for cat := range categories {
+					cats = append(cats, cat)
+				}
+				for i := 0; i < len(cats); i++ {
+					for j := i + 1; j < len(cats); j++ {
+						if cats[j] < cats[i] {
+							cats[i], cats[j] = cats[j], cats[i]
+						}
+					}
+				}
+
+				for _, cat := range cats {
+					// Filter by category if specified
+					if category != "" && cat != category {
+						continue
+					}
+					sb.WriteString(fmt.Sprintf("### %s\n", cat))
+					for _, tool := range categories[cat] {
+						desc := tool.Function.Description
+						// Truncate long descriptions
+						if len(desc) > 80 {
+							desc = desc[:77] + "..."
+						}
+						desc = strings.ReplaceAll(desc, "\n", " ")
+						sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Function.Name, desc))
+					}
+					sb.WriteString("\n")
+				}
+			}
+
+			// Note: skills listing is handled separately via skillRegistry
+			// which is not directly accessible here. The agent can use
+			// list_skills tool from the skills system.
+
+			if filter == "skills" || filter == "all" {
+				sb.WriteString("## Skills\n\n")
+				sb.WriteString("Use `list_skills` tool to see available skills.\n")
+				sb.WriteString("Use `search_skills <query>` to find skills by keyword.\n\n")
+			}
+
+			sb.WriteString(fmt.Sprintf("\n**Total tools available**: %d\n", len(executor.Tools())))
+			sb.WriteString("\n*Tip: Use specific tool names directly. If unsure about a tool's parameters, try it - the error message will show the expected format.*\n")
+
+			return sb.String(), nil
 		},
 	)
 }
