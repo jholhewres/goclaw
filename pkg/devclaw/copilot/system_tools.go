@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +22,40 @@ import (
 	"github.com/jholhewres/devclaw/pkg/devclaw/sandbox"
 	"github.com/jholhewres/devclaw/pkg/devclaw/scheduler"
 )
+
+// sanitizeOutput removes sensitive information from command output.
+// This prevents API tokens, passwords, and other secrets from being exposed to users/LLMs.
+func sanitizeOutput(output string) string {
+	// Sanitize common API token patterns.
+	// Jira/Atlassian tokens (ATATT3...)
+	output = regexp.MustCompile(`ATATT3[A-Za-z0-9+/=]{20,}`).ReplaceAllString(output, "[SANITIZED_TOKEN]")
+	// Generic API keys/tokens (long alphanumeric strings after common prefixes).
+	tokenPatterns := []string{
+		`api[_-]?key[=:=]\s*[A-Za-z0-9_-]{20,}`,
+		`token[=:=]\s*[A-Za-z0-9_-]{20,}`,
+		`secret[=:=]\s*[A-Za-z0-9_-]{20,}`,
+		`password[=:=]\s*\S{8,}`,
+		`bearer\s+[A-Za-z0-9_-]{20,}`,
+	}
+	for _, pattern := range tokenPatterns {
+		re := regexp.MustCompile(`(?i)` + pattern)
+		output = re.ReplaceAllString(output, "$1 [SANITIZED]")
+	}
+
+	// Sanitize URLs with credentials (user:pass@host).
+	urlCredPattern := regexp.MustCompile(`(https?://)([^:@\s]+):([^@\s]+)@`)
+	output = urlCredPattern.ReplaceAllString(output, "$1[REDACTED]:[REDACTED]@")
+
+	// Sanitize long hex strings that look like secrets (32+ hex chars).
+	hexPattern := regexp.MustCompile(`\b[0-9a-fA-F]{32,}\b`)
+	output = hexPattern.ReplaceAllString(output, "[SANITIZED_HEX]")
+
+	// Sanitize private key patterns.
+	privateKeyPattern := regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----`)
+	output = privateKeyPattern.ReplaceAllString(output, "[SANITIZED_PRIVATE_KEY]")
+
+	return output
+}
 
 // RegisterSystemTools registers all built-in system tools in the executor.
 // These are core tools available regardless of which skills are loaded.
@@ -495,6 +530,9 @@ func registerBashTool(executor *ToolExecutor) {
 
 			output = strings.TrimRight(output, "\n ")
 
+			// Sanitize sensitive information from output.
+			output = sanitizeOutput(output)
+
 			// Truncate very long output.
 			if len(output) > 50000 {
 				output = output[:50000] + "\n... [truncated, output too long]"
@@ -584,6 +622,9 @@ func registerBashTool(executor *ToolExecutor) {
 			out, err := cmd.CombinedOutput()
 			output := strings.TrimRight(string(out), "\n ")
 
+			// Sanitize sensitive information from output.
+			output = sanitizeOutput(output)
+
 			if len(output) > 50000 {
 				output = output[:50000] + "\n... [truncated]"
 			}
@@ -653,6 +694,9 @@ func registerBashTool(executor *ToolExecutor) {
 
 			out, err := cmd.CombinedOutput()
 			output := strings.TrimRight(string(out), "\n ")
+
+			// Sanitize sensitive information from output.
+			output = sanitizeOutput(output)
 
 			if err != nil {
 				return fmt.Sprintf("SCP error: %v\n%s", err, output), nil

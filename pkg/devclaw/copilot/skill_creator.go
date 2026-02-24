@@ -70,8 +70,18 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 			// Sanitize name.
 			name = sanitizeSkillName(name)
 
-			// Create directory structure.
+			// Check if skill already exists.
+			if existing, _ := registry.Get(name); existing != nil {
+				return nil, fmt.Errorf("skill '%s' already exists. Use edit_skill to modify it, or choose a different name", name)
+			}
+
+			// Also check if directory exists (skill not yet loaded).
 			skillDir := filepath.Join(skillsDir, name)
+			if _, err := os.Stat(skillDir); err == nil {
+				return nil, fmt.Errorf("skill directory '%s' already exists. Use edit_skill to modify it, or choose a different name", skillDir)
+			}
+
+			// Create directory structure.
 			if err := os.MkdirAll(skillDir, 0o755); err != nil {
 				return nil, fmt.Errorf("creating skill directory: %w", err)
 			}
