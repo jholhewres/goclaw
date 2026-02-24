@@ -143,7 +143,10 @@ func applyPatch(ctx context.Context, input string, cwd string) (*ApplyPatchResul
 
 		switch hunk.Kind {
 		case HunkAdd:
-			targetPath := resolvePatchPath(hunk.Add.Path, cwd)
+			targetPath, err := resolvePatchPath(hunk.Add.Path, cwd)
+			if err != nil {
+				return nil, err
+			}
 			if err := ensureDir(targetPath); err != nil {
 				return nil, fmt.Errorf("ensuring dir for %s: %w", targetPath, err)
 			}
@@ -153,21 +156,30 @@ func applyPatch(ctx context.Context, input string, cwd string) (*ApplyPatchResul
 			recordSummary(summary, seenAdded, "added", hunk.Add.Path)
 
 		case HunkDelete:
-			targetPath := resolvePatchPath(hunk.Delete.Path, cwd)
+			targetPath, err := resolvePatchPath(hunk.Delete.Path, cwd)
+			if err != nil {
+				return nil, err
+			}
 			if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
 				return nil, fmt.Errorf("deleting file %s: %w", targetPath, err)
 			}
 			recordSummary(summary, seenDeleted, "deleted", hunk.Delete.Path)
 
 		case HunkUpdate:
-			targetPath := resolvePatchPath(hunk.Update.Path, cwd)
+			targetPath, err := resolvePatchPath(hunk.Update.Path, cwd)
+			if err != nil {
+				return nil, err
+			}
 			applied, err := applyUpdateHunk(targetPath, hunk.Update.Chunks)
 			if err != nil {
 				return nil, fmt.Errorf("updating file %s: %w", targetPath, err)
 			}
 
 			if hunk.Update.MovePath != "" {
-				moveTarget := resolvePatchPath(hunk.Update.MovePath, cwd)
+				moveTarget, err := resolvePatchPath(hunk.Update.MovePath, cwd)
+				if err != nil {
+					return nil, err
+				}
 				if err := ensureDir(moveTarget); err != nil {
 					return nil, fmt.Errorf("ensuring dir for %s: %w", moveTarget, err)
 				}
@@ -224,11 +236,24 @@ func formatSummary(summary *ApplyPatchResult) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func resolvePatchPath(filePath string, cwd string) string {
+func resolvePatchPath(filePath string, cwd string) (string, error) {
+	// Reject absolute paths - force sandbox to cwd
 	if filepath.IsAbs(filePath) {
-		return filepath.Clean(filePath)
+		return "", fmt.Errorf("absolute paths not allowed in patch: %s", filePath)
 	}
-	return filepath.Clean(filepath.Join(cwd, filePath))
+
+	resolved := filepath.Clean(filepath.Join(cwd, filePath))
+
+	// Verify path doesn't escape cwd (prevent path traversal)
+	rel, err := filepath.Rel(cwd, resolved)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve path %s: %w", filePath, err)
+	}
+	if strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("path escapes workspace: %s", filePath)
+	}
+
+	return resolved, nil
 }
 
 func ensureDir(filePath string) error {

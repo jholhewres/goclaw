@@ -126,3 +126,86 @@ func TestApplyPatch_Invalid(t *testing.T) {
 		t.Errorf("expected missing begin marker error, got %v", err)
 	}
 }
+
+// Security tests for path traversal prevention
+
+func TestApplyPatch_AbsolutePathRejected(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	patch := `*** Begin Patch
+*** Add File: /etc/malicious.txt
++evil content
+*** End Patch`
+
+	_, err := applyPatch(context.Background(), patch, tmpDir)
+	if err == nil {
+		t.Error("expected error for absolute path, got nil")
+	}
+	if !strings.Contains(err.Error(), "absolute paths not allowed") {
+		t.Errorf("expected absolute path error, got: %v", err)
+	}
+}
+
+func TestApplyPatch_PathTraversalRejected(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	patch := `*** Begin Patch
+*** Add File: ../../../etc/passwd
++stolen
+*** End Patch`
+
+	_, err := applyPatch(context.Background(), patch, tmpDir)
+	if err == nil {
+		t.Error("expected error for path traversal, got nil")
+	}
+	if !strings.Contains(err.Error(), "escapes workspace") {
+		t.Errorf("expected path escapes error, got: %v", err)
+	}
+}
+
+func TestApplyPatch_DeletePathTraversalRejected(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a file to ensure the patch tries to delete
+	err := os.WriteFile(filepath.Join(tmpDir, "safe.txt"), []byte("safe"), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	patch := `*** Begin Patch
+*** Delete File: ../../safe.txt
+*** End Patch`
+
+	_, err = applyPatch(context.Background(), patch, tmpDir)
+	if err == nil {
+		t.Error("expected error for path traversal in delete, got nil")
+	}
+	if !strings.Contains(err.Error(), "escapes workspace") {
+		t.Errorf("expected path escapes error, got: %v", err)
+	}
+}
+
+func TestApplyPatch_MovePathTraversalRejected(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("content\n"), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	patch := `*** Begin Patch
+*** Update File: file.txt
+*** Move to: ../../malicious.txt
+@@
+-content
++evil
+*** End Patch`
+
+	_, err = applyPatch(context.Background(), patch, tmpDir)
+	if err == nil {
+		t.Error("expected error for path traversal in move, got nil")
+	}
+	if !strings.Contains(err.Error(), "escapes workspace") {
+		t.Errorf("expected path escapes error, got: %v", err)
+	}
+}
