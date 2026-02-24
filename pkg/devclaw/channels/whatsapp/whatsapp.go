@@ -153,6 +153,10 @@ type WhatsApp struct {
 
 	// reconnectGuard prevents multiple concurrent reconnection attempts.
 	reconnectGuard atomic.Bool
+
+	// messagesClosed tracks if the messages channel has been closed.
+	// This prevents sending to a closed channel which would cause a panic.
+	messagesClosed atomic.Bool
 }
 
 // New creates a new WhatsApp channel instance.
