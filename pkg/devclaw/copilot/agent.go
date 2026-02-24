@@ -968,17 +968,40 @@ func (a *AgentRun) compactMessages(messages []chatMessage, keepRecent int) []cha
 			result = append(result, rest...)
 			return result
 		}
-		rest = rest[len(rest)-keepRecent:]
+		// Find safe cut point to avoid orphan tool messages
+		cutIdx := len(rest) - keepRecent
+		cutIdx = a.findSafeCutPoint(rest, cutIdx)
+		rest = rest[cutIdx:]
 		result = append(result, rest...)
 	} else {
 		// No system message; keep last keepRecent.
 		if len(messages) <= keepRecent {
 			return messages
 		}
-		result = make([]chatMessage, keepRecent)
-		copy(result, messages[len(messages)-keepRecent:])
+		cutIdx := len(messages) - keepRecent
+		cutIdx = a.findSafeCutPoint(messages, cutIdx)
+		result = make([]chatMessage, len(messages)-cutIdx)
+		copy(result, messages[cutIdx:])
 	}
 	return result
+}
+
+// findSafeCutPoint ensures we don't cut in the middle of a tool call/result sequence.
+// It returns an adjusted index that points to a user or assistant message (not tool).
+func (a *AgentRun) findSafeCutPoint(messages []chatMessage, proposedIdx int) int {
+	// Walk backward from proposed index to find a safe starting point
+	for i := proposedIdx; i > 0; i-- {
+		if messages[i].Role == "user" || (messages[i].Role == "assistant" && len(messages[i].ToolCalls) == 0) {
+			// Found a safe starting point (user message or assistant without pending tool calls)
+			return i
+		}
+		if messages[i].Role == "assistant" && len(messages[i].ToolCalls) > 0 {
+			// This assistant has tool calls, so we need to include it
+			return i
+		}
+		// If it's a tool message, keep going backward
+	}
+	return proposedIdx
 }
 
 // truncateToolResults shortens tool result messages that exceed maxLen.
@@ -1174,8 +1197,12 @@ func (a *AgentRun) managedCompaction(ctx context.Context, messages []chatMessage
 		return messages // Too small to compact
 	}
 
-	middle := body[1 : len(body)-keepRecent]
-	recent := body[len(body)-keepRecent:]
+	// Find safe cut point to avoid orphan tool messages
+	cutIdx := len(body) - keepRecent
+	cutIdx = a.findSafeCutPoint(body, cutIdx)
+
+	middle := body[1:cutIdx]
+	recent := body[cutIdx:]
 
 	summary := a.summarizeMiddle(ctx, middle)
 
