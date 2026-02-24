@@ -1399,6 +1399,14 @@ func registerVaultTools(executor *ToolExecutor, vault *Vault) {
 Use this for ANY sensitive data: API keys, tokens, passwords, database URLs.
 The key can be ANY name (e.g., 'OPENAI_API_KEY', 'DATABASE_URL', 'GITHUB_TOKEN').
 
+IMPORTANT: vault_save AUTOMATICALLY OVERWRITES existing values. You do NOT need to
+delete a secret before updating it. Just call vault_save with the same key name.
+
+Workflow for updating credentials:
+1. Use vault_get to check the current value (optional, for comparison)
+2. Call vault_save directly with the new value - it will replace the old one
+3. NEVER use vault_delete before saving - it's unnecessary and loses data
+
 Examples:
 - vault_save("OPENAI_API_KEY", "sk-xxx")
 - vault_save("DATABASE_URL", "postgres://user:pass@host:5432/db")
@@ -1436,6 +1444,13 @@ The vault uses AES-256-GCM encryption. Secrets are automatically injected as env
 		MakeToolDefinition("vault_get", `Retrieve a secret from the encrypted vault.
 
 Returns the secret value if found, or empty if the key doesn't exist.
+
+IMPORTANT: Before saving new credentials, use vault_get to check existing values:
+1. Use vault_get to retrieve the current value
+2. Compare with the new value the user provided
+3. Only update if the value is actually different
+4. Use vault_save to update (it overwrites automatically - NO need to delete first)
+
 Use vault_list first if you're unsure what keys are available.`, map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -1488,7 +1503,15 @@ Use this to discover what secrets are available before using vault_get.`, map[st
 
 	// vault_delete — remove a secret from the vault.
 	executor.Register(
-		MakeToolDefinition("vault_delete", "Remove a secret from the encrypted vault by name.", map[string]any{
+		MakeToolDefinition("vault_delete", `Remove a secret from the encrypted vault by name.
+
+WARNING: This permanently deletes the secret. Use vault_delete ONLY when:
+- The user explicitly asks to remove a credential
+- A secret is no longer needed and should be purged
+
+DO NOT use vault_delete to "clear space" before saving new values.
+vault_save automatically overwrites - just use it directly.
+Deleting before saving is WRONG and causes data loss.`, map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{
