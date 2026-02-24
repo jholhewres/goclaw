@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 )
 
 // extractDocumentText extracts readable text from a document based on MIME type.
@@ -236,10 +235,10 @@ func extractVideoFrame(ctx context.Context, data []byte, mimeType string, llm *L
 		tmpFrameFile.Close()
 		return ""
 	}
-	// Capture the inode of the pre-created file so we can verify it hasn't
+	// Capture the file info of the pre-created file so we can verify it hasn't
 	// been replaced between ffmpeg finishing and our read (TOCTOU guard).
-	var preStat syscall.Stat_t
-	if err := syscall.Fstat(int(tmpFrameFile.Fd()), &preStat); err != nil {
+	preStat, err := os.Stat(tmpFramePath)
+	if err != nil {
 		tmpFrameFile.Close()
 		return ""
 	}
@@ -262,13 +261,13 @@ func extractVideoFrame(ctx context.Context, data []byte, mimeType string, llm *L
 
 	// TOCTOU guard: verify the file on disk is still the same inode that
 	// we created, not a symlink or replacement injected by another process.
-	var postStat syscall.Stat_t
-	if err := syscall.Stat(tmpFramePath, &postStat); err != nil {
+	postStat, err := os.Stat(tmpFramePath)
+	if err != nil {
 		logger.Warn("frame temp file disappeared after ffmpeg", "error", err)
 		return ""
 	}
-	if preStat.Dev != postStat.Dev || preStat.Ino != postStat.Ino {
-		logger.Warn("frame temp file inode changed — possible TOCTOU attack, aborting")
+	if !os.SameFile(preStat, postStat) {
+		logger.Warn("frame temp file changed — possible TOCTOU attack, aborting")
 		return ""
 	}
 

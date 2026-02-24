@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/jholhewres/devclaw/pkg/devclaw/copilot/memory"
@@ -30,6 +29,7 @@ func RegisterSystemTools(executor *ToolExecutor, sandboxRunner *sandbox.Runner, 
 	registerWebSearchTool(executor, webSearchCfg)
 	registerWebFetchTool(executor, ssrfGuard)
 	registerFileTools(executor, dataDir)
+	RegisterApplyPatchTool(executor)
 	registerBashTool(executor)
 	registerCapabilitiesTool(executor) // Agent self-discovery tool
 
@@ -467,10 +467,9 @@ func registerBashTool(executor *ToolExecutor) {
 			cmd := exec.CommandContext(cmdCtx, "bash", "-l", "-c", wrappedCmd)
 			// Create a new process group so we can kill all child processes
 			// (nohup, background &, etc.) when the timeout fires.
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			setSysProcAttr(cmd)
 			cmd.Cancel = func() error {
-				// Kill the entire process group (negative PID).
-				return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				return killProcGroup(cmd)
 			}
 			cmd.Env = os.Environ() // Inherit full user environment.
 
@@ -576,9 +575,9 @@ func registerBashTool(executor *ToolExecutor) {
 			sshArgs = append(sshArgs, host, command)
 
 			cmd := exec.CommandContext(cmdCtx, "ssh", sshArgs...)
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			setSysProcAttr(cmd)
 			cmd.Cancel = func() error {
-				return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				return killProcGroup(cmd)
 			}
 			cmd.Env = os.Environ() // Inherit SSH agent, keys, etc.
 
@@ -646,9 +645,9 @@ func registerBashTool(executor *ToolExecutor) {
 			scpArgs = append(scpArgs, source, dest)
 
 			cmd := exec.CommandContext(cmdCtx, "scp", scpArgs...)
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			setSysProcAttr(cmd)
 			cmd.Cancel = func() error {
-				return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				return killProcGroup(cmd)
 			}
 			cmd.Env = os.Environ()
 
@@ -695,7 +694,7 @@ func registerBashTool(executor *ToolExecutor) {
 // persistentShellState tracks state between bash tool calls.
 type persistentShellState struct {
 	cwd string            // Current working directory.
-	env map[string]string  // Extra environment variables.
+	env map[string]string // Extra environment variables.
 }
 
 // ---------- File Tools (full filesystem access) ----------

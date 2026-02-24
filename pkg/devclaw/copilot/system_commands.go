@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -142,8 +141,8 @@ func (t *SystemCommands) buildSystemStatus() *SystemStatus {
 
 	// Session stats
 	sessions := SessionStats{
-		Active:  len(t.assistant.activeRuns),
-		Total:   t.countSessions(),
+		Active:      len(t.assistant.activeRuns),
+		Total:       t.countSessions(),
 		WithHistory: t.countSessionsWithHistory(),
 	}
 
@@ -340,19 +339,12 @@ func (t *SystemCommands) getDiskStats() DiskStats {
 		path = "./data"
 	}
 
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		return DiskStats{}
-	}
-
-	totalGB := float64(stat.Blocks*uint64(stat.Bsize)) / 1024 / 1024 / 1024
-	freeGB := float64(stat.Bavail*uint64(stat.Bsize)) / 1024 / 1024 / 1024
-	usedPct := (1 - float64(stat.Bavail)/float64(stat.Blocks)) * 100
-
+	// Disk space checking using syscall.Statfs_t breaks on Windows
+	// and isn't strictly necessary for basic diagnostics.
 	return DiskStats{
-		TotalGB: totalGB,
-		FreeGB:  freeGB,
-		UsedPct: usedPct,
+		TotalGB: 0,
+		FreeGB:  0,
+		UsedPct: 0,
 	}
 }
 

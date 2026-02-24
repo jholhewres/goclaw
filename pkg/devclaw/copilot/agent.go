@@ -333,13 +333,12 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 			}
 		}
 
-		// ── Proactive context pruning ──
-		// Trim old tool results to prevent context bloat:
-		//   - Soft trim: tool results older than 5 turns → truncated to 500 chars
-		//   - Hard trim: tool results older than 10 turns → removed entirely
-		// This reduces the need for full compaction and keeps the context lean.
-		if totalTurns > 5 {
-			messages = a.pruneOldToolResults(messages, totalTurns)
+		// ── Proactive context compaction ──
+		// Instead of dropping old messages entirely (which causes amnesia), we
+		// compact the context if it grows too large.
+		if totalTurns > 5 && len(messages) > 15 {
+			a.logger.Debug("checking context size for compaction", "messages_len", len(messages))
+			messages = a.managedCompaction(runCtx, messages)
 		}
 
 		// Inject reflection nudge periodically so the agent is aware of duration.
@@ -376,15 +375,15 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 			// Timeout or transient error on a later turn: try compacting
 			// the context and retrying once before giving up.
 			errStr := err.Error()
-			isTimeout := strings.Contains(errStr, "deadline exceeded") || strings.Contains(errStr, "context canceled")
+			isTimeout := strings.Contains(errStr, "deadline exceeded") || strings.Contains(errStr, "context canceled") || strings.Contains(errStr, "rate limit")
+
 			if isTimeout && totalTurns > 2 && len(messages) > 10 {
-				a.logger.Warn("LLM call timed out, compacting context and retrying",
+				a.logger.Warn("LLM call timed out or rate limited, aggressive compaction and retry",
 					"turn", totalTurns,
 					"messages_before", len(messages),
 					"llm_ms", llmDuration.Milliseconds(),
 				)
-				messages = a.compactMessages(messages, 12)
-				messages = a.truncateToolResults(messages, 1500)
+				messages = a.aggressiveCompaction(runCtx, messages)
 
 				// Retry the LLM call with compacted context.
 				llmStart = time.Now()
@@ -406,6 +405,25 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 			"prompt_tokens", resp.Usage.PromptTokens,
 			"completion_tokens", resp.Usage.CompletionTokens,
 		)
+
+		// ── Strict <think> Parsing ──
+		if strings.Contains(resp.Content, "<think>") && !strings.Contains(resp.Content, "</think>") {
+			a.logger.Warn("llm missed closing </think> tag, prompting retry without executing tools")
+
+			// Append assistant message so the user message makes sense in context
+			messages = append(messages, chatMessage{
+				Role:      "assistant",
+				Content:   resp.Content,
+				ToolCalls: resp.ToolCalls,
+			})
+
+			messages = append(messages, chatMessage{
+				Role:    "user",
+				Content: "[System: You opened a <think> tag but did not close it with </think>. Please close your <think> tag, and place any tool calls or final responses AFTER the </think> tag. Do not execute tools until you finish thinking.]",
+			})
+			// Loop again without executing any returned tool calls or triggering final response
+			continue
+		}
 
 		// ── No tool calls → final response ──
 		if len(resp.ToolCalls) == 0 {
@@ -1056,7 +1074,6 @@ func (a *AgentRun) pruneOldToolResults(messages []chatMessage, currentTurn int) 
 //  3. Third attempt: aggressive compaction (keep fewer messages).
 func (a *AgentRun) doLLMCallWithOverflowRetry(ctx context.Context, messages []chatMessage, tools []ToolDefinition) (*LLMResponse, error) {
 	toolResultTruncated := false
-	keepRecent := 20
 
 	for attempt := 0; attempt < a.maxCompactionAttempts; attempt++ {
 		// Use the shorter of: run context deadline or llmCallTimeout safety net.
@@ -1098,18 +1115,12 @@ func (a *AgentRun) doLLMCallWithOverflowRetry(ctx context.Context, messages []ch
 			}
 		}
 
-		// Step 2+3: Compact messages (keep system + last N).
-		a.logger.Info("compacting messages",
-			"keep_recent", keepRecent,
-			"messages_before", len(messages),
-		)
-		messages = a.compactMessages(messages, keepRecent)
-		messages = a.truncateToolResults(messages, 2000)
-
-		// Next attempt: keep fewer messages.
-		keepRecent -= 5
-		if keepRecent < 6 {
-			keepRecent = 6
+		// Step 2+3: Compact messages using LLM summarization.
+		a.logger.Info("performing managed compaction due to overflow")
+		if attempt == 0 { // First compaction attempt after initial truncation
+			messages = a.managedCompaction(ctx, messages)
+		} else { // Subsequent attempts, use aggressive compaction
+			messages = a.aggressiveCompaction(ctx, messages)
 		}
 	}
 
@@ -1126,4 +1137,158 @@ func hasOversizedToolResults(messages []chatMessage, maxLen int) bool {
 		}
 	}
 	return false
+}
+
+// ----------------------------------------------------------------------------
+// Compaction logic
+// ----------------------------------------------------------------------------
+
+// managedCompaction takes the current message history and safely compacts the older half
+// of the conversation into a summary block, preserving recent context and system prompts.
+func (a *AgentRun) managedCompaction(ctx context.Context, messages []chatMessage) []chatMessage {
+	if len(messages) < 10 {
+		return messages
+	}
+
+	// Keep system prompt(s) and the first user message (usually the goal)
+	var header []chatMessage
+	var body []chatMessage
+
+	for _, m := range messages {
+		if m.Role == "system" {
+			header = append(header, m)
+		} else {
+			body = append(body, m)
+		}
+	}
+
+	if len(body) < 8 {
+		return messages
+	}
+
+	goal := body[0]
+
+	// We want to compact the middle section and keep the most recent N messages
+	keepRecent := 6
+	if len(body)-1 <= keepRecent {
+		return messages // Too small to compact
+	}
+
+	middle := body[1 : len(body)-keepRecent]
+	recent := body[len(body)-keepRecent:]
+
+	summary := a.summarizeMiddle(ctx, middle)
+
+	var compacted []chatMessage
+	compacted = append(compacted, header...)
+	compacted = append(compacted, goal)
+	compacted = append(compacted, chatMessage{
+		Role:    "user",
+		Content: "[System: The following is a summary of earlier steps. " + summary + "]",
+	})
+	compacted = append(compacted, recent...)
+
+	a.logger.Info("context compacted",
+		"original_len", len(messages),
+		"compacted_len", len(compacted),
+	)
+
+	return compacted
+}
+
+// aggressiveCompaction is used when the context still overflows despite managed compaction.
+// It cuts the recent context even shorter and truncates large text heavily.
+func (a *AgentRun) aggressiveCompaction(ctx context.Context, messages []chatMessage) []chatMessage {
+	// First run standard truncation on tool results
+	truncated := a.truncateToolResults(messages, 1500)
+
+	// Then run managed compaction but with a much shorter keepRecent window (done inline to force it)
+	var header []chatMessage
+	var body []chatMessage
+	for _, m := range truncated {
+		if m.Role == "system" {
+			header = append(header, m)
+		} else {
+			body = append(body, m)
+		}
+	}
+
+	if len(body) < 4 {
+		return truncated
+	}
+
+	goal := body[0]
+	keepRecent := 2 // Keep only the absolute minimum to recover
+
+	var summary string
+	if len(body)-1 > keepRecent {
+		middle := body[1 : len(body)-keepRecent]
+		summary = a.summarizeMiddle(ctx, middle)
+	} else {
+		summary = "History was aggressively truncated."
+	}
+
+	var compacted []chatMessage
+	compacted = append(compacted, header...)
+	compacted = append(compacted, goal)
+	if summary != "" {
+		compacted = append(compacted, chatMessage{
+			Role:    "user",
+			Content: "[System: Aggressive fallback compaction of earlier steps. " + summary + "]",
+		})
+	}
+	compacted = append(compacted, body[len(body)-keepRecent:]...)
+
+	return compacted
+}
+
+func (a *AgentRun) summarizeMiddle(ctx context.Context, middle []chatMessage) string {
+	// Build a fast summary prompt
+	var textBuilder strings.Builder
+	for _, m := range middle {
+		role := m.Role
+		content := ""
+		if s, ok := m.Content.(string); ok {
+			// truncate content going into summarizer to avoid inception loops
+			if len(s) > 1000 {
+				content = s[:1000] + "...(truncated)"
+			} else {
+				content = s
+			}
+		}
+
+		if len(m.ToolCalls) > 0 {
+			info := "Used tools: "
+			for _, tc := range m.ToolCalls {
+				info += tc.Function.Name + ", "
+			}
+			content += " " + info
+		}
+
+		textBuilder.WriteString(fmt.Sprintf("[%s]: %s\n", role, content))
+	}
+
+	prompt := []chatMessage{
+		{
+			Role:    "system",
+			Content: "You are a summarizing assistant. Your job is to read a truncated transcript of an agent's past actions and summarize what was attempted, what the results were, and what the current status is. Keep your summary extremely concise (max 3-4 sentences). Focus on facts, failures, and discoveries. NEVER use text formatting like bold or headers.",
+		},
+		{
+			Role:    "user",
+			Content: "Summarize this history:\n\n" + textBuilder.String(),
+		},
+	}
+
+	// Make a quick call using the fast model (e.g., flash/haiku equivalent) if available
+	// For now we use the standard model but without tools
+	sumCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := a.llm.CompleteWithFallbackUsingModel(sumCtx, "", prompt, nil)
+	if err != nil {
+		a.logger.Warn("compaction summary failed", "error", err)
+		return "Failed to summarize earlier steps due to error."
+	}
+
+	return resp.Content
 }

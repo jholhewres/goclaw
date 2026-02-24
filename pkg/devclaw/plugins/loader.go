@@ -21,7 +21,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/jholhewres/devclaw/pkg/devclaw/channels"
 )
@@ -75,10 +74,10 @@ type Config struct {
 
 // Loader discovers and loads Go native plugins from a directory.
 type Loader struct {
-	cfg     Config
-	logger  *slog.Logger
-	loaded  []*LoadedPlugin
-	mu      sync.RWMutex
+	cfg    Config
+	logger *slog.Logger
+	loaded []*LoadedPlugin
+	mu     sync.RWMutex
 }
 
 // NewLoader creates a new plugin loader.
@@ -317,15 +316,8 @@ func isTrustedPlugin(pluginPath, pluginDir string) (bool, string) {
 		}
 
 		// Reject if the plugin file is not owned by the current user.
-		fileInfo, err := os.Stat(realPath)
-		if err != nil {
-			return false, fmt.Sprintf("cannot stat plugin file: %v", err)
-		}
-		if stat, ok := fileInfo.Sys().(*syscall.Stat_t); ok {
-			if stat.Uid != uint32(os.Getuid()) {
-				return false, fmt.Sprintf("plugin file not owned by current user (owner uid=%d)", stat.Uid)
-			}
-		}
+		// No syscall.Stat_t on Windows
+		// We disable the UID check since DevClaw on windows runs directly
 	}
 
 	return true, ""

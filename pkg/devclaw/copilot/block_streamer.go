@@ -42,9 +42,9 @@ type BlockStreamConfig struct {
 func DefaultBlockStreamConfig() BlockStreamConfig {
 	return BlockStreamConfig{
 		Enabled:  true,
-		MinChars: 200,   // ~40 words — avoids tiny fragments as separate messages
-		MaxChars: 1500,  // Full paragraph; WhatsApp supports up to 65K chars
-		IdleMs:   1500,  // Flush 1.5s after last token — allows sentences to complete
+		MinChars: 200,  // ~40 words — avoids tiny fragments as separate messages
+		MaxChars: 1500, // Full paragraph; WhatsApp supports up to 65K chars
+		IdleMs:   1500, // Flush 1.5s after last token — allows sentences to complete
 	}
 }
 
@@ -231,6 +231,11 @@ func (bs *BlockStreamer) flushLocked() {
 			remainder = text[breakIdx:]
 		}
 	}
+
+	// Quick format for <think> blocks to render beautifully for the user.
+	// Since `<think>` is typically a single LLM token, it rarely cross-cuts flushes.
+	sendText = strings.ReplaceAll(sendText, "<think>", "💭 *Thinking...*\n")
+	sendText = strings.ReplaceAll(sendText, "</think>", "")
 
 	// Format for channel (also strips reply tags like [[reply_to_current]]).
 	sendText = FormatForChannel(sendText, bs.channel)
