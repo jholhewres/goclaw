@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -445,7 +446,7 @@ func registerBashTool(executor *ToolExecutor) {
 
 	// bash — full access command execution inheriting the user's environment.
 	executor.Register(
-		MakeToolDefinition("bash", "Execute a bash command with full system access. Inherits the user's complete environment (PATH, SSH keys, etc). Supports cd (persistent between calls), git, ssh, docker, package managers, builds, system administration, or any shell operation. The command runs directly on the host machine as the current user.", map[string]any{
+		MakeToolDefinition("bash", "Execute a shell command with full system access. Use for git, docker, npm, system administration, or any shell operation. Working directory persists between calls.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{
@@ -1438,25 +1439,7 @@ func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler) {
 func registerVaultTools(executor *ToolExecutor, vault *Vault) {
 	// vault_save — store a secret in the encrypted vault.
 	executor.Register(
-		MakeToolDefinition("vault_save", `Store a secret in the encrypted vault (like a secure .env file).
-
-Use this for ANY sensitive data: API keys, tokens, passwords, database URLs.
-The key can be ANY name (e.g., 'OPENAI_API_KEY', 'DATABASE_URL', 'GITHUB_TOKEN').
-
-IMPORTANT: vault_save AUTOMATICALLY OVERWRITES existing values. You do NOT need to
-delete a secret before updating it. Just call vault_save with the same key name.
-
-Workflow for updating credentials:
-1. Use vault_get to check the current value (optional, for comparison)
-2. Call vault_save directly with the new value - it will replace the old one
-3. NEVER use vault_delete before saving - it's unnecessary and loses data
-
-Examples:
-- vault_save("OPENAI_API_KEY", "sk-xxx")
-- vault_save("DATABASE_URL", "postgres://user:pass@host:5432/db")
-- vault_save("GITHUB_TOKEN", "ghp_xxx")
-
-The vault uses AES-256-GCM encryption. Secrets are automatically injected as environment variables at startup.`, map[string]any{
+		MakeToolDefinition("vault_save", "Store a secret securely (API keys, tokens, passwords). AES-256-GCM encrypted. IMPORTANT: Automatically overwrites - NO need to delete before saving.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{
@@ -1485,17 +1468,7 @@ The vault uses AES-256-GCM encryption. Secrets are automatically injected as env
 
 	// vault_get — retrieve a secret from the encrypted vault.
 	executor.Register(
-		MakeToolDefinition("vault_get", `Retrieve a secret from the encrypted vault.
-
-Returns the secret value if found, or empty if the key doesn't exist.
-
-IMPORTANT: Before saving new credentials, use vault_get to check existing values:
-1. Use vault_get to retrieve the current value
-2. Compare with the new value the user provided
-3. Only update if the value is actually different
-4. Use vault_save to update (it overwrites automatically - NO need to delete first)
-
-Use vault_list first if you're unsure what keys are available.`, map[string]any{
+		MakeToolDefinition("vault_get", "Retrieve a stored secret by name. Returns empty if not found. Use vault_list to see available keys.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{
@@ -1523,10 +1496,7 @@ Use vault_list first if you're unsure what keys are available.`, map[string]any{
 
 	// vault_list — list all secret names in the vault (without values).
 	executor.Register(
-		MakeToolDefinition("vault_list", `List all secret keys stored in the encrypted vault.
-
-Returns only the key names (e.g., 'OPENAI_API_KEY', 'DATABASE_URL'), never the values.
-Use this to discover what secrets are available before using vault_get.`, map[string]any{
+		MakeToolDefinition("vault_list", "List all secret names in the vault. Shows names only, never values.", map[string]any{
 			"type":                 "object",
 			"properties":           map[string]any{},
 			"additionalProperties": false,
@@ -1547,15 +1517,7 @@ Use this to discover what secrets are available before using vault_get.`, map[st
 
 	// vault_delete — remove a secret from the vault.
 	executor.Register(
-		MakeToolDefinition("vault_delete", `Remove a secret from the encrypted vault by name.
-
-WARNING: This permanently deletes the secret. Use vault_delete ONLY when:
-- The user explicitly asks to remove a credential
-- A secret is no longer needed and should be purged
-
-DO NOT use vault_delete to "clear space" before saving new values.
-vault_save automatically overwrites - just use it directly.
-Deleting before saving is WRONG and causes data loss.`, map[string]any{
+		MakeToolDefinition("vault_delete", "Permanently remove a secret. Use ONLY when user explicitly asks to delete. NEVER delete before vault_save (it overwrites automatically).", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{
@@ -1777,7 +1739,7 @@ func registerCapabilitiesTool(executor *ToolExecutor) {
 				},
 			},
 		),
-		func(_ context.Context, args map[string]any) (any, error) {
+			func(_ context.Context, args map[string]any) (any, error) {
 			filter, _ := args["filter"].(string)
 			if filter == "" {
 				filter = "all"
@@ -1785,60 +1747,38 @@ func registerCapabilitiesTool(executor *ToolExecutor) {
 			category, _ := args["category"].(string)
 
 			var sb strings.Builder
-			sb.WriteString("# Available Capabilities\n\n")
+			sb.WriteString("# Available Tools\n\n")
 
-			// List tools
+			// List tools by category (names only, no descriptions)
 			if filter == "tools" || filter == "all" {
-				sb.WriteString("## Tools\n\n")
-				tools := executor.Tools()
-
-				// Categorize tools
-				categories := CategorizeTools(tools)
+				categories := CategorizeTools(executor.Tools())
 
 				// Sort categories
-				var cats []string
+				cats := make([]string, 0, len(categories))
 				for cat := range categories {
 					cats = append(cats, cat)
 				}
-				for i := 0; i < len(cats); i++ {
-					for j := i + 1; j < len(cats); j++ {
-						if cats[j] < cats[i] {
-							cats[i], cats[j] = cats[j], cats[i]
-						}
-					}
-				}
+				sort.Strings(cats)
 
 				for _, cat := range cats {
-					// Filter by category if specified
 					if category != "" && cat != category {
 						continue
 					}
-					sb.WriteString(fmt.Sprintf("### %s\n", cat))
+					// Get tool names for this category
+					names := make([]string, 1, len(categories[cat]))
 					for _, tool := range categories[cat] {
-						desc := tool.Function.Description
-						// Truncate long descriptions
-						if len(desc) > 80 {
-							desc = desc[:77] + "..."
-						}
-						desc = strings.ReplaceAll(desc, "\n", " ")
-						sb.WriteString(fmt.Sprintf("- **%s**: %s\n", tool.Function.Name, desc))
+						names = append(names, tool.Function.Name)
 					}
-					sb.WriteString("\n")
+					sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", cat, strings.Join(names, ", ")))
 				}
 			}
 
-			// Note: skills listing is handled separately via skillRegistry
-			// which is not directly accessible here. The agent can use
-			// list_skills tool from the skills system.
-
 			if filter == "skills" || filter == "all" {
-				sb.WriteString("## Skills\n\n")
-				sb.WriteString("Use `list_skills` tool to see available skills.\n")
-				sb.WriteString("Use `search_skills <query>` to find skills by keyword.\n\n")
+				sb.WriteString("**Skills**: Use list_skills to discover available skills.\n\n")
 			}
 
-			sb.WriteString(fmt.Sprintf("\n**Total tools available**: %d\n", len(executor.Tools())))
-			sb.WriteString("\n*Tip: Use specific tool names directly. If unsure about a tool's parameters, try it - the error message will show the expected format.*\n")
+			sb.WriteString(fmt.Sprintf("Total: %d tools\n", len(executor.Tools())))
+			sb.WriteString("Use tools directly. Errors show expected parameters if unsure.\n")
 
 			return sb.String(), nil
 		},
