@@ -258,6 +258,15 @@ export interface DatabaseStatusInfo {
   error?: string
 }
 
+/* Tool Profile Settings */
+export interface ToolProfileInfo {
+  name: string
+  description: string
+  allow: string[]
+  deny: string[]
+  builtin: boolean
+}
+
 /* ── API Methods ── */
 
 export const api = {
@@ -434,5 +443,28 @@ export const api = {
   /* Database */
   database: {
     status: () => request<DatabaseStatusInfo>('/database/status'),
+  },
+
+  /* Settings / Tool Profiles */
+  settings: {
+    toolProfiles: {
+      list: () =>
+        request<{
+          profiles: ToolProfileInfo[]
+          groups: Record<string, string[]>
+        }>('/settings/tool-profiles'),
+      create: (profile: ToolProfileInfo) =>
+        request<ToolProfileInfo>('/settings/tool-profiles', {
+          method: 'POST',
+          body: JSON.stringify(profile),
+        }),
+      update: (name: string, profile: ToolProfileInfo) =>
+        request<ToolProfileInfo>(`/settings/tool-profiles/${name}`, {
+          method: 'PUT',
+          body: JSON.stringify(profile),
+        }),
+      delete: (name: string) =>
+        request<void>(`/settings/tool-profiles/${name}`, { method: 'DELETE' }),
+    },
   },
 }

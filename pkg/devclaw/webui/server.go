@@ -362,6 +362,10 @@ func (s *Server) Start(ctx context.Context) error {
 	// Database
 	mux.HandleFunc("/api/database/status", s.authMiddleware(s.requireAssistant(s.handleAPIDatabaseStatus)))
 
+	// Settings / Tool Profiles
+	mux.HandleFunc("/api/settings/tool-profiles", s.authMiddleware(s.requireAssistant(s.handleAPISettingsToolProfiles)))
+	mux.HandleFunc("/api/settings/tool-profiles/", s.authMiddleware(s.requireAssistant(s.handleAPISettingsToolProfileByName)))
+
 	// Media routes (if media service is configured)
 	if s.mediaAPI != nil {
 		mux.HandleFunc("/api/media", s.authMiddleware(s.requireAssistant(s.handleAPIMedia)))
