@@ -386,6 +386,51 @@ func (a *AssistantAdapter) GetDatabaseStatus() DatabaseStatusInfo {
 	return DatabaseStatusInfo{}
 }
 
+// ── Settings: Tool Profiles ──
+
+func (a *AssistantAdapter) ListToolProfiles() []ToolProfileInfo {
+	if a.ListToolProfilesFn != nil {
+		return a.ListToolProfilesFn()
+	}
+	return nil
+}
+
+func (a *AssistantAdapter) GetToolGroups() map[string][]string {
+	// Tool groups are defined in copilot package, return static list
+	return map[string][]string{
+		"group:memory":    {"memory"},
+		"group:web":       {"web_search", "web_fetch"},
+		"group:fs":        {"read_file", "write_file", "edit_file", "list_files", "search_files", "glob_files"},
+		"group:runtime":   {"bash", "exec", "ssh", "scp", "set_env"},
+		"group:subagents": {"spawn_subagent", "list_subagents", "wait_subagent", "stop_subagent"},
+		"group:skills":    {"install_skill", "remove_skill", "search_skills", "list_skills"},
+		"group:scheduler": {"cron_add", "cron_list", "cron_remove"},
+		"group:vault":     {"vault_save", "vault_get", "vault_list", "vault_delete"},
+		"group:teams":     {"team_list", "team_create", "team_update", "team_delete"},
+	}
+}
+
+func (a *AssistantAdapter) CreateToolProfile(profile ToolProfileDef) error {
+	if a.CreateToolProfileFn != nil {
+		return a.CreateToolProfileFn(profile)
+	}
+	return errors.New("tool profile creation not available")
+}
+
+func (a *AssistantAdapter) UpdateToolProfile(profile ToolProfileDef) error {
+	if a.UpdateToolProfileFn != nil {
+		return a.UpdateToolProfileFn(profile.Name, profile)
+	}
+	return errors.New("tool profile update not available")
+}
+
+func (a *AssistantAdapter) DeleteToolProfile(name string) error {
+	if a.DeleteToolProfileFn != nil {
+		return a.DeleteToolProfileFn(name)
+	}
+	return errors.New("tool profile deletion not available")
+}
+
 // ── Media API Adapter ──
 
 // MediaAdapter wraps a MediaService to implement the MediaAPI interface.

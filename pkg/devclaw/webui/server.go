@@ -108,6 +108,13 @@ type AssistantAPI interface {
 
 	// Database
 	GetDatabaseStatus() DatabaseStatusInfo
+
+	// Settings: Tool Profiles
+	ListToolProfiles() []ToolProfileInfo
+	GetToolGroups() map[string][]string
+	CreateToolProfile(profile ToolProfileDef) error
+	UpdateToolProfile(profile ToolProfileDef) error
+	DeleteToolProfile(name string) error
 }
 
 // SessionInfo contains session metadata for the UI.

@@ -613,3 +613,77 @@ func (s *Server) handleAPIJobs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ── Settings: Tool Profiles ──
+
+func (s *Server) handleAPISettingsToolProfiles(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		profiles := s.api.ListToolProfiles()
+		groups := s.api.GetToolGroups()
+		if profiles == nil {
+			profiles = []ToolProfileInfo{}
+		}
+		if groups == nil {
+			groups = map[string][]string{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"profiles": profiles,
+			"groups":   groups,
+		})
+	case http.MethodPost:
+		var profile ToolProfileDef
+		if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		if profile.Name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+			return
+		}
+		if err := s.api.CreateToolProfile(profile); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, profile)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
+func (s *Server) handleAPISettingsToolProfileByName(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/settings/tool-profiles/")
+	name = strings.TrimSuffix(name, "/")
+
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPut:
+		var profile ToolProfileDef
+		if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		profile.Name = name
+		if err := s.api.UpdateToolProfile(profile); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, profile)
+	case http.MethodDelete:
+		if err := s.api.DeleteToolProfile(name); err != nil {
+			if strings.Contains(err.Error(), "built-in") {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
