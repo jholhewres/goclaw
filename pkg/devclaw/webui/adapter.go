@@ -90,6 +90,29 @@ type AssistantAdapter struct {
 
 	// Database
 	GetDatabaseStatusFn func() DatabaseStatusInfo
+
+	// Settings: Tool Profiles
+	ListToolProfilesFn   func() []ToolProfileInfo
+	CreateToolProfileFn  func(profile ToolProfileDef) error
+	UpdateToolProfileFn  func(name string, profile ToolProfileDef) error
+	DeleteToolProfileFn  func(name string) error
+}
+
+// ToolProfileInfo contains profile info for API responses.
+type ToolProfileInfo struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Allow       []string `json:"allow"`
+	Deny        []string `json:"deny"`
+	Builtin     bool     `json:"builtin"`
+}
+
+// ToolProfileDef defines a tool profile for creation/update.
+type ToolProfileDef struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Allow       []string `json:"allow"`
+	Deny        []string `json:"deny"`
 }
 
 func (a *AssistantAdapter) GetConfigMap() map[string]any {

@@ -442,6 +442,16 @@ func sanitizeSecretWithFallback(value, primaryEnvVar, fallbackEnvVar string) str
 	if os.Getenv(fallbackEnvVar) == value {
 		return "${" + fallbackEnvVar + "}"
 	}
+	// If primary env var exists (vault injected it after UI save), use the reference.
+	// This handles the case where user saved via UI, vault stored it, but value doesn't match
+	// (e.g., value was modified or this is a new key being set).
+	if os.Getenv(primaryEnvVar) != "" {
+		return "${" + primaryEnvVar + "}"
+	}
+	// Fallback env var exists - use its reference
+	if os.Getenv(fallbackEnvVar) != "" {
+		return "${" + fallbackEnvVar + "}"
+	}
 	// Value doesn't match any env var - clear it to force vault lookup
 	// This prevents hardcoded keys from being saved to config
 	return ""

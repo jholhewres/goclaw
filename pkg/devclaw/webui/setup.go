@@ -468,9 +468,21 @@ func providerBaseURL(provider string) string {
 
 // testProviderConnection makes a minimal chat completion request to verify credentials.
 func testProviderConnection(provider, baseURL, apiKey, model string) error {
+	providerLower := strings.ToLower(provider)
+
 	// HuggingFace uses a different API format - model is in the URL path
-	if strings.ToLower(provider) == "huggingface" {
+	if providerLower == "huggingface" {
 		return testHuggingFaceConnection(baseURL, apiKey, model)
+	}
+
+	// Anthropic uses native Messages API format (different endpoint, headers, auth)
+	if providerLower == "anthropic" || strings.Contains(baseURL, "anthropic.com") {
+		return testAnthropicConnection(baseURL, apiKey, model, false)
+	}
+
+	// Z.AI Anthropic proxy uses Bearer auth instead of x-api-key
+	if providerLower == "zai" && strings.Contains(baseURL, "anthropic") {
+		return testAnthropicConnection(baseURL, apiKey, model, true)
 	}
 
 	// Newer OpenAI models (o1, o3, o4, gpt-5) require max_completion_tokens instead of max_tokens
@@ -576,6 +588,79 @@ func testHuggingFaceConnection(baseURL, apiKey, model string) error {
 		return fmt.Errorf("rate limit exceeded — try again in a few seconds")
 	case 503:
 		return fmt.Errorf("model is loading — try again in a few moments")
+	default:
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("API returned %d: %s", resp.StatusCode, msg)
+	}
+}
+
+// testAnthropicConnection tests Anthropic Messages API which uses a different format.
+// useBearerAuth=true for Z.AI proxy, false for native Anthropic API.
+func testAnthropicConnection(baseURL, apiKey, model string, useBearerAuth bool) error {
+	// Anthropic uses /v1/messages endpoint (not /chat/completions)
+	endpoint := strings.TrimSuffix(baseURL, "/") + "/messages"
+
+	payload := map[string]any{
+		"model":      model,
+		"max_tokens": 10,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Hi"},
+		},
+	}
+	jsonBody, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-version", "2023-06-01")
+	if apiKey != "" {
+		if useBearerAuth {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		} else {
+			req.Header.Set("x-api-key", apiKey)
+		}
+	}
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connection failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+
+	// Parse Anthropic error format
+	var errResp struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
+		return fmt.Errorf("%s", errResp.Error.Message)
+	}
+
+	switch resp.StatusCode {
+	case 401:
+		return fmt.Errorf("invalid API key")
+	case 403:
+		return fmt.Errorf("access denied — check your API key permissions")
+	case 404:
+		return fmt.Errorf("model '%s' not found", model)
+	case 429:
+		return fmt.Errorf("rate limit exceeded — try again in a few seconds")
+	case 500, 529:
+		return fmt.Errorf("Anthropic service temporarily unavailable")
 	default:
 		msg := strings.TrimSpace(string(body))
 		if msg == "" {
