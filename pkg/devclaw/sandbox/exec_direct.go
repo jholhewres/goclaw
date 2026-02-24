@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package sandbox – exec_direct.go implements the direct executor
 // (IsolationNone). Runs scripts via os/exec without any sandboxing.
 // Use only for trusted/builtin skills.

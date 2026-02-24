@@ -1,0 +1,30 @@
+=== RUN   TestManagedCompaction
+--- FAIL: TestManagedCompaction (0.00s)
+panic: runtime error: invalid memory address or nil pointer dereference [recovered, repanicked]
+[signal 0xc0000005 code=0x0 addr=0x0 pc=0x7ff6d7c08c6f]
+
+goroutine 7 [running]:
+testing.tRunner.func1.2({0x7ff6d849a500, 0x7ff6d90ae4e0})
+	C:/Program Files/Go/src/testing/testing.go:1974 +0x239
+testing.tRunner.func1()
+	C:/Program Files/Go/src/testing/testing.go:1977 +0x349
+panic({0x7ff6d849a500?, 0x7ff6d90ae4e0?})
+	C:/Program Files/Go/src/runtime/panic.go:860 +0x13a
+log/slog.(*Logger).clone(...)
+	C:/Program Files/Go/src/log/slog/logger.go:116
+log/slog.(*Logger).With(0x0, {0x38c75ae2cf60, 0x4, 0x4})
+	C:/Program Files/Go/src/log/slog/logger.go:130 +0x4f
+github.com/jholhewres/devclaw/pkg/devclaw/copilot.NewLLMClient(0x38c75ae2d108, 0x0)
+	C:/Workspace/devclaw/pkg/devclaw/copilot/llm.go:95 +0x49a
+github.com/jholhewres/devclaw/pkg/devclaw/copilot.TestManagedCompaction(0x38c75add2600)
+	C:/Workspace/devclaw/pkg/devclaw/copilot/agent_compaction_test.go:18 +0x97
+testing.tRunner(0x38c75add2600, 0x7ff6d870c4c8)
+	C:/Program Files/Go/src/testing/testing.go:2036 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:2101 +0x4a9
+FAIL	github.com/jholhewres/devclaw/pkg/devclaw/copilot	0.158s
+?   	github.com/jholhewres/devclaw/pkg/devclaw/copilot/memory	[no test files]
+testing: warning: no tests to run
+PASS
+ok  	github.com/jholhewres/devclaw/pkg/devclaw/copilot/security	0.429s [no tests to run]
+FAIL

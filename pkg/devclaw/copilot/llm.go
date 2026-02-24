@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -339,14 +338,14 @@ type chatMessage struct {
 
 // chatRequest is the OpenAI-compatible chat completions request.
 type chatRequest struct {
-	Model              string           `json:"model"`
-	Messages           []chatMessage    `json:"messages"`
-	Tools              []ToolDefinition `json:"tools,omitempty"`
-	Stream             bool             `json:"stream,omitempty"`
-	Temperature        *float64         `json:"temperature,omitempty"`
-	MaxTokens          *int             `json:"max_tokens,omitempty"`
-	MaxCompletionTokens *int            `json:"max_completion_tokens,omitempty"` // OpenAI o1/o3/o4/gpt-5 models
-	ToolStream         *bool            `json:"tool_stream,omitempty"`           // Z.AI: real-time tool call streaming
+	Model               string           `json:"model"`
+	Messages            []chatMessage    `json:"messages"`
+	Tools               []ToolDefinition `json:"tools,omitempty"`
+	Stream              bool             `json:"stream,omitempty"`
+	Temperature         *float64         `json:"temperature,omitempty"`
+	MaxTokens           *int             `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int             `json:"max_completion_tokens,omitempty"` // OpenAI o1/o3/o4/gpt-5 models
+	ToolStream          *bool            `json:"tool_stream,omitempty"`           // Z.AI: real-time tool call streaming
 }
 
 // modelDefaults holds per-model/provider behavior overrides.
@@ -583,8 +582,8 @@ func (c *LLMClient) applyPromptCaching(req *chatRequest) {
 
 // streamChoice represents a single choice in a streaming chunk.
 type streamChoice struct {
-	Index        int `json:"index"`
-	Delta        struct {
+	Index int `json:"index"`
+	Delta struct {
 		Content   string           `json:"content"`
 		ToolCalls []streamToolCall `json:"tool_calls,omitempty"`
 	} `json:"delta"`
@@ -593,7 +592,7 @@ type streamChoice struct {
 
 // streamToolCall represents a tool call delta (partial; id, name, arguments come in chunks).
 type streamToolCall struct {
-	Index    int  `json:"index"`
+	Index    int    `json:"index"`
 	ID       string `json:"id,omitempty"`
 	Type     string `json:"type,omitempty"`
 	Function struct {
@@ -653,14 +652,14 @@ type anthropicMessage struct {
 
 // anthropicContent represents a content block in Anthropic format.
 type anthropicContent struct {
-	Type      string          `json:"type"`                 // "text", "tool_use", "tool_result", "image"
-	Text      string          `json:"text,omitempty"`       // for type=text
-	ID        string          `json:"id,omitempty"`         // for type=tool_use
-	Name      string          `json:"name,omitempty"`       // for type=tool_use
-	Input     json.RawMessage `json:"input,omitempty"`      // for type=tool_use
+	Type      string          `json:"type"`                  // "text", "tool_use", "tool_result", "image"
+	Text      string          `json:"text,omitempty"`        // for type=text
+	ID        string          `json:"id,omitempty"`          // for type=tool_use
+	Name      string          `json:"name,omitempty"`        // for type=tool_use
+	Input     json.RawMessage `json:"input,omitempty"`       // for type=tool_use
 	ToolUseID string          `json:"tool_use_id,omitempty"` // for type=tool_result
-	Content   string          `json:"content,omitempty"`    // for type=tool_result (string shorthand)
-	Source    *anthropicImage `json:"source,omitempty"`     // for type=image
+	Content   string          `json:"content,omitempty"`     // for type=tool_result (string shorthand)
+	Source    *anthropicImage `json:"source,omitempty"`      // for type=image
 }
 
 // anthropicImage holds base64 image data for vision.
@@ -704,7 +703,7 @@ type anthropicStreamEvent struct {
 	Delta        *struct {
 		Type        string `json:"type,omitempty"`
 		Text        string `json:"text,omitempty"`
-		Thinking    string `json:"thinking,omitempty"`    // for thinking_delta events
+		Thinking    string `json:"thinking,omitempty"` // for thinking_delta events
 		PartialJSON string `json:"partial_json,omitempty"`
 		StopReason  string `json:"stop_reason,omitempty"`
 	} `json:"delta,omitempty"`
@@ -1685,7 +1684,7 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 	}
 
 	var contentBuilder strings.Builder
-	toolCallsAccum := make(map[int]*ToolCall)      // index -> tool call being built
+	toolCallsAccum := make(map[int]*ToolCall)       // index -> tool call being built
 	toolArgsAccum := make(map[int]*strings.Builder) // index -> partial JSON args
 	thinkingBlocks := make(map[int]bool)            // blockIdx -> true if this is a thinking block
 	finishReason := ""
@@ -1770,8 +1769,8 @@ func (c *LLMClient) completeOnceStreamAnthropic(ctx context.Context, model strin
 				switch event.ContentBlock.Type {
 				case "tool_use":
 					toolCallsAccum[blockIdx] = &ToolCall{
-						ID:   event.ContentBlock.ID,
-						Type: "function",
+						ID:       event.ContentBlock.ID,
+						Type:     "function",
 						Function: FunctionCall{Name: event.ContentBlock.Name},
 					}
 					toolArgsAccum[blockIdx] = &strings.Builder{}
@@ -2321,8 +2320,8 @@ func convertAudioToMP3(ctx context.Context, data []byte, filename string) ([]byt
 		tmpOutFile.Close()
 		return nil, err
 	}
-	var preStat syscall.Stat_t
-	if err := syscall.Fstat(int(tmpOutFile.Fd()), &preStat); err != nil {
+	var preStat os.FileInfo
+	if preStat, err = tmpOutFile.Stat(); err != nil {
 		tmpOutFile.Close()
 		return nil, err
 	}
@@ -2337,11 +2336,11 @@ func convertAudioToMP3(ctx context.Context, data []byte, filename string) ([]byt
 	}
 
 	// TOCTOU guard: confirm the output file is still the one we created.
-	var postStat syscall.Stat_t
-	if err := syscall.Stat(tmpOutPath, &postStat); err != nil {
+	var postStat os.FileInfo
+	if postStat, err = os.Stat(tmpOutPath); err != nil {
 		return nil, fmt.Errorf("audio output temp file missing after ffmpeg: %w", err)
 	}
-	if preStat.Dev != postStat.Dev || preStat.Ino != postStat.Ino {
+	if !os.SameFile(preStat, postStat) {
 		return nil, fmt.Errorf("audio output temp file inode changed — possible TOCTOU attack")
 	}
 
