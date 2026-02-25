@@ -36,7 +36,7 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 
 	// init_skill
 	executor.Register(
-		MakeToolDefinition("init_skill", "Create a new skill with a SKILL.md template. The skill will be available for the agent to use after creation. Use with_database=true to automatically create a database table for storing structured data.", map[string]any{
+		MakeToolDefinition("init_skill", "Create a new skill with a SKILL.md template. ALWAYS use this tool to create skills - NEVER use bash commands like mkdir or echo. The skill will be created in the project's skills/ directory. Use with_database=true to automatically create a database table for storing structured data.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{

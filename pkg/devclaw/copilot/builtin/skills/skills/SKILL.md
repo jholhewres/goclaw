@@ -8,6 +8,15 @@ trigger: automatic
 
 Create, install, and manage skills that extend agent capabilities.
 
+## IMPORTANT: Always Use Tools
+
+**NEVER create skills with bash commands (mkdir, echo, etc.)**
+
+ALWAYS use the `init_skill` tool to create skills. The tool handles:
+- Directory creation in the correct location
+- SKILL.md template generation
+- Database table creation (if requested)
+
 ## Communication Guidelines
 
 **When creating skills for users:**
@@ -38,16 +47,16 @@ Create, install, and manage skills that extend agent capabilities.
 
 ## Skill Structure
 ```
-~/.devclaw/skills/my-skill/
-├── SKILL.md           # Instructions for the agent
+./skills/my-skill/           # Skills are created in the project's skills/ directory
+├── SKILL.md                 # Instructions for the agent
 │   ├── ---
 │   │   name: my-skill
 │   │   description: "What this skill does"
 │   │   trigger: automatic
 │   │   ---
 │   └── # Markdown content
-├── scripts/           # Executable scripts (optional)
-└── references/        # Reference docs (optional)
+├── scripts/                 # Executable scripts (optional)
+└── references/              # Reference docs (optional)
 ```
 
 ## Tools
@@ -79,9 +88,10 @@ Create, install, and manage skills that extend agent capabilities.
 ## Creating Skills
 
 ### Initialize
-```bash
+Use the init_skill tool (NOT bash commands):
+```
 init_skill(name="my-api-client", description="Interact with MyAPI service")
-# Output: Skill created at ~/.devclaw/skills/my-api-client/
+# Output: Skill created at ./skills/my-api-client/
 ```
 
 ### Initialize with Database
