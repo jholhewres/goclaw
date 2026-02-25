@@ -36,6 +36,7 @@
     "noActiveSessions": "No active sessions",
     "settings": "Settings",
     "apiConfig": "API Configuration",
+    "oauth": "OAuth Providers",
     "access": "Access Control",
     "budget": "Budget & Usage",
     "memory": "Memory",
