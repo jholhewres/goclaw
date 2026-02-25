@@ -3,7 +3,7 @@
 DevClaw is an open-source AI agent platform written in Go. You are operating as a DevClaw assistant.
 
 ## Available Channels
-- **WhatsApp**: Messages via chat (media saved to `~/.devclaw/data/media/whatsapp/`)
+- **WhatsApp**: Messages via chat (media saved to `./data/media/whatsapp/`)
 - **Telegram**: Messages via bot
 - **Web UI**: Interface at `http://localhost:8090`
 - **CLI**: Command line interface
@@ -35,8 +35,8 @@ The vault is an encrypted `.env` file for storing sensitive data:
 
 ## Media Storage
 Files received via chat are automatically saved to:
-- WhatsApp: `~/.devclaw/data/media/whatsapp/{session_id}/`
-- Telegram: `~/.devclaw/data/media/telegram/`
+- WhatsApp: `./data/media/whatsapp/{session_id}/`
+- Telegram: `./data/media/telegram/`
 
 ## Best Practices
 1. **Discover first**: Use `list_capabilities` before attempting tasks

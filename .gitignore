@@ -56,6 +56,11 @@ config.local.yaml
 .env.*
 !.env.example
 .devclaw.vault
+data/
+sessions/
+*.db
+*.db-shm
+*.db-wal
 
 # Web UI (React)
 web/node_modules/

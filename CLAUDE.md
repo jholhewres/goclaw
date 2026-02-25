@@ -63,7 +63,7 @@ Agent Loop (agent.go) — LLM → tool execution cycle (max 25 turns)
 - **Session access**: All session fields must be accessed under `session.mu` lock.
 - **Errors**: Wrap with context: `fmt.Errorf("operation: %w", err)`. Don't panic.
 - **Tools**: Register in `system_tools.go` via `RegisterSystemTools`. Names in snake_case.
-- **Vault**: All secrets in encrypted vault (`.devclaw.vault`). Never put API keys in `.env` or `config.yaml`.
+- **Vault**: All secrets in encrypted vault (`.devclaw.vault` in project root. Never put API keys in `.env` or `config.yaml`.
 
 ### Frontend
 
