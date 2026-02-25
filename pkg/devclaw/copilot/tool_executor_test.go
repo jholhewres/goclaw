@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jholhewres/devclaw/pkg/devclaw/skills"
 )
 
 func TestToolExecutorNew(t *testing.T) {
@@ -644,6 +647,110 @@ func TestAsyncToolConfig(t *testing.T) {
 		config := AsyncToolConfig{Timeout: 30 * time.Second}
 		if config.Timeout != 30*time.Second {
 			t.Errorf("expected 30s timeout, got %v", config.Timeout)
+		}
+	})
+}
+
+// mockVaultReader is a test implementation of skills.VaultReader
+type mockVaultReader struct {
+	keys map[string]string
+}
+
+func (m *mockVaultReader) Get(key string) (string, error) {
+	if v, ok := m.keys[key]; ok {
+		return v, nil
+	}
+	return "", fmt.Errorf("key not found")
+}
+
+func (m *mockVaultReader) Has(key string) bool {
+	_, ok := m.keys[key]
+	return ok
+}
+
+func TestVaultReaderAdapter(t *testing.T) {
+	t.Run("Get returns value", func(t *testing.T) {
+		adapter := NewVaultReaderAdapter(
+			func(key string) (string, error) { return "value-" + key, nil },
+			func(key string) bool { return key == "exists" },
+		)
+
+		val, err := adapter.Get("test")
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if val != "value-test" {
+			t.Errorf("expected 'value-test', got %q", val)
+		}
+	})
+
+	t.Run("Has returns true for existing key", func(t *testing.T) {
+		adapter := NewVaultReaderAdapter(
+			func(key string) (string, error) { return "", nil },
+			func(key string) bool { return key == "exists" },
+		)
+
+		if !adapter.Has("exists") {
+			t.Error("expected Has to return true")
+		}
+		if adapter.Has("notexists") {
+			t.Error("expected Has to return false")
+		}
+	})
+}
+
+func TestContextWithVaultReader(t *testing.T) {
+	t.Run("sets and gets vault reader", func(t *testing.T) {
+		reader := &mockVaultReader{keys: map[string]string{"test": "value"}}
+		ctx := ContextWithVaultReader(context.Background(), reader)
+
+		got := VaultReaderFromContext(ctx)
+		if got == nil {
+			t.Fatal("expected non-nil vault reader")
+		}
+		if !got.Has("test") {
+			t.Error("expected vault reader to have 'test' key")
+		}
+	})
+
+	t.Run("returns nil when not set", func(t *testing.T) {
+		got := VaultReaderFromContext(context.Background())
+		if got != nil {
+			t.Error("expected nil vault reader")
+		}
+	})
+}
+
+func TestFormatSetupPrompt(t *testing.T) {
+	t.Run("returns empty for complete setup", func(t *testing.T) {
+		status := &skills.SetupStatus{IsComplete: true}
+		prompt := FormatSetupPrompt("test", status)
+		if prompt != "" {
+			t.Errorf("expected empty prompt, got %q", prompt)
+		}
+	})
+
+	t.Run("returns prompt for missing config", func(t *testing.T) {
+		status := &skills.SetupStatus{
+			IsComplete: false,
+			MissingRequirements: []skills.ConfigRequirement{
+				{Key: "API_KEY", Name: "API Key", Description: "Your API key", Example: "abc123"},
+			},
+			Message: "Missing API_KEY",
+		}
+		prompt := FormatSetupPrompt("my-skill", status)
+
+		if !strings.Contains(prompt, "my-skill") {
+			t.Error("expected prompt to contain skill name")
+		}
+		if !strings.Contains(prompt, "API Key") {
+			t.Error("expected prompt to contain config name")
+		}
+		if !strings.Contains(prompt, "abc123") {
+			t.Error("expected prompt to contain example")
+		}
+		if !strings.Contains(prompt, "Example:") {
+			t.Error("expected prompt to contain 'Example:' label")
 		}
 	})
 }

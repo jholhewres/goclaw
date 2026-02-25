@@ -37,6 +37,9 @@ type ctxKeyCallerJID struct{}
 // ctxKeyToolProfile is the context key for passing the active tool profile.
 type ctxKeyToolProfile struct{}
 
+// ctxKeyVaultReader is the context key for passing the vault reader.
+type ctxKeyVaultReader struct{}
+
 // DeliveryTarget holds the channel and chatID for message delivery.
 type DeliveryTarget struct {
 	Channel string
@@ -93,6 +96,20 @@ func ContextWithToolProfile(ctx context.Context, profile *ToolProfile) context.C
 // Returns nil if no profile is set.
 func ToolProfileFromContext(ctx context.Context) *ToolProfile {
 	if v, ok := ctx.Value(ctxKeyToolProfile{}).(*ToolProfile); ok {
+		return v
+	}
+	return nil
+}
+
+// ContextWithVaultReader returns a new context carrying a vault reader.
+func ContextWithVaultReader(ctx context.Context, vr skills.VaultReader) context.Context {
+	return context.WithValue(ctx, ctxKeyVaultReader{}, vr)
+}
+
+// VaultReaderFromContext extracts the vault reader from context.
+// Returns nil if not set.
+func VaultReaderFromContext(ctx context.Context) skills.VaultReader {
+	if v, ok := ctx.Value(ctxKeyVaultReader{}).(skills.VaultReader); ok {
 		return v
 	}
 	return nil
@@ -389,6 +406,9 @@ type ToolExecutor struct {
 	guard       *ToolGuard
 	mu          sync.RWMutex
 
+	// vault is the optional vault reader for checking skill setup
+	vault skills.VaultReader
+
 	// toolDefsCache caches the slice of ToolDefinitions so we don't rebuild
 	// it on every Tools() call. Invalidated when a new tool is registered.
 	toolDefsCache []ToolDefinition
@@ -563,6 +583,13 @@ func (e *ToolExecutor) Register(def ToolDefinition, handler ToolHandlerFunc) {
 	e.logger.Debug("tool registered", "name", name)
 }
 
+// SetVault sets the vault reader for skill setup checking.
+func (e *ToolExecutor) SetVault(vault skills.VaultReader) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.vault = vault
+}
+
 // RegisterSkillTools registers all tools exposed by a skill.
 // Tool names are prefixed with the skill name to avoid collisions.
 // Names are sanitized to match OpenAI's pattern: ^[a-zA-Z0-9_-]+$
@@ -578,6 +605,94 @@ func (e *ToolExecutor) RegisterSkillTools(skill skills.Skill) {
 
 		e.Register(def, handler)
 	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Skill Setup Checking
+// ─────────────────────────────────────────────────────────────────────────────
+
+// VaultReaderAdapter adapts a Vault to implement skills.VaultReader.
+type VaultReaderAdapter struct {
+	getKey func(key string) (string, error)
+	hasKey func(key string) bool
+}
+
+// NewVaultReaderAdapter creates a VaultReader from getter functions.
+func NewVaultReaderAdapter(getKey func(key string) (string, error), hasKey func(key string) bool) *VaultReaderAdapter {
+	return &VaultReaderAdapter{getKey: getKey, hasKey: hasKey}
+}
+
+// Get returns the value for a key.
+func (v *VaultReaderAdapter) Get(key string) (string, error) {
+	if v.getKey == nil {
+		return "", fmt.Errorf("vault not configured")
+	}
+	return v.getKey(key)
+}
+
+// Has returns true if the key exists.
+func (v *VaultReaderAdapter) Has(key string) bool {
+	if v.hasKey == nil {
+		return false
+	}
+	return v.hasKey(key)
+}
+
+// CheckSkillSetup checks if a skill is properly configured.
+// Returns setup status and nil if check was performed, or error if skill doesn't support setup checking.
+func CheckSkillSetup(skill skills.Skill, vault skills.VaultReader) (*skills.SetupStatus, error) {
+	checker, ok := skill.(skills.SkillSetupChecker)
+	if !ok {
+		return nil, fmt.Errorf("skill does not support setup checking")
+	}
+	status := checker.CheckSetup(vault)
+	return &status, nil
+}
+
+// SkillNeedsSetup returns true if a skill requires configuration that is missing.
+func SkillNeedsSetup(skill skills.Skill, vault skills.VaultReader) bool {
+	status, err := CheckSkillSetup(skill, vault)
+	if err != nil {
+		return false // Skill doesn't need setup
+	}
+	return !status.IsComplete
+}
+
+// FormatSetupPrompt creates a user-friendly prompt for missing configuration.
+func FormatSetupPrompt(skillName string, status *skills.SetupStatus) string {
+	if status == nil || status.IsComplete {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("⚠️ Skill **%s** needs configuration before use.\n\n", skillName))
+
+	// Build details from MissingRequirements if available
+	if len(status.MissingRequirements) > 0 {
+		for i, req := range status.MissingRequirements {
+			sb.WriteString(fmt.Sprintf("%d. **%s** (%s)\n", i+1, req.Name, req.Key))
+			if req.Description != "" {
+				sb.WriteString(fmt.Sprintf("   %s\n", req.Description))
+			}
+			if req.Example != "" {
+				sb.WriteString(fmt.Sprintf("   Example: `%s`\n", req.Example))
+			}
+			if req.EnvVar != "" {
+				sb.WriteString(fmt.Sprintf("   Or set environment variable: `%s`\n", req.EnvVar))
+			}
+		}
+		sb.WriteString("\n")
+	} else if status.Message != "" {
+		sb.WriteString(status.Message)
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("To configure:\n")
+	sb.WriteString("1. Provide the value now (I'll save it to the vault automatically)\n")
+	sb.WriteString("2. Use `devclaw vault set KEY value` in terminal\n")
+	sb.WriteString("3. Set the corresponding environment variable\n")
+
+	return sb.String()
 }
 
 // sanitizeToolName ensures a tool name matches OpenAI's required pattern
@@ -871,6 +986,14 @@ func (e *ToolExecutor) executeSingle(ctx context.Context, call ToolCall) ToolRes
 	if ps := ProgressSenderFromContext(ctx); ps != nil {
 		execCtx = ContextWithProgressSender(execCtx, ps)
 	}
+
+	// Propagate VaultReader to the tool context for skill setup checking.
+	if e.vault != nil {
+		execCtx = ContextWithVaultReader(execCtx, e.vault)
+	} else if vr := VaultReaderFromContext(ctx); vr != nil {
+		execCtx = ContextWithVaultReader(execCtx, vr)
+	}
+
 	defer cancel()
 
 	// ── Before-tool hooks ──
@@ -1053,13 +1176,44 @@ func MakeToolDefinition(name, description string, params map[string]any) ToolDef
 
 // makeSkillToolHandler creates a ToolHandlerFunc that delegates to a skill's tool handler.
 func makeSkillToolHandler(skill skills.Skill, tool skills.Tool) ToolHandlerFunc {
+	// Check if skill needs setup validation
+	checker, needsSetupCheck := skill.(skills.SkillSetupChecker)
+	meta := skill.Metadata()
+
 	if tool.Handler != nil {
-		// Skill tool has an explicit handler — use it directly.
-		return ToolHandlerFunc(tool.Handler)
+		// Skill tool has an explicit handler — wrap with setup check.
+		return func(ctx context.Context, args map[string]any) (any, error) {
+			// Check setup before executing
+			if needsSetupCheck {
+				vault := VaultReaderFromContext(ctx)
+				status := checker.CheckSetup(vault)
+				if !status.IsComplete {
+					// Return setup instructions as a dual result
+					return DualToolResult(
+						fmt.Sprintf("[SETUP_REQUIRED] Skill '%s' needs configuration: %s", meta.Name, status.Message),
+						FormatSetupPrompt(meta.Name, &status),
+					), nil
+				}
+			}
+			return tool.Handler(ctx, args)
+		}
 	}
 
 	// Fallback: call the skill's Execute method with the input arg.
 	return func(ctx context.Context, args map[string]any) (any, error) {
+		// Check setup before executing
+		if needsSetupCheck {
+			vault := VaultReaderFromContext(ctx)
+			status := checker.CheckSetup(vault)
+			if !status.IsComplete {
+				// Return setup instructions as a dual result
+				return DualToolResult(
+					fmt.Sprintf("[SETUP_REQUIRED] Skill '%s' needs configuration: %s", meta.Name, status.Message),
+					FormatSetupPrompt(meta.Name, &status),
+				), nil
+			}
+		}
+
 		input, _ := args["input"].(string)
 		if input == "" {
 			// Try to serialize all args as the input.

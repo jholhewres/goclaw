@@ -169,6 +169,81 @@ func (s *ScriptSkill) Shutdown() error {
 	return nil
 }
 
+// ---------- SkillSetupChecker Interface ----------
+
+// RequiredConfig returns the configuration requirements for this skill.
+func (s *ScriptSkill) RequiredConfig() []ConfigRequirement {
+	if s.def == nil {
+		return nil
+	}
+	return s.def.ConfigRequirements
+}
+
+// CheckSetup verifies if all required configuration is present.
+func (s *ScriptSkill) CheckSetup(vault VaultReader) SetupStatus {
+	reqs := s.RequiredConfig()
+	if len(reqs) == 0 {
+		return SetupStatus{
+			IsComplete: true,
+			Message:    "No configuration required",
+		}
+	}
+
+	var missing []ConfigRequirement
+	var optionalMissing []ConfigRequirement
+
+	for _, req := range reqs {
+		// Check vault first
+		hasInVault := vault != nil && vault.Has(req.Key)
+
+		// Also check environment variable as fallback
+		hasInEnv := req.EnvVar != "" && os.Getenv(req.EnvVar) != ""
+
+		if !hasInVault && !hasInEnv {
+			if req.Required {
+				missing = append(missing, req)
+			} else {
+				optionalMissing = append(optionalMissing, req)
+			}
+		}
+	}
+
+	if len(missing) == 0 {
+		msg := fmt.Sprintf("Skill '%s' is properly configured", s.meta.Name)
+		if len(optionalMissing) > 0 {
+			msg += fmt.Sprintf(" (%d optional settings not configured)", len(optionalMissing))
+		}
+		return SetupStatus{
+			IsComplete:         true,
+			OptionalMissing:    optionalMissing,
+			Message:            msg,
+		}
+	}
+
+	// Build helpful message
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Skill '%s' needs configuration:\n", s.meta.Name))
+	for i, req := range missing {
+		sb.WriteString(fmt.Sprintf("\n%d. **%s**\n", i+1, req.Name))
+		if req.Description != "" {
+			sb.WriteString(fmt.Sprintf("   %s\n", req.Description))
+		}
+		if req.Example != "" {
+			sb.WriteString(fmt.Sprintf("   Example: `%s`\n", req.Example))
+		}
+		if req.EnvVar != "" {
+			sb.WriteString(fmt.Sprintf("   Or set env: `%s`\n", req.EnvVar))
+		}
+	}
+
+	return SetupStatus{
+		IsComplete:         false,
+		MissingRequirements: missing,
+		OptionalMissing:    optionalMissing,
+		Message:            sb.String(),
+	}
+}
+
 // ---------- Script Execution ----------
 
 // runScript executes a specific script through the sandbox.

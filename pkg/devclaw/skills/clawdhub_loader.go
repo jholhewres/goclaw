@@ -46,6 +46,10 @@ type ClawdHubSkillDef struct {
 	// Parsed from metadata.openclaw
 	OpenClaw *OpenClawMeta
 
+	// ConfigRequirements are the configuration/credentials needed.
+	// Parsed from metadata.config or metadata.openclaw.config
+	ConfigRequirements []ConfigRequirement
+
 	// Body is the markdown content after frontmatter (instructions).
 	Body string
 
@@ -60,6 +64,7 @@ type OpenClawMeta struct {
 	OS       []string        `json:"os"`
 	Requires OpenClawRequire `json:"requires"`
 	Install  []InstallSpec   `json:"install"`
+	Config   []ConfigRequirement `json:"config"` // Required configuration
 }
 
 // OpenClawRequire defines runtime requirements.
@@ -193,10 +198,46 @@ func (l *ClawdHubLoader) parseSkillMD(path, dir string) (*ClawdHubSkillDef, erro
 				"name", def.Name, "error", err)
 		} else {
 			def.OpenClaw = ocMeta
+			// Extract config requirements from openclaw.config
+			if len(ocMeta.Config) > 0 {
+				def.ConfigRequirements = ocMeta.Config
+			}
 		}
 	}
 
+	// Also check for top-level config in metadata.
+	if configRaw, ok := def.Metadata["config"]; ok {
+		configReqs := parseConfigRequirements(configRaw)
+		def.ConfigRequirements = append(def.ConfigRequirements, configReqs...)
+	}
+
 	return def, nil
+}
+
+// parseConfigRequirements extracts ConfigRequirement slice from metadata.
+func parseConfigRequirements(configRaw interface{}) []ConfigRequirement {
+	data, err := json.Marshal(configRaw)
+	if err != nil {
+		return nil
+	}
+
+	var reqs []ConfigRequirement
+	if err := json.Unmarshal(data, &reqs); err != nil {
+		// Try as map with string keys (simpler format)
+		var simpleMap map[string]string
+		if err := json.Unmarshal(data, &simpleMap); err == nil {
+			for key, desc := range simpleMap {
+				reqs = append(reqs, ConfigRequirement{
+					Key:         key,
+					Name:        key,
+					Description: desc,
+					Required:    true,
+					Secret:      true,
+				})
+			}
+		}
+	}
+	return reqs
 }
 
 // parseFrontmatter extracts YAML frontmatter from a markdown file.

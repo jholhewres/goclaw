@@ -35,6 +35,69 @@ type Skill interface {
 	Shutdown() error
 }
 
+// ConfigRequirement descreve uma configuração/credencial obrigatória para uma skill.
+// Skills podem declarar requisitos que serão verificados automaticamente antes da execução.
+type ConfigRequirement struct {
+	// Key é a chave usada para armazenar no vault (ex: "SLACK_BOT_TOKEN").
+	Key string `yaml:"key"`
+
+	// Name é o nome amigável para mostrar ao usuário (ex: "Slack Bot Token").
+	Name string `yaml:"name"`
+
+	// Description explica o que é e como obter essa configuração.
+	Description string `yaml:"description"`
+
+	// Pattern é um padrão opcional para validação (ex: "xoxb-*" para tokens Slack).
+	Pattern string `yaml:"pattern,omitempty"`
+
+	// Example mostra um exemplo de valor válido (ex: "xoxb-1234567890-1234567890-AbCdEf").
+	Example string `yaml:"example,omitempty"`
+
+	// Secret indica se o valor deve ser tratado como segredo (ocultar em logs).
+	Secret bool `yaml:"secret"`
+
+	// Required indica se é obrigatório. Se false, a skill pode funcionar sem ele.
+	Required bool `yaml:"required"`
+
+	// EnvVar é a variável de ambiente alternativa (ex: "SLACK_BOT_TOKEN").
+	EnvVar string `yaml:"env_var,omitempty"`
+}
+
+// SetupStatus indica o estado de configuração de uma skill.
+type SetupStatus struct {
+	// IsComplete indica se todas as configurações obrigatórias estão presentes.
+	IsComplete bool
+
+	// MissingRequirements são as configurações que faltam.
+	MissingRequirements []ConfigRequirement
+
+	// OptionalMissing são configurações opcionais que não foram definidas.
+	OptionalMissing []ConfigRequirement
+
+	// Message é uma mensagem amigável sobre o estado do setup.
+	Message string
+}
+
+// SkillSetupChecker é implementado por skills que precisam de configuração.
+// O sistema verifica automaticamente antes de executar a skill.
+type SkillSetupChecker interface {
+	// RequiredConfig retorna as configurações obrigatórias e opcionais.
+	RequiredConfig() []ConfigRequirement
+
+	// CheckSetup verifica se a skill está corretamente configurada.
+	// Recebe um VaultReader para verificar credenciais armazenadas.
+	CheckSetup(vault VaultReader) SetupStatus
+}
+
+// VaultReader é uma interface minimalista para ler valores do vault.
+// Skills usam isso para verificar se credenciais existem.
+type VaultReader interface {
+	// Get retorna o valor armazenado para a chave, ou erro se não existir.
+	Get(key string) (string, error)
+	// Has retorna true se a chave existe no vault.
+	Has(key string) bool
+}
+
 // Metadata contém os metadados de uma skill.
 type Metadata struct {
 	// Name é o identificador único da skill (ex: "calendar", "github").

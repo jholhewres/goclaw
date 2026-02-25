@@ -203,6 +203,20 @@ func (v *Vault) Get(name string) (string, error) {
 	return string(plaintext), nil
 }
 
+// Has returns true if a secret exists in the vault.
+// Returns false if vault is locked or key doesn't exist.
+func (v *Vault) Has(name string) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	if v.derivedKey == nil || v.data == nil {
+		return false
+	}
+
+	_, ok := v.data.Entries[name]
+	return ok
+}
+
 // Delete removes a secret from the vault. The vault must be unlocked.
 func (v *Vault) Delete(name string) error {
 	v.mu.Lock()
