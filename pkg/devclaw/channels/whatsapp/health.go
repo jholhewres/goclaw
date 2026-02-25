@@ -20,14 +20,22 @@ type HealthMonitorConfig struct {
 	// a health check is considered failed.
 	// Default: 5m
 	MaxSilentDuration time.Duration `yaml:"max_silent_duration"`
+
+	// ForceReconnectAfter is the maximum silent duration before forcing
+	// a preventive reconnection, regardless of client.IsConnected() result.
+	// This handles "half-open" TCP connections where the socket appears
+	// connected but is actually dead.
+	// Default: 30m (0 = disabled)
+	ForceReconnectAfter time.Duration `yaml:"force_reconnect_after"`
 }
 
 // DefaultHealthMonitorConfig returns sensible defaults.
 func DefaultHealthMonitorConfig() HealthMonitorConfig {
 	return HealthMonitorConfig{
-		Enabled:           true,
-		CheckInterval:     30 * time.Second,
-		MaxSilentDuration: 5 * time.Minute,
+		Enabled:             true,
+		CheckInterval:       30 * time.Second,
+		MaxSilentDuration:   5 * time.Minute,
+		ForceReconnectAfter: 30 * time.Minute,
 	}
 }
 
@@ -45,6 +53,8 @@ func (w *WhatsApp) StartHealthMonitor(ctx context.Context, cfg HealthMonitorConf
 	if cfg.MaxSilentDuration <= 0 {
 		cfg.MaxSilentDuration = 5 * time.Minute
 	}
+	// ForceReconnectAfter default is 30m (set in DefaultHealthMonitorConfig).
+	// No need to validate - 0 means disabled.
 
 	go func() {
 		ticker := time.NewTicker(cfg.CheckInterval)
@@ -52,7 +62,8 @@ func (w *WhatsApp) StartHealthMonitor(ctx context.Context, cfg HealthMonitorConf
 
 		w.logger.Info("whatsapp health monitor started",
 			"check_interval", cfg.CheckInterval,
-			"max_silent", cfg.MaxSilentDuration)
+			"max_silent", cfg.MaxSilentDuration,
+			"force_reconnect_after", cfg.ForceReconnectAfter)
 
 		for {
 			select {
@@ -98,6 +109,20 @@ func (w *WhatsApp) performHealthCheck(cfg HealthMonitorConfig) {
 				go w.attemptReconnect()
 				return
 			}
+		}
+
+		// Check if we should force a preventive reconnection.
+		// This handles "half-open" TCP connections where the socket appears
+		// connected but is actually dead.
+		if cfg.ForceReconnectAfter > 0 && silentDuration > cfg.ForceReconnectAfter {
+			w.logger.Warn("whatsapp: forcing preventive reconnection due to excessive silence",
+				"silent_duration", silentDuration,
+				"force_reconnect_after", cfg.ForceReconnectAfter)
+
+			w.setState(StateReconnecting)
+			w.connected.Store(false)
+			go w.attemptReconnect()
+			return
 		}
 
 		// Note: whatsmeow handles its own keepalive pings internally.
