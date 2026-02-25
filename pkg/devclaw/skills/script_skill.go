@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -112,11 +113,28 @@ func (s *ScriptSkill) Tools() []Tool {
 }
 
 // SystemPrompt returns the SKILL.md body with {baseDir} resolved.
+// For prompt-only skills (no scripts), adds a notice about available tools.
 func (s *ScriptSkill) SystemPrompt() string {
 	body := s.def.Body
 
 	// Replace {baseDir} with the actual skill directory.
 	body = strings.ReplaceAll(body, "{baseDir}", s.def.Dir)
+
+	// Check if this is a prompt-only skill (no executable scripts)
+	if len(s.scripts) == 0 {
+		// Add notice about how to use this skill
+		notice := `
+
+---
+**Skill Notice:** This skill provides instructions only and has no executable scripts.
+
+- If the skill references specific tools, use the ` + "`bash`" + ` tool to run CLI commands
+- If the skill mentions external CLIs (e.g., gog, gh, aws), ensure they are installed: ` + "`which <cli-name>`" + `
+- If no CLI is mentioned and no tools are available, inform the user that this skill requires additional setup
+`
+
+		body += notice
+	}
 
 	return body
 }
@@ -182,13 +200,21 @@ func (s *ScriptSkill) RequiredConfig() []ConfigRequirement {
 // CheckSetup verifies if all required configuration is present.
 func (s *ScriptSkill) CheckSetup(vault VaultReader) SetupStatus {
 	reqs := s.RequiredConfig()
-	if len(reqs) == 0 {
-		return SetupStatus{
-			IsComplete: true,
-			Message:    "No configuration required",
+
+	// Check for required binaries first
+	var missingBins []string
+	if s.def.OpenClaw != nil {
+		for _, bin := range s.def.OpenClaw.Requires.Bins {
+			if _, err := exec.LookPath(bin); err != nil {
+				missingBins = append(missingBins, bin)
+			}
 		}
 	}
 
+	// Check for prompt-only skills without required tools
+	isPromptOnly := len(s.scripts) == 0
+
+	// Build status
 	var missing []ConfigRequirement
 	var optionalMissing []ConfigRequirement
 
@@ -205,6 +231,24 @@ func (s *ScriptSkill) CheckSetup(vault VaultReader) SetupStatus {
 			} else {
 				optionalMissing = append(optionalMissing, req)
 			}
+		}
+	}
+
+	// If there are missing binaries, add them as setup requirements
+	if len(missingBins) > 0 {
+		return SetupStatus{
+			IsComplete: false,
+			MissingRequirements: missing,
+			Message: fmt.Sprintf("Skill '%s' requires external tools that are not installed:\n\nMissing binaries: %s\n\nInstall them before using this skill.",
+				s.meta.Name, strings.Join(missingBins, ", ")),
+		}
+	}
+
+	// If prompt-only with no config requirements, it's complete but note it
+	if isPromptOnly && len(reqs) == 0 && len(missingBins) == 0 {
+		return SetupStatus{
+			IsComplete: true,
+			Message:    fmt.Sprintf("Skill '%s' is a prompt-only skill (instructions provided, no executable scripts)", s.meta.Name),
 		}
 	}
 
