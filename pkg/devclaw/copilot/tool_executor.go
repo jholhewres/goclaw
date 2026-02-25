@@ -669,28 +669,28 @@ func FormatSetupPrompt(skillName string, status *skills.SetupStatus) string {
 
 	// Build details from MissingRequirements if available
 	if len(status.MissingRequirements) > 0 {
+		sb.WriteString("Required credentials:\n\n")
 		for i, req := range status.MissingRequirements {
-			sb.WriteString(fmt.Sprintf("%d. **%s** (%s)\n", i+1, req.Name, req.Key))
+			sb.WriteString(fmt.Sprintf("%d. **%s**\n", i+1, req.Name))
+			sb.WriteString(fmt.Sprintf("   - Vault key: `%s`\n", req.Key))
 			if req.Description != "" {
-				sb.WriteString(fmt.Sprintf("   %s\n", req.Description))
+				sb.WriteString(fmt.Sprintf("   - %s\n", req.Description))
 			}
 			if req.Example != "" {
-				sb.WriteString(fmt.Sprintf("   Example: `%s`\n", req.Example))
+				sb.WriteString(fmt.Sprintf("   - Example: `%s`\n", req.Example))
 			}
 			if req.EnvVar != "" {
-				sb.WriteString(fmt.Sprintf("   Or set environment variable: `%s`\n", req.EnvVar))
+				sb.WriteString(fmt.Sprintf("   - Or set env var: `%s`\n", req.EnvVar))
 			}
+			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
 	} else if status.Message != "" {
 		sb.WriteString(status.Message)
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("To configure:\n")
-	sb.WriteString("1. Provide the value now (I'll save it to the vault automatically)\n")
-	sb.WriteString("2. Use `devclaw vault set KEY value` in terminal\n")
-	sb.WriteString("3. Set the corresponding environment variable\n")
+	sb.WriteString("To configure, provide the values and I'll save them to the vault with the correct keys.\n")
+	sb.WriteString("Example: 'My API key is abc123 and my token is xyz789'\n")
 
 	return sb.String()
 }

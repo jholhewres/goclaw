@@ -205,6 +205,27 @@ func (l *ClawdHubLoader) parseSkillMD(path, dir string) (*ClawdHubSkillDef, erro
 		}
 	}
 
+	// Also check for clawdbot metadata (ClawHub format)
+	if meta, ok := def.Metadata["clawdbot"]; ok {
+		clawdbotMeta, err := parseOpenClawMeta(meta) // Same structure as openclaw
+		if err != nil {
+			l.logger.Warn("clawdhub: error parsing clawdbot metadata",
+				"name", def.Name, "error", err)
+		} else {
+			// Convert env requirements to ConfigRequirements
+			for _, env := range clawdbotMeta.Requires.Env {
+				def.ConfigRequirements = append(def.ConfigRequirements, ConfigRequirement{
+					Key:         env,
+					Name:        env,
+					Description: fmt.Sprintf("Environment variable %s required by skill", env),
+					EnvVar:      env,
+					Required:    true,
+					Secret:      true,
+				})
+			}
+		}
+	}
+
 	// Also check for top-level config in metadata.
 	if configRaw, ok := def.Metadata["config"]; ok {
 		configReqs := parseConfigRequirements(configRaw)
