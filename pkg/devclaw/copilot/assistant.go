@@ -411,6 +411,12 @@ func (a *Assistant) Start(ctx context.Context) error {
 			"backend", hubConfig.Backend, "error", hubErr)
 	} else {
 		a.dbHub = dbHub
+
+		// Run database migrations (creates all tables if needed)
+		if err := dbHub.Migrate(context.Background(), "primary", 0); err != nil {
+			a.logger.Error("failed to run database migrations", "error", err)
+		}
+
 		// Get the underlying DB connection for backward compatibility
 		if dbHub.DB() != nil {
 			a.devclawDB = dbHub.DB()
