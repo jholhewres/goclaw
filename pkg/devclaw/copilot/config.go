@@ -769,7 +769,7 @@ func DefaultConfig() *Config {
 		},
 		Sandbox: sandbox.DefaultConfig(),
 		Skills: SkillsConfig{
-			Builtin: []string{"calculator", "web-fetch", "datetime"},
+			Builtin: []string{"calculator", "web-fetch", "datetime", "skill-db"},
 		},
 		Scheduler: SchedulerConfig{
 			Enabled: true,

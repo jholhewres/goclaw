@@ -63,6 +63,7 @@ func (l *BuiltinLoader) Load(_ context.Context) ([]Skill, error) {
 		"web-fetch":       newWebFetchSkill,
 		"datetime":        newDatetimeSkill,
 		"image-gen":       newImageGenSkill,
+		"skill-db":        newSkillDBSkill,
 		"claude-code":     func() Skill { return NewClaudeCodeSkill(l.projProv, l.apiKey, l.baseURL, l.model) },
 		"project-manager": func() Skill { return NewProjectManagerSkill(l.projProv) },
 	}
@@ -457,6 +458,75 @@ func (s *datetimeSkill) Execute(_ context.Context, input string) (string, error)
 }
 
 func (s *datetimeSkill) Shutdown() error { return nil }
+
+// ============================================================
+// Skill Database Skill
+// ============================================================
+
+type skillDBSkill struct{}
+
+func newSkillDBSkill() Skill { return &skillDBSkill{} }
+
+func (s *skillDBSkill) Metadata() Metadata {
+	return Metadata{
+		Name:        "skill-db",
+		Version:     "1.0.0",
+		Author:      "devclaw",
+		Description: "Provides database tools for skills to store and retrieve structured data like contacts, tasks, and notes",
+		Category:    "utility",
+		Tags:        []string{"database", "storage", "crud", "sqlite", "persist", "data"},
+	}
+}
+
+func (s *skillDBSkill) Tools() []Tool {
+	// This skill doesn't provide its own tools - the tools are registered
+	// separately via RegisterSkillDBTools in the assistant initialization.
+	// This skill exists primarily for its system prompt and triggers.
+	return nil
+}
+
+func (s *skillDBSkill) SystemPrompt() string {
+	return `You have access to a skill database system for storing structured data. Use the skill_db_* tools to manage data:
+
+**Creating tables:**
+- skill_db_create_table(skill_name, table_name, columns) - Create a new table with custom columns
+
+**Managing records:**
+- skill_db_insert(skill_name, table_name, data) - Add a new record, returns ID
+- skill_db_query(skill_name, table_name, where, limit) - Search records with filters
+- skill_db_update(skill_name, table_name, row_id, data) - Update a record by ID
+- skill_db_delete(skill_name, table_name, row_id) - Delete a record by ID
+
+**Table management:**
+- skill_db_list_tables(skill_name) - List tables for a skill (empty = all skills)
+- skill_db_describe(skill_name, table_name) - View table structure
+- skill_db_drop_table(skill_name, table_name) - Permanently delete a table
+
+**Examples:**
+- Create a CRM contacts table: skill_db_create_table(skill_name="crm", table_name="contacts", columns={"name": "TEXT NOT NULL", "email": "TEXT", "status": "TEXT DEFAULT 'novo'"})
+- Add a contact: skill_db_insert(skill_name="crm", table_name="contacts", data={"name": "João", "email": "joao@example.com"})
+- Find new contacts: skill_db_query(skill_name="crm", table_name="contacts", where={"status": "novo"})
+- Update status: skill_db_update(skill_name="crm", table_name="contacts", row_id="abc123", data={"status": "contatado"})
+
+Each skill can have multiple tables. Table names are automatically prefixed with the skill name (e.g., "crm_contacts").`
+}
+
+func (s *skillDBSkill) Triggers() []string {
+	return []string{
+		"database", "banco de dados", "salvar dados", "tabela",
+		"storage", "persistir", "armazenar", "guardar",
+		"contatos", "contacts", "crm", "leads",
+		"tarefas", "tasks", "notas", "notes",
+	}
+}
+
+func (s *skillDBSkill) Init(_ context.Context, _ map[string]any) error { return nil }
+
+func (s *skillDBSkill) Execute(_ context.Context, input string) (string, error) {
+	return "", fmt.Errorf("skill-db is a tool-based skill. Use skill_db_* tools directly.")
+}
+
+func (s *skillDBSkill) Shutdown() error { return nil }
 
 // ============================================================
 // Image Generation Skill (DALL-E 3 / gpt-image-1)

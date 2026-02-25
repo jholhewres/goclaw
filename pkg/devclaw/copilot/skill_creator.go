@@ -25,7 +25,8 @@ import (
 
 // RegisterSkillCreatorTools registers skill management tools in the executor.
 // skillsDir is the workspace-level directory where user-created skills live.
-func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry, skillsDir string, logger *slog.Logger) {
+// skillDB is the skill database for creating tables when with_database is true.
+func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry, skillsDir string, skillDB *SkillDB, logger *slog.Logger) {
 	if skillsDir == "" {
 		skillsDir = "./skills"
 	}
@@ -35,7 +36,7 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 
 	// init_skill
 	executor.Register(
-		MakeToolDefinition("init_skill", "Create a new skill with a SKILL.md template. The skill will be available for the agent to use after creation.", map[string]any{
+		MakeToolDefinition("init_skill", "Create a new skill with a SKILL.md template. The skill will be available for the agent to use after creation. Use with_database=true to automatically create a database table for storing structured data.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{
@@ -54,6 +55,21 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 					"type":        "string",
 					"description": "Optional emoji for the skill",
 				},
+				"with_database": map[string]any{
+					"type":        "boolean",
+					"description": "If true, creates a database table for this skill to store structured data",
+				},
+				"database_table": map[string]any{
+					"type":        "string",
+					"description": "Name of the database table to create (default: 'data'). Only used if with_database is true.",
+				},
+				"database_schema": map[string]any{
+					"type":        "object",
+					"description": "Column definitions for the database table. Keys are column names, values are SQL types like 'TEXT NOT NULL', 'INTEGER', etc. Only used if with_database is true.",
+					"additionalProperties": map[string]any{
+						"type": "string",
+					},
+				},
 			},
 			"required": []string{"name", "description"},
 		}),
@@ -62,13 +78,34 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 			description, _ := args["description"].(string)
 			instructions, _ := args["instructions"].(string)
 			emoji, _ := args["emoji"].(string)
+			withDatabase, _ := args["with_database"].(bool)
+			databaseTable, _ := args["database_table"].(string)
+			databaseSchemaRaw, _ := args["database_schema"].(map[string]any)
 
 			if name == "" || description == "" {
 				return nil, fmt.Errorf("name and description are required")
 			}
 
-			// Sanitize name.
+			// Sanitize name (convert to lowercase, replace spaces with hyphens).
+			displayName := name
 			name = sanitizeSkillName(name)
+
+			// For database, use underscore version.
+			dbSkillName := strings.ReplaceAll(name, "-", "_")
+
+			// Check for name collision: my-skill and my_skill would map to same db name.
+			if withDatabase && skillDB != nil {
+				existingTables, err := skillDB.ListTables("")
+				if err == nil {
+					for _, t := range existingTables {
+						if t.SkillName == dbSkillName {
+							// Find which skill has this name (could be with hyphens or underscores).
+							existingSkillName := strings.ReplaceAll(t.SkillName, "_", "-")
+							return nil, fmt.Errorf("skill name collision: '%s' would conflict with existing skill '%s' in database. Skill names that differ only in hyphens vs underscores are not allowed when using database", name, existingSkillName)
+						}
+					}
+				}
+			}
 
 			// Check if skill already exists.
 			if existing, _ := registry.Get(name); existing != nil {
@@ -89,9 +126,60 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 				return nil, fmt.Errorf("creating scripts directory: %w", err)
 			}
 
+			// Handle database creation.
+			var dbInfo string
+			if withDatabase && skillDB != nil {
+				if databaseTable == "" {
+					databaseTable = "data"
+				}
+
+				// Convert schema.
+				databaseSchema := make(map[string]string)
+				for k, v := range databaseSchemaRaw {
+					if vs, ok := v.(string); ok {
+						databaseSchema[k] = vs
+					}
+				}
+
+				// Create table.
+				err := skillDB.CreateTable(dbSkillName, databaseTable, displayName, description, databaseSchema)
+				if err != nil {
+					// Clean up directory on error.
+					os.RemoveAll(skillDir)
+					return nil, fmt.Errorf("creating database table: %w", err)
+				}
+
+				dbInfo = fmt.Sprintf("\n\nDatabase table '%s_%s' created for storing data.", dbSkillName, databaseTable)
+			}
+
 			// Build SKILL.md content.
 			if instructions == "" {
 				instructions = fmt.Sprintf("# %s\n\nDescribe how the agent should use this skill.", name)
+			}
+
+			// Add database usage instructions if applicable.
+			if withDatabase && skillDB != nil {
+				dbInstructions := fmt.Sprintf(`
+
+## Database
+
+This skill has a database table for storing structured data. Use these tools:
+
+- **skill_db_insert**: Add new records
+- **skill_db_query**: Search records with filters
+- **skill_db_update**: Update existing records
+- **skill_db_delete**: Remove records
+- **skill_db_list_tables**: See available tables
+- **skill_db_describe**: View table structure
+
+Example:
+` + "```" + `
+skill_db_insert(skill_name="%s", table_name="%s", data={"name": "Example"})
+skill_db_query(skill_name="%s", table_name="%s", where={"status": "active"})
+` + "```" + `
+`, dbSkillName, databaseTable, dbSkillName, databaseTable)
+
+				instructions += dbInstructions
 			}
 
 			metadata := map[string]any{
@@ -99,6 +187,7 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 					"emoji":  emoji,
 					"always": false,
 				},
+				"database": withDatabase,
 			}
 			metaJSON, _ := json.Marshal(metadata)
 
@@ -115,7 +204,8 @@ metadata: %s
 				return nil, fmt.Errorf("writing SKILL.md: %w", err)
 			}
 
-			return fmt.Sprintf("Skill '%s' created at %s\n\nTo add scripts: use add_script tool.\nTo test: use test_skill tool.", name, skillDir), nil
+			result := fmt.Sprintf("Skill '%s' created at %s%s\n\nTo add scripts: use add_script tool.\nTo test: use test_skill tool.", name, skillDir, dbInfo)
+			return result, nil
 		},
 	)
 
@@ -351,15 +441,15 @@ metadata: %s
 				return nil, fmt.Errorf("ClawHub search failed: %w", err)
 			}
 
-			if len(result.Skills) == 0 {
+			if len(result.Results) == 0 {
 				return fmt.Sprintf("No skills found for %q on ClawHub.", query), nil
 			}
 
 			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("ClawHub results for %q (%d found):\n\n", query, len(result.Skills)))
-			for _, s := range result.Skills {
-				sb.WriteString(fmt.Sprintf("- **%s** (%s)\n  %s\n  Stars: %d | Downloads: %d\n  Install: `devclaw skill install %s` or ask me to install it\n\n",
-					s.Name, s.Slug, s.Description, s.Stars, s.Downloads, s.Slug))
+			sb.WriteString(fmt.Sprintf("ClawHub results for %q (%d found):\n\n", query, len(result.Results)))
+			for _, s := range result.Results {
+				sb.WriteString(fmt.Sprintf("- **%s** (%s)\n  %s\n  Score: %.2f\n  Install: `devclaw skill install %s` or ask me to install it\n\n",
+					s.DisplayName, s.Slug, s.Summary, s.Score, s.Slug))
 			}
 			return sb.String(), nil
 		},

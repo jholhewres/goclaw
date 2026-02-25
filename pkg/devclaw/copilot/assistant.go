@@ -54,6 +54,9 @@ type Assistant struct {
 	// skillRegistry manages available skills.
 	skillRegistry *skills.Registry
 
+	// skillDB provides database storage for skills to persist structured data.
+	skillDB *SkillDB
+
 	// scheduler manages scheduled tasks.
 	scheduler *scheduler.Scheduler
 
@@ -792,6 +795,13 @@ func (a *Assistant) Stop() {
 	if a.sqliteMemory != nil {
 		if err := a.sqliteMemory.Close(); err != nil {
 			a.logger.Warn("error closing SQLite memory", "error", err)
+		}
+	}
+
+	// Close skill database.
+	if a.skillDB != nil {
+		if err := a.skillDB.Close(); err != nil {
+			a.logger.Warn("error closing skill database", "error", err)
 		}
 	}
 
@@ -2111,12 +2121,21 @@ func (a *Assistant) registerSystemTools() {
 	ssrfGuard := security.NewSSRFGuard(a.config.Security.SSRF, a.logger)
 	RegisterSystemTools(a.toolExecutor, sandboxRunner, a.memoryStore, a.sqliteMemory, a.config.Memory, a.scheduler, dataDir, ssrfGuard, a.vault, a.config.WebSearch)
 
+	// Initialize skill database for skills to store structured data.
+	skillDB, err := OpenSkillDatabase(dataDir)
+	if err != nil {
+		a.logger.Warn("skill database not available", "error", err)
+	} else {
+		a.skillDB = skillDB
+		RegisterSkillDBTools(a.toolExecutor, a.skillDB)
+	}
+
 	// Register skill creator tools (including install_skill, search_skills, remove_skill).
 	skillsDir := "./skills"
 	if len(a.config.Skills.ClawdHubDirs) > 0 {
 		skillsDir = a.config.Skills.ClawdHubDirs[0]
 	}
-	RegisterSkillCreatorTools(a.toolExecutor, a.skillRegistry, skillsDir, a.logger)
+	RegisterSkillCreatorTools(a.toolExecutor, a.skillRegistry, skillsDir, a.skillDB, a.logger)
 
 	// Register subagent tools (spawn, list, wait, stop).
 	RegisterSubagentTools(a.toolExecutor, a.subagentMgr, a.llmClient, a.promptComposer, a.logger)

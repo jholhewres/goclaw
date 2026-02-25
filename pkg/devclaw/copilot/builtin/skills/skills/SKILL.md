@@ -55,6 +55,18 @@ Create, install, and manage skills that extend agent capabilities.
 | `skill_defaults_install` | Install bundled | Discover |
 | `remove_skill` | Remove skill | Manage |
 
+### Database Tools
+| Tool | Action | Description |
+|------|--------|-------------|
+| `skill_db_create_table` | Create | Create a table for storing data |
+| `skill_db_insert` | Create | Insert a new record |
+| `skill_db_query` | Read | Query records with filters |
+| `skill_db_update` | Update | Update a record by ID |
+| `skill_db_delete` | Delete | Delete a record by ID |
+| `skill_db_list_tables` | Read | List tables for a skill |
+| `skill_db_describe` | Read | View table structure |
+| `skill_db_drop_table` | Delete | Permanently drop a table |
+
 ## Creating Skills
 
 ### Initialize
@@ -62,6 +74,25 @@ Create, install, and manage skills that extend agent capabilities.
 init_skill(name="my-api-client", description="Interact with MyAPI service")
 # Output: Skill created at ~/.devclaw/skills/my-api-client/
 ```
+
+### Initialize with Database
+```bash
+init_skill(
+    name="crm",
+    description="Contact and lead management",
+    with_database=true,
+    database_table="contacts",
+    database_schema={
+        "name": "TEXT NOT NULL",
+        "email": "TEXT",
+        "phone": "TEXT",
+        "status": "TEXT DEFAULT 'novo'"
+    }
+)
+# Creates: Skill + database table crm_contacts
+```
+
+When `with_database=true`, the skill automatically gets a database table for storing structured data. The SKILL.md includes usage instructions for skill_db_* tools.
 
 ### Edit Instructions
 ```bash
@@ -132,11 +163,42 @@ add_script(skill_name="company-api", script_name="get_employee", script_content=
 test_skill(name="company-api", input="get employee 123")
 ```
 
+### Create Skill with Database (CRM Example)
+```bash
+# 1. Initialize with database
+init_skill(
+    name="crm",
+    description="Customer relationship management",
+    with_database=true,
+    database_table="contacts",
+    database_schema={
+        "name": "TEXT NOT NULL",
+        "email": "TEXT",
+        "company": "TEXT",
+        "status": "TEXT DEFAULT 'lead'"
+    }
+)
+
+# 2. Use the database
+skill_db_insert(skill_name="crm", table_name="contacts", data={
+    "name": "João Silva",
+    "email": "joao@empresa.com"
+})
+
+# 3. Query data
+skill_db_query(skill_name="crm", table_name="contacts", where={"status": "lead"})
+```
+
 ## Tips
 - Use descriptive names
 - Test after creation
 - Use vault for secrets in scripts
 - Keep skills focused
+- Use `with_database=true` for skills that need to store data
+- Query with filters to avoid loading all data
+
+## Related Skills
+- **skill-db** - Database system for storing structured data in skills
 
 ## Common Mistakes
 | Mistake | Correct Approach |
