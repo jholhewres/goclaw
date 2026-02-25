@@ -163,21 +163,28 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 
 ## Database
 
-This skill has a database table for storing structured data. Use these tools:
+This skill has a database table for storing structured data.
 
+**IMPORTANT: Always use skill_name="%s" (with underscores, not hyphens) for all database operations.**
+
+### Tools
+- **skill_db_query**: LIST data (use this to show records to user)
 - **skill_db_insert**: Add new records
-- **skill_db_query**: Search records with filters
 - **skill_db_update**: Update existing records
 - **skill_db_delete**: Remove records
-- **skill_db_list_tables**: See available tables
-- **skill_db_describe**: View table structure
 
-Example:
+### Examples
 ` + "```" + `
+# List all records (use this when user asks to "list" or "show" data)
+skill_db_query(skill_name="%s", table_name="%s")
+
+# Add a record
 skill_db_insert(skill_name="%s", table_name="%s", data={"name": "Example"})
+
+# Filter records
 skill_db_query(skill_name="%s", table_name="%s", where={"status": "active"})
 ` + "```" + `
-`, dbSkillName, databaseTable, dbSkillName, databaseTable)
+`, dbSkillName, dbSkillName, databaseTable, dbSkillName, databaseTable, dbSkillName, databaseTable)
 
 				instructions += dbInstructions
 			}
