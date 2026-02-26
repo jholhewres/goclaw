@@ -54,6 +54,48 @@ type BrowserConfig struct {
 
 	// ViewportHeight is the browser viewport height (default: 720).
 	ViewportHeight int `yaml:"viewport_height"`
+
+	// DefaultProfile is the default browser profile to use.
+	DefaultProfile string `yaml:"default_profile"`
+
+	// Profiles maps profile names to their configurations.
+	Profiles map[string]BrowserProfile `yaml:"profiles"`
+
+	// SSRFPolicy configures SSRF protection for browser navigation.
+	SSRFPolicy BrowserSSRFPolicy `yaml:"ssrf_policy"`
+
+	// AttachOnly means never launch a browser; only attach if already running.
+	AttachOnly bool `yaml:"attach_only"`
+
+	// ExtraArgs are additional command-line arguments for Chrome.
+	ExtraArgs []string `yaml:"extra_args"`
+}
+
+// BrowserProfile configures a browser profile.
+type BrowserProfile struct {
+	// Name is the profile name.
+	Name string `yaml:"name"`
+
+	// CDPUrl is the remote CDP endpoint (e.g., "http://10.0.0.42:9222").
+	CDPUrl string `yaml:"cdp_url"`
+
+	// CDPPort is the local CDP port for this profile.
+	CDPPort int `yaml:"cdp_port"`
+
+	// Color is the UI tint color for this profile.
+	Color string `yaml:"color"`
+
+	// Driver is "devclaw" (managed) or "extension" (relay).
+	Driver string `yaml:"driver"`
+}
+
+// BrowserSSRFPolicy configures SSRF protection.
+type BrowserSSRFPolicy struct {
+	// AllowPrivateNetwork allows navigation to private network addresses (default: true).
+	AllowPrivateNetwork bool `yaml:"allow_private_network"`
+
+	// AllowedHostnames is a whitelist of allowed hostnames.
+	AllowedHostnames []string `yaml:"allowed_hostnames"`
 }
 
 // DefaultBrowserConfig returns sensible defaults.
@@ -65,6 +107,11 @@ func DefaultBrowserConfig() BrowserConfig {
 		MaxPages:       3,
 		ViewportWidth:  1280,
 		ViewportHeight: 720,
+		DefaultProfile: "default",
+		Profiles:       make(map[string]BrowserProfile),
+		SSRFPolicy: BrowserSSRFPolicy{
+			AllowPrivateNetwork: true,
+		},
 	}
 }
 
@@ -80,6 +127,14 @@ type BrowserManager struct {
 	conn    *websocket.Conn
 	msgID   int
 	started bool
+
+	// Role references per targetId (for element resolution)
+	roleRefsMu sync.RWMutex
+	roleRefs   map[string]map[string]Ref // targetId -> ref -> Ref
+
+	// Page state tracking
+	pageStateMu sync.RWMutex
+	pageState   map[string]*PageState // targetId -> state
 }
 
 // WithSSRFGuard attaches an SSRF guard to the browser manager.
@@ -599,7 +654,283 @@ func RegisterBrowserTools(executor *ToolExecutor, browserMgr *BrowserManager, lo
 		},
 	)
 
+	// browser_snapshot
+	executor.Register(
+		MakeToolDefinition("browser_snapshot",
+			"Capture an accessibility snapshot of the current page. Returns structured tree with element refs (e1, e2, ...) for subsequent actions. Use this to understand page structure before interacting.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"interactive": map[string]any{
+						"type":        "boolean",
+						"description": "Only include interactive elements (buttons, links, inputs). Default: true.",
+					},
+					"compact": map[string]any{
+						"type":        "boolean",
+						"description": "Remove structural noise. Default: true.",
+					},
+				},
+			},
+		),
+		func(ctx context.Context, args map[string]any) (any, error) {
+			interactive := true
+			compact := true
+			if v, ok := args["interactive"].(bool); ok {
+				interactive = v
+			}
+			if v, ok := args["compact"].(bool); ok {
+				compact = v
+			}
+			return browserMgr.Snapshot(ctx, SnapshotOptions{
+				InteractiveOnly: interactive,
+				Compact:         compact,
+			})
+		},
+	)
+
+	// browser_tabs
+	executor.Register(
+		MakeToolDefinition("browser_tabs",
+			"List all open browser tabs. Returns tab IDs, URLs, and titles.",
+			map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		),
+		func(ctx context.Context, args map[string]any) (any, error) {
+			return browserMgr.ListTabs(ctx)
+		},
+	)
+
+	// browser_open_tab
+	executor.Register(
+		MakeToolDefinition("browser_open_tab",
+			"Open a new browser tab and optionally navigate to a URL.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"url": map[string]any{
+						"type":        "string",
+						"description": "The URL to navigate to (optional, defaults to about:blank).",
+					},
+				},
+			},
+		),
+		func(ctx context.Context, args map[string]any) (any, error) {
+			url, _ := args["url"].(string)
+			if url == "" {
+				url = "about:blank"
+			}
+			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") && url != "about:blank" {
+				url = "https://" + url
+			}
+			return browserMgr.OpenTab(ctx, url)
+		},
+	)
+
+	// browser_focus_tab
+	executor.Register(
+		MakeToolDefinition("browser_focus_tab",
+			"Focus a browser tab by its target ID.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target_id": map[string]any{
+						"type":        "string",
+						"description": "The target ID of the tab to focus.",
+					},
+				},
+				"required": []string{"target_id"},
+			},
+		),
+		func(ctx context.Context, args map[string]any) (any, error) {
+			targetID, _ := args["target_id"].(string)
+			if targetID == "" {
+				return nil, fmt.Errorf("target_id is required")
+			}
+			if err := browserMgr.FocusTab(ctx, targetID); err != nil {
+				return nil, err
+			}
+			return fmt.Sprintf("Focused tab: %s", targetID), nil
+		},
+	)
+
+	// browser_close_tab
+	executor.Register(
+		MakeToolDefinition("browser_close_tab",
+			"Close a browser tab by its target ID.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target_id": map[string]any{
+						"type":        "string",
+						"description": "The target ID of the tab to close.",
+					},
+				},
+				"required": []string{"target_id"},
+			},
+		),
+		func(ctx context.Context, args map[string]any) (any, error) {
+			targetID, _ := args["target_id"].(string)
+			if targetID == "" {
+				return nil, fmt.Errorf("target_id is required")
+			}
+			if err := browserMgr.CloseTab(ctx, targetID); err != nil {
+				return nil, err
+			}
+			return fmt.Sprintf("Closed tab: %s", targetID), nil
+		},
+	)
+
+	// browser_act - Unified browser actions
+	executor.Register(
+		MakeToolDefinition("browser_act",
+			"Perform a browser action. Use after browser_snapshot to get element refs (e1, e2, ...). Kinds: click, type, press, hover, drag, select, fill, resize, wait, evaluate.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind": map[string]any{
+						"type":        "string",
+						"enum":        []string{"click", "type", "press", "hover", "drag", "select", "fill", "resize", "wait", "evaluate"},
+						"description": "Action kind to perform.",
+					},
+					"ref": map[string]any{
+						"type":        "string",
+						"description": "Element reference from snapshot (e1, e2, ...).",
+					},
+					"text": map[string]any{
+						"type":        "string",
+						"description": "Text to type (for type action).",
+					},
+					"key": map[string]any{
+						"type":        "string",
+						"description": "Key to press (for press action).",
+					},
+					"start_ref": map[string]any{
+						"type":        "string",
+						"description": "Start element ref (for drag action).",
+					},
+					"end_ref": map[string]any{
+						"type":        "string",
+						"description": "End element ref (for drag action).",
+					},
+					"values": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Values to select (for select action).",
+					},
+					"fields": map[string]any{
+						"type":        "array",
+						"description": "Form fields to fill (for fill action).",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"ref":   map[string]any{"type": "string"},
+								"type":  map[string]any{"type": "string"},
+								"value": map[string]any{"type": "string"},
+							},
+						},
+					},
+					"width": map[string]any{
+						"type":        "integer",
+						"description": "Window width (for resize action).",
+					},
+					"height": map[string]any{
+						"type":        "integer",
+						"description": "Window height (for resize action).",
+					},
+					"time_ms": map[string]any{
+						"type":        "integer",
+						"description": "Time to wait in ms (for wait action).",
+					},
+					"fn": map[string]any{
+						"type":        "string",
+						"description": "JavaScript function to evaluate (for evaluate action).",
+					},
+					"submit": map[string]any{
+						"type":        "boolean",
+						"description": "Press Enter after typing (for type action).",
+					},
+					"double_click": map[string]any{
+						"type":        "boolean",
+						"description": "Double click instead of single (for click action).",
+					},
+				},
+				"required": []string{"kind"},
+			},
+		),
+		func(ctx context.Context, args map[string]any) (any, error) {
+			kind, _ := args["kind"].(string)
+			if kind == "" {
+				return nil, fmt.Errorf("kind is required")
+			}
+
+			req := ActRequest{Kind: kind}
+
+			// Extract all optional parameters
+			if v, ok := args["ref"].(string); ok {
+				req.Ref = v
+			}
+			if v, ok := args["text"].(string); ok {
+				req.Text = v
+			}
+			if v, ok := args["key"].(string); ok {
+				req.Key = v
+			}
+			if v, ok := args["start_ref"].(string); ok {
+				req.StartRef = v
+			}
+			if v, ok := args["end_ref"].(string); ok {
+				req.EndRef = v
+			}
+			if v, ok := args["fn"].(string); ok {
+				req.Function = v
+			}
+			if v, ok := args["submit"].(bool); ok {
+				req.Submit = v
+			}
+			if v, ok := args["double_click"].(bool); ok {
+				req.DoubleClick = v
+			}
+			if v, ok := args["width"].(float64); ok {
+				req.Width = int(v)
+			}
+			if v, ok := args["height"].(float64); ok {
+				req.Height = int(v)
+			}
+			if v, ok := args["time_ms"].(float64); ok {
+				req.TimeMs = int(v)
+			}
+			if values, ok := args["values"].([]any); ok {
+				for _, v := range values {
+					if s, ok := v.(string); ok {
+						req.Values = append(req.Values, s)
+					}
+				}
+			}
+			if fields, ok := args["fields"].([]any); ok {
+				for _, f := range fields {
+					if field, ok := f.(map[string]any); ok {
+						ff := FormField{}
+						if v, ok := field["ref"].(string); ok {
+							ff.Ref = v
+						}
+						if v, ok := field["type"].(string); ok {
+							ff.Type = v
+						}
+						if v, ok := field["value"].(string); ok {
+							ff.Value = v
+						}
+						req.Fields = append(req.Fields, ff)
+					}
+				}
+			}
+
+			return browserMgr.Act(ctx, req)
+		},
+	)
+
 	logger.Info("browser tools registered",
-		"tools", []string{"browser_navigate", "browser_screenshot", "browser_content", "browser_click", "browser_fill"},
+		"tools", []string{"browser_navigate", "browser_screenshot", "browser_content", "browser_click", "browser_fill", "browser_snapshot", "browser_tabs", "browser_open_tab", "browser_focus_tab", "browser_close_tab", "browser_act"},
 	)
 }

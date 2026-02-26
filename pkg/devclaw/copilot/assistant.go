@@ -171,6 +171,9 @@ type Assistant struct {
 	// mediaSvc provides native media handling (upload, enrich, send).
 	mediaSvc *media.MediaService
 
+	// browserMgr manages browser automation (navigate, screenshot, snapshot, act).
+	browserMgr *BrowserManager
+
 	// configMu protects hot-reloadable config fields.
 	configMu sync.RWMutex
 
@@ -2183,6 +2186,13 @@ func (a *Assistant) registerSystemTools() {
 	RegisterOpsTools(a.toolExecutor)
 	RegisterProductTools(a.toolExecutor)
 	RegisterIDETools(a.toolExecutor)
+
+	// Register browser tools if enabled.
+	if a.config.Browser.Enabled {
+		a.browserMgr = NewBrowserManager(a.config.Browser, a.logger)
+		a.browserMgr.WithSSRFGuard(ssrfGuard)
+		RegisterBrowserTools(a.toolExecutor, a.browserMgr, a.logger)
+	}
 
 	// Register daemon manager for background process control.
 	if a.daemonMgr == nil {

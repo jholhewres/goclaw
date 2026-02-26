@@ -165,6 +165,9 @@ type Config struct {
 
 	// NativeMedia configures the native media handling system.
 	NativeMedia NativeMediaConfig `yaml:"native_media"`
+
+	// Browser configures browser automation tools.
+	Browser BrowserConfig `yaml:"browser"`
 }
 
 // RoutinesConfig configures background routines for metrics and memory indexing.
@@ -844,6 +847,7 @@ func DefaultConfig() *Config {
 			Enabled: false,
 			Address: ":8090",
 		},
+		Browser: DefaultBrowserConfig(),
 	}
 }
 
