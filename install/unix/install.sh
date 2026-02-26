@@ -249,7 +249,7 @@ install_deps_linux() {
   ui_info "Package manager: $pkg_manager"
 
   # Basic tools
-  local basic_tools="wget curl git ca-certificates"
+  local basic_tools="wget curl git ca-certificates unzip"
 
   if [[ "$pkg_manager" == "apt" ]]; then
     basic_tools="$basic_tools build-essential"
@@ -320,6 +320,59 @@ install_deps_linux() {
   else
     ui_success "PM2 already installed: $(pm2 -v 2>/dev/null || echo 'unknown')"
   fi
+
+  # Chrome/Chromium (required for browser automation)
+  ui_info "Checking Chrome/Chromium..."
+  local chrome_found=""
+  if command -v google-chrome &>/dev/null; then
+    chrome_found="google-chrome"
+  elif command -v google-chrome-stable &>/dev/null; then
+    chrome_found="google-chrome-stable"
+  elif command -v chromium-browser &>/dev/null; then
+    chrome_found="chromium-browser"
+  elif command -v chromium &>/dev/null; then
+    chrome_found="chromium"
+  fi
+
+  if [[ -n "$chrome_found" ]]; then
+    ui_success "Chrome/Chromium already installed: $chrome_found"
+  else
+    ui_info "Installing Chrome/Chromium (required for browser automation)..."
+    if [[ "$DRY_RUN" != "1" ]]; then
+      if [[ "$pkg_manager" == "apt" ]]; then
+        # Try Chromium first (lighter, no external repo needed)
+        if [[ "$(id -u)" == "0" ]]; then
+          apt-get install -y chromium-browser 2>/dev/null || {
+            # Fallback to Google Chrome
+            ui_info "Chromium not available, installing Google Chrome..."
+            wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+            apt-get install -y /tmp/google-chrome.deb || apt-get install -y -f /tmp/google-chrome.deb
+            rm -f /tmp/google-chrome.deb
+          }
+        else
+          sudo apt-get install -y chromium-browser 2>/dev/null || {
+            ui_info "Chromium not available, installing Google Chrome..."
+            wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+            sudo apt-get install -y /tmp/google-chrome.deb || sudo apt-get install -y -f /tmp/google-chrome.deb
+            rm -f /tmp/google-chrome.deb
+          }
+        fi
+      else
+        # RHEL-based systems
+        if [[ "$(id -u)" == "0" ]]; then
+          $install_cmd chromium 2>/dev/null || {
+            ui_info "Chromium not available, please install Chrome manually"
+            ui_warn "Browser automation features will not work without Chrome/Chromium"
+          }
+        else
+          sudo $install_cmd chromium 2>/dev/null || {
+            ui_info "Chromium not available, please install Chrome manually"
+            ui_warn "Browser automation features will not work without Chrome/Chromium"
+          }
+        fi
+      fi
+    fi
+  fi
 }
 
 install_deps_macos() {
@@ -373,6 +426,24 @@ install_deps_macos() {
     fi
   else
     ui_success "PM2 already installed: $(pm2 -v 2>/dev/null || echo 'unknown')"
+  fi
+
+  # Chrome/Chromium (required for browser automation)
+  ui_info "Checking Chrome/Chromium..."
+  local chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  if [[ -x "$chrome_path" ]]; then
+    ui_success "Chrome already installed"
+  elif command -v google-chrome-stable &>/dev/null; then
+    ui_success "Chrome already installed: $(command -v google-chrome-stable)"
+  else
+    ui_info "Installing Google Chrome (required for browser automation)..."
+    if [[ "$DRY_RUN" != "1" ]]; then
+      brew install --cask google-chrome 2>/dev/null || {
+        ui_warn "Could not install Chrome automatically"
+        ui_info "Please install Chrome manually: https://www.google.com/chrome/"
+        ui_warn "Browser automation features will not work without Chrome"
+      }
+    fi
   fi
 }
 
@@ -703,7 +774,9 @@ start_with_pm2() {
 
   if [[ "$CONFIG_WAS_CREATED" == "1" ]]; then
     ui_success "DevClaw started with PM2 (First Run Setup mode)"
-    ui_info "Access http://localhost:${PORT}/setup to complete configuration"
+    # Get server IP for display
+    local server_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "SERVER_IP")
+    ui_info "Access http://${server_ip}:${PORT}/setup to complete configuration"
   else
     ui_success "DevClaw started with PM2"
   fi
@@ -739,17 +812,22 @@ print_success() {
   printf "\n"
 
   if [[ "$CONFIG_WAS_CREATED" == "1" ]]; then
+    # Get server IP for display
+    local server_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "SERVER_IP")
     printf "  ${ACCENT}${BOLD}→ First Run Setup${NC}\n"
     printf "\n"
     printf "  DevClaw is running in setup mode.\n"
     printf "  Complete the configuration by accessing:\n"
     printf "\n"
-    printf "    http://localhost:%s/setup\n" "${PORT}"
+    printf "    http://%s:%s/setup\n" "$server_ip" "${PORT}"
     printf "\n"
     printf "  Or run manually:\n"
     printf "    devclaw setup\n"
     printf "\n"
   fi
+
+  # Get server IP for display
+  local display_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
   printf "  Commands:\n"
   printf "    devclaw --version    # Check version\n"
@@ -760,8 +838,8 @@ print_success() {
   printf "    pm2 stop devclaw     # Stop service\n"
   printf "\n"
   printf "  Web UI:\n"
-  printf "    http://localhost:%s\n" "${PORT}"
-  printf "    http://localhost:%s/setup\n" "${PORT}"
+  printf "    http://%s:%s\n" "$display_ip" "${PORT}"
+  printf "    http://%s:%s/setup\n" "$display_ip" "${PORT}"
   printf "\n"
 }
 

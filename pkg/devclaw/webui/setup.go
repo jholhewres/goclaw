@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -685,6 +686,30 @@ func configFileExists() bool {
 	return false
 }
 
+// detectChrome checks if Chrome/Chromium is available on the system.
+func detectChrome() (string, bool) {
+	candidates := []string{
+		"google-chrome",
+		"google-chrome-stable",
+		"chromium-browser",
+		"chromium",
+		"/usr/bin/google-chrome",
+		"/usr/bin/google-chrome-stable",
+		"/usr/bin/chromium-browser",
+		"/usr/bin/chromium",
+		"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c, true
+		}
+		if path, err := exec.LookPath(c); err == nil {
+			return path, true
+		}
+	}
+	return "", false
+}
+
 // generateConfigYAML builds a config.yaml from the wizard data.
 func generateConfigYAML(s *SetupRequest) string {
 	var b strings.Builder
@@ -880,7 +905,7 @@ func generateConfigYAML(s *SetupRequest) string {
 	b.WriteString("# -- Web UI -----------------------------------------------\n")
 	b.WriteString("webui:\n")
 	b.WriteString("  enabled: true\n")
-	b.WriteString("  address: \":8090\"\n")
+	b.WriteString("  address: \"0.0.0.0:8090\"\n")
 	if s.WebuiPassword != "" {
 		b.WriteString("  auth_token: \"${DEVCLAW_WEBUI_TOKEN}\"\n")
 	}
@@ -935,7 +960,24 @@ func generateConfigYAML(s *SetupRequest) string {
 	b.WriteString("      foreign_keys: true\n")
 	b.WriteString("    memory:\n")
 	b.WriteString("      backend: \"sqlite\"\n")
-	b.WriteString("      path: \"./data/memory.db\"\n")
+	b.WriteString("      path: \"./data/memory.db\"\n\n")
+
+	// -- Browser (auto-detect Chrome) --
+	b.WriteString("# -- Browser Automation --------------------------------------\n")
+	b.WriteString("# Chrome/Chromium is required for browser tools.\n")
+	if chromePath, found := detectChrome(); found {
+		b.WriteString("# Auto-detected Chrome installation.\n")
+		fmt.Fprintf(&b, "browser:\n")
+		fmt.Fprintf(&b, "  enabled: true\n")
+		fmt.Fprintf(&b, "  chrome_path: %q\n", chromePath)
+		b.WriteString("  headless: true\n")
+		b.WriteString("  timeout_seconds: 30\n")
+	} else {
+		b.WriteString("# Chrome/Chromium not found. Browser tools disabled.\n")
+		b.WriteString("# Install Chrome or set browser.chrome_path to enable.\n")
+		b.WriteString("browser:\n")
+		b.WriteString("  enabled: false\n")
+	}
 
 	return b.String()
 }

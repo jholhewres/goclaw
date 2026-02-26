@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -285,6 +286,12 @@ func resolveConfig(cmd *cobra.Command) (*copilot.Config, string, error) {
 func runWebSetupMode() error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+	// Get server IP for display
+	serverIP := "localhost"
+	if ip := getServerIP(); ip != "" {
+		serverIP = ip
+	}
+
 	fmt.Println()
 	fmt.Println("  ╭──────────────────────────────────────────────╮")
 	fmt.Println("  │  🐾 DevClaw — First Run Setup                 │")
@@ -292,7 +299,7 @@ func runWebSetupMode() error {
 	fmt.Println("  │  No config.yaml found.                       │")
 	fmt.Println("  │  Starting web setup wizard...                │")
 	fmt.Println("  │                                              │")
-	fmt.Println("  │  Open:  http://localhost:8090/setup           │")
+	fmt.Printf("  │  Open:  http://%s:8090/setup           │\n", serverIP)
 	fmt.Println("  ╰──────────────────────────────────────────────╯")
 	fmt.Println()
 
@@ -369,6 +376,22 @@ func reloadProcess() error {
 	}
 
 	return nil
+}
+
+// getServerIP returns the first non-loopback IP address of the server.
+func getServerIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
+			}
+		}
+	}
+	return ""
 }
 
 // shouldEnable checks if a channel should be enabled.
