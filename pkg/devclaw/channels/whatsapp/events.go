@@ -138,11 +138,17 @@ func (w *WhatsApp) handleConnected(_ *events.Connected) {
 // handleDisconnected handles disconnection.
 func (w *WhatsApp) handleDisconnected(_ *events.Disconnected) {
 	previous := w.getState()
-	w.setState(StateDisconnected)
 
 	w.logger.Warn("whatsapp: disconnected",
-		"was_connected", w.connected.Load())
+		"was_connected", w.connected.Load(),
+		"previous_state", previous)
 
+	// Only process if we were actually connected.
+	if previous != StateConnected {
+		return
+	}
+
+	w.setState(StateDisconnected)
 	w.connected.Store(false)
 
 	// Notify connection observers.
@@ -153,8 +159,10 @@ func (w *WhatsApp) handleDisconnected(_ *events.Disconnected) {
 		Reason:    "connection_lost",
 	})
 
-	// Attempt reconnection if not intentional.
-	if previous == StateConnected && w.ctx.Err() == nil {
+	// Attempt reconnection if context is still valid.
+	// Note: whatsmeow's EnableAutoReconnect handles most cases,
+	// but we also trigger our own reconnection as a backup.
+	if w.ctx.Err() == nil {
 		go w.attemptReconnect()
 	}
 }

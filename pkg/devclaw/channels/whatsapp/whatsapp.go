@@ -350,6 +350,12 @@ func (w *WhatsApp) Connect(ctx context.Context) error {
 	w.client = whatsmeow.NewClient(device, waLog.Noop)
 	w.client.AddEventHandler(w.handleEvent)
 
+	// Enable whatsmeow's built-in auto-reconnect for resilient connections.
+	// This handles network hiccups, server-initiated disconnects, and
+	// keepalive failures automatically.
+	w.client.EnableAutoReconnect = true
+	w.client.InitialAutoReconnect = true
+
 	// Connect.
 	if w.client.Store.ID == nil {
 		// First login — start QR process in background (non-blocking).
@@ -459,6 +465,7 @@ func (w *WhatsApp) Logout() error {
 
 // attemptReconnect tries to reconnect with exponential backoff.
 // Uses a guard pattern to prevent multiple concurrent reconnection attempts.
+// This runs in a continuous loop until reconnection succeeds or max attempts reached.
 func (w *WhatsApp) attemptReconnect() {
 	// Guard: prevent multiple concurrent reconnection attempts.
 	if !w.reconnectGuard.CompareAndSwap(false, true) {
@@ -467,65 +474,81 @@ func (w *WhatsApp) attemptReconnect() {
 	}
 	defer w.reconnectGuard.Store(false)
 
-	if w.ctx.Err() != nil {
-		return // Context cancelled, don't reconnect.
-	}
-
-	attempts := w.reconnectAttempts.Add(1)
-	if w.cfg.MaxReconnectAttempts > 0 && attempts > int32(w.cfg.MaxReconnectAttempts) {
-		w.logger.Error("whatsapp: max reconnect attempts reached",
-			"attempts", attempts)
-		w.notifyConnectionChange(ConnectionEvent{
-			State:     StateDisconnected,
-			Timestamp: time.Now(),
-			Reason:    "max_reconnect_attempts",
-		})
-		return
-	}
-
 	previous := w.getState()
 	w.setState(StateReconnecting)
 
-	backoff := min(w.cfg.ReconnectBackoff*time.Duration(attempts), 5*time.Minute)
+	for {
+		if w.ctx.Err() != nil {
+			w.logger.Debug("whatsapp: reconnect cancelled, context done")
+			return
+		}
 
-	w.logger.Info("whatsapp: attempting reconnect",
-		"attempt", attempts,
-		"backoff", backoff)
+		attempts := w.reconnectAttempts.Add(1)
+		if w.cfg.MaxReconnectAttempts > 0 && attempts > int32(w.cfg.MaxReconnectAttempts) {
+			w.logger.Error("whatsapp: max reconnect attempts reached",
+				"attempts", attempts)
+			w.setState(StateDisconnected)
+			w.notifyConnectionChange(ConnectionEvent{
+				State:     StateDisconnected,
+				Timestamp: time.Now(),
+				Reason:    "max_reconnect_attempts",
+				Details: map[string]any{
+					"attempts": attempts,
+				},
+			})
+			return
+		}
 
-	// Notify observers.
-	w.notifyConnectionChange(ConnectionEvent{
-		State:     StateReconnecting,
-		Previous:  previous,
-		Timestamp: time.Now(),
-		Reason:    "connection_lost",
-		Details: map[string]any{
-			"attempt":     attempts,
-			"backoff_sec": backoff.Seconds(),
-		},
-	})
+		backoff := min(w.cfg.ReconnectBackoff*time.Duration(attempts), 5*time.Minute)
 
-	select {
-	case <-time.After(backoff):
-	case <-w.ctx.Done():
+		w.logger.Info("whatsapp: attempting reconnect",
+			"attempt", attempts,
+			"backoff", backoff)
+
+		// Notify observers.
+		w.notifyConnectionChange(ConnectionEvent{
+			State:     StateReconnecting,
+			Previous:  previous,
+			Timestamp: time.Now(),
+			Reason:    "connection_lost",
+			Details: map[string]any{
+				"attempt":     attempts,
+				"backoff_sec": backoff.Seconds(),
+			},
+		})
+
+		// Wait for backoff period.
+		select {
+		case <-time.After(backoff):
+		case <-w.ctx.Done():
+			w.logger.Debug("whatsapp: reconnect cancelled during backoff")
+			return
+		}
+
+		if w.client == nil {
+			w.logger.Warn("whatsapp: client is nil, cannot reconnect")
+			return
+		}
+
+		// Disconnect first to clear any stale websocket state.
+		// This fixes "websocket is already connected" error on reconnect.
+		if w.client.IsConnected() {
+			w.client.Disconnect()
+			time.Sleep(100 * time.Millisecond) // Brief pause to allow cleanup.
+		}
+
+		err := w.client.Connect()
+		if err != nil {
+			w.logger.Warn("whatsapp: reconnect attempt failed, will retry",
+				"attempt", attempts,
+				"error", err)
+			// Continue loop to retry
+			continue
+		}
+
+		// Connection succeeded - the Connected event will update state.
+		w.logger.Info("whatsapp: reconnect connection initiated, waiting for confirmation")
 		return
-	}
-
-	if w.client == nil {
-		return
-	}
-
-	// Disconnect first to clear any stale websocket state.
-	// This fixes "websocket is already connected" error on reconnect.
-	if w.client.IsConnected() {
-		w.client.Disconnect()
-		time.Sleep(100 * time.Millisecond) // Brief pause to allow cleanup.
-	}
-
-	err := w.client.Connect()
-	if err != nil {
-		w.logger.Warn("whatsapp: reconnect failed", "error", err)
-		// Don't spawn a new goroutine - the guard pattern handles retries
-		// via the normal event-driven reconnection mechanism.
 	}
 }
 

@@ -33,9 +33,9 @@ type HealthMonitorConfig struct {
 func DefaultHealthMonitorConfig() HealthMonitorConfig {
 	return HealthMonitorConfig{
 		Enabled:             true,
-		CheckInterval:       15 * time.Second,
-		MaxSilentDuration:   3 * time.Minute,
-		ForceReconnectAfter: 10 * time.Minute,
+		CheckInterval:       30 * time.Second,
+		MaxSilentDuration:   5 * time.Minute,
+		ForceReconnectAfter: 15 * time.Minute,
 	}
 }
 
@@ -96,9 +96,9 @@ func (w *WhatsApp) StartPinger(ctx context.Context) {
 				if w.getState() == StateConnected {
 					// Send presence to keep connection alive
 					if err := w.SendPresence(ctx, true); err != nil {
-						w.logger.Debug("pinger: failed to send presence", "error", err)
+						w.logger.Warn("pinger: failed to send presence", "error", err)
 					} else {
-						w.logger.Debug("pinger: sent presence update")
+						w.logger.Info("pinger: sent presence update")
 						// Update last activity time
 						w.UpdateLastMsgTime()
 					}
