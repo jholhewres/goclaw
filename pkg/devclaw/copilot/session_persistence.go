@@ -25,6 +25,24 @@ type jsonlEntry struct {
 	Meta      map[string]interface{} `json:"meta,omitempty"`
 }
 
+// CompactionEntry represents a compaction summary stored in the session.
+type CompactionEntry struct {
+	Type           string    `json:"type"`            // Always "compaction_summary"
+	Summary        string    `json:"summary"`         // The LLM-generated summary
+	CompactedAt    time.Time `json:"compacted_at"`    // When compaction occurred
+	MessagesBefore int       `json:"messages_before"` // Count before compaction
+	MessagesAfter  int       `json:"messages_after"`  // Count after compaction
+}
+
+// compactionEntry is the JSONL format for compaction entries.
+type compactionEntryJSONL struct {
+	Type           string    `json:"type"`
+	Summary        string    `json:"summary"`
+	CompactedAt    time.Time `json:"compacted_at"`
+	MessagesBefore int       `json:"messages_before"`
+	MessagesAfter  int       `json:"messages_after"`
+}
+
 // metaFile represents session metadata stored in .meta.json.
 type metaFile struct {
 	Channel      string       `json:"channel"`
@@ -127,6 +145,50 @@ func (p *SessionPersistence) SaveEntry(sessionID string, entry ConversationEntry
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		p.logger.Error("failed to write entry", "session", sessionID, "err", err)
 		return fmt.Errorf("write entry: %w", err)
+	}
+
+	return nil
+}
+
+// SaveCompaction appends a compaction summary entry to the session file.
+func (p *SessionPersistence) SaveCompaction(sessionID string, entry CompactionEntry) error {
+	mu := p.fileMuFor(sessionID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	sanitized := sanitizeSessionID(sessionID)
+	path := filepath.Join(p.dir, sanitized+".jsonl")
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		p.logger.Error("failed to open session file for compaction", "session", sessionID, "err", err)
+		return fmt.Errorf("open session file: %w", err)
+	}
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			p.logger.Warn("failed to close session file", "session", sessionID, "err", closeErr)
+		}
+	}()
+
+	// Store compaction entry with a special marker in Meta
+	je := jsonlEntry{
+		TS:   entry.CompactedAt.UTC().Format(time.RFC3339),
+		User: "",
+		Meta: map[string]interface{}{
+			"type":            "compaction_summary",
+			"summary":         entry.Summary,
+			"compacted_at":    entry.CompactedAt.Format(time.RFC3339),
+			"messages_before": entry.MessagesBefore,
+			"messages_after":  entry.MessagesAfter,
+		},
+	}
+	data, err := json.Marshal(je)
+	if err != nil {
+		return fmt.Errorf("marshal compaction entry: %w", err)
+	}
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		p.logger.Error("failed to write compaction entry", "session", sessionID, "err", err)
+		return fmt.Errorf("write compaction entry: %w", err)
 	}
 
 	return nil

@@ -53,6 +53,13 @@ const (
 	HookUserLeave         HookEvent = "user_leave"
 	HookChannelConnect    HookEvent = "channel_connect"
 	HookChannelDisconnect HookEvent = "channel_disconnect"
+
+	// Advanced hooks inspired by OpenClaw
+	HookBeforeModelResolve HookEvent = "before_model_resolve" // Override provider/model selection
+	HookBeforePromptBuild  HookEvent = "before_prompt_build"  // Inject/modify system prompt
+	HookLLMInput           HookEvent = "llm_input"            // Modify prompt before sending to LLM
+	HookLLMOutput          HookEvent = "llm_output"          // Modify LLM response
+	HookToolResultPersist  HookEvent = "tool_result_persist" // Transform tool result before persisting
 )
 
 // AllHookEvents lists every supported hook event for discovery/documentation.
@@ -69,6 +76,12 @@ var AllHookEvents = []HookEvent{
 	HookError,
 	HookUserJoin, HookUserLeave,
 	HookChannelConnect, HookChannelDisconnect,
+	// Advanced hooks
+	HookBeforeModelResolve,
+	HookBeforePromptBuild,
+	HookLLMInput,
+	HookLLMOutput,
+	HookToolResultPersist,
 }
 
 // HooksConfig holds all hook configuration.
@@ -127,6 +140,22 @@ type HookPayload struct {
 
 	// Extra holds arbitrary key-value data for extensibility.
 	Extra map[string]any
+
+	// Advanced hook fields
+	// Model is the LLM model being used (HookBeforeModelResolve).
+	Model string
+
+	// SystemPrompt is the system prompt being built (HookBeforePromptBuild).
+	SystemPrompt string
+
+	// LLMInput is the input being sent to the LLM (HookLLMInput).
+	LLMInput string
+
+	// LLMOutput is the response from the LLM (HookLLMOutput).
+	LLMOutput string
+
+	// ToolCallID identifies the tool call for persistence hooks.
+	ToolCallID string
 }
 
 // HookAction is the result returned by a hook handler.
@@ -492,6 +521,17 @@ func HookEventDescription(ev HookEvent) string {
 		return "Canal conectado"
 	case HookChannelDisconnect:
 		return "Canal desconectado"
+	// Advanced hooks
+	case HookBeforeModelResolve:
+		return "Antes de resolver o modelo LLM (permite override)"
+	case HookBeforePromptBuild:
+		return "Antes de construir o prompt do sistema (permite injetar contexto)"
+	case HookLLMInput:
+		return "Input sendo enviado ao LLM (permite modificar)"
+	case HookLLMOutput:
+		return "Output recebido do LLM (permite modificar)"
+	case HookToolResultPersist:
+		return "Antes de persistir resultado da ferramenta (permite transformar)"
 	default:
 		return string(ev)
 	}

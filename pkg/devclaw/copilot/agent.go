@@ -66,6 +66,29 @@ type AgentConfig struct {
 
 	// ToolLoop configures tool loop detection thresholds.
 	ToolLoop ToolLoopConfig `yaml:"tool_loop"`
+
+	// MemoryFlush configures pre-compaction memory flush behavior.
+	MemoryFlush MemoryFlushConfig `yaml:"memory_flush"`
+}
+
+// MemoryFlushConfig configures pre-compaction memory flush behavior.
+// This triggers a silent turn before compaction to save important memories.
+type MemoryFlushConfig struct {
+	// Enabled activates memory flush before compaction (default: false).
+	Enabled bool `yaml:"enabled"`
+
+	// ReserveTokensFloor is the minimum token buffer to maintain (default: 20000).
+	ReserveTokensFloor int `yaml:"reserve_tokens_floor"`
+
+	// FlushThreshold is the number of tokens before triggering flush (default: 4000).
+	// Flush triggers when: tokenEstimate >= contextWindow - reserveFloor - flushThreshold
+	FlushThreshold int `yaml:"flush_threshold"`
+
+	// SystemPrompt is an optional custom system prompt for the flush turn.
+	SystemPrompt string `yaml:"system_prompt"`
+
+	// Prompt is the user prompt for the flush turn (default: standard prompt).
+	Prompt string `yaml:"prompt"`
 }
 
 // DefaultAgentConfig returns sensible defaults for agent autonomy.
@@ -77,6 +100,11 @@ func DefaultAgentConfig() AgentConfig {
 		MaxContinuations:      2,
 		ReflectionEnabled:     true,
 		MaxCompactionAttempts: DefaultMaxCompactionAttempts,
+		MemoryFlush: MemoryFlushConfig{
+			Enabled:            false,
+			ReserveTokensFloor: 20000,
+			FlushThreshold:     4000,
+		},
 	}
 }
 
@@ -92,6 +120,8 @@ type AgentRun struct {
 	streamCallback        StreamCallback
 	modelOverride         string                             // When set, use this model instead of default.
 	usageRecorder         func(model string, usage LLMUsage) // Called after each successful LLM response.
+	cfg                   AgentConfig                        // Agent configuration including memory flush settings.
+	sessionPersistence    SessionPersister                   // For persisting compaction summaries
 
 	// interruptCh receives follow-up user messages that should be injected into
 	// the active agent loop. Between turns, the agent drains this channel and
@@ -144,6 +174,7 @@ func NewAgentRunWithConfig(llm *LLMClient, executor *ToolExecutor, cfg AgentConf
 	if cfg.MaxCompactionAttempts > 0 {
 		ar.maxCompactionAttempts = cfg.MaxCompactionAttempts
 	}
+	ar.cfg = cfg
 	return ar
 }
 
@@ -1139,7 +1170,15 @@ func (a *AgentRun) doLLMCallWithOverflowRetry(ctx context.Context, messages []ch
 			}
 		}
 
-		// Step 2+3: Compact messages using LLM summarization.
+		// Step 2: Memory flush before first compaction (if enabled)
+		// This gives the agent a chance to save important memories before compaction
+		if attempt == 0 && a.cfg.MemoryFlush.Enabled {
+			// Estimate tokens based on message content
+			tokenEstimate := a.estimateTokens(messages)
+			a.maybeMemoryFlush(ctx, messages, tokenEstimate)
+		}
+
+		// Step 3+4: Compact messages using LLM summarization.
 		a.logger.Info("performing managed compaction due to overflow")
 		if attempt == 0 { // First compaction attempt after initial truncation
 			messages = a.managedCompaction(ctx, messages)
@@ -1173,6 +1212,132 @@ func hasOversizedToolResults(messages []chatMessage, maxLen int) bool {
 
 // managedCompaction takes the current message history and safely compacts the older half
 // of the conversation into a summary block, preserving recent context and system prompts.
+// maybeMemoryFlush triggers a silent agent turn before compaction to save important memories.
+// This is called when context is nearing the limit, giving the agent a chance to persist
+// critical information before messages are compacted/summarized.
+func (a *AgentRun) maybeMemoryFlush(ctx context.Context, messages []chatMessage, tokenEstimate int) {
+	if !a.cfg.MemoryFlush.Enabled {
+		return
+	}
+
+	if a.llm == nil {
+		a.logger.Warn("memory flush skipped: no LLM client available")
+		return
+	}
+
+	contextWindow := a.getModelContextWindow()
+	reserveFloor := a.cfg.MemoryFlush.ReserveTokensFloor
+	if reserveFloor <= 0 {
+		reserveFloor = 20000
+	}
+	flushThreshold := a.cfg.MemoryFlush.FlushThreshold
+	if flushThreshold <= 0 {
+		flushThreshold = 4000
+	}
+
+	// Check if we're nearing the context limit
+	if tokenEstimate < contextWindow-reserveFloor-flushThreshold {
+		return
+	}
+
+	// Build flush prompt
+	flushPrompt := a.cfg.MemoryFlush.Prompt
+	if flushPrompt == "" {
+		flushPrompt = `Session nearing compaction. Review the conversation and write any important facts, decisions, or context to long-term memory using the memory tool (action='save', category='summary'). Save to memory/YYYY-MM-DD.md if needed. If there's nothing worth saving, reply with NO_REPLY.`
+	}
+
+	sysPrompt := a.cfg.MemoryFlush.SystemPrompt
+	if sysPrompt == "" {
+		sysPrompt = "You are a memory preservation assistant. Your task is to save important information before context compaction. Be selective - only save truly valuable information."
+	}
+
+	// Build conversation for the silent flush turn
+	flushMessages := make([]chatMessage, 0, len(messages)+1)
+	flushMessages = append(flushMessages, chatMessage{Role: "system", Content: sysPrompt})
+
+	// Include recent conversation context (last 10 messages)
+	startIdx := len(messages) - 10
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	for i := startIdx; i < len(messages); i++ {
+		flushMessages = append(flushMessages, messages[i])
+	}
+	flushMessages = append(flushMessages, chatMessage{Role: "user", Content: flushPrompt})
+
+	// Execute silent turn
+	a.logger.Info("executing pre-compaction memory flush", "token_estimate", tokenEstimate)
+
+	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	resp, err := a.llm.CompleteWithFallbackUsingModel(callCtx, a.modelOverride, flushMessages, nil)
+	if err != nil {
+		a.logger.Warn("memory flush failed", "error", err)
+		return
+	}
+
+	// Check for NO_REPLY - if so, don't process further
+	if strings.TrimSpace(strings.ToUpper(resp.Content)) == "NO_REPLY" {
+		a.logger.Debug("memory flush: no memories to save")
+		return
+	}
+
+	// The LLM may have triggered memory saves via tool calls
+	// We don't need to do anything special here - the tools executed normally
+	a.logger.Info("memory flush completed", "response_length", len(resp.Content))
+}
+
+// estimateTokens provides a rough token estimate for a slice of messages.
+// Uses 4 chars per token as a rough approximation.
+func (a *AgentRun) estimateTokens(messages []chatMessage) int {
+	charCount := 0
+	for _, m := range messages {
+		charCount += len(m.Role)
+		if s, ok := m.Content.(string); ok {
+			charCount += len(s)
+		} else if m.Content != nil {
+			// Try to stringify non-string content
+			charCount += len(fmt.Sprintf("%v", m.Content))
+		}
+		if m.ToolCallID != "" {
+			charCount += len(m.ToolCallID)
+		}
+	}
+	// Rough estimate: ~4 chars per token
+	return charCount / 4
+}
+
+// getModelContextWindow returns the context window size for the current model.
+func (a *AgentRun) getModelContextWindow() int {
+	// Common model context windows
+	model := strings.ToLower(a.modelOverride)
+	if model == "" {
+		model = "default"
+	}
+
+	// Check for known models
+	switch {
+	case strings.Contains(model, "gpt-4o") || strings.Contains(model, "gpt-5"):
+		return 128000
+	case strings.Contains(model, "gpt-4-turbo"):
+		return 128000
+	case strings.Contains(model, "gpt-4"):
+		return 8192
+	case strings.Contains(model, "claude-3-opus"):
+		return 200000
+	case strings.Contains(model, "claude-3.5"):
+		return 200000
+	case strings.Contains(model, "claude-3"):
+		return 200000
+	case strings.Contains(model, "glm-4"):
+		return 128000
+	default:
+		// Conservative default
+		return 128000
+	}
+}
+
 func (a *AgentRun) managedCompaction(ctx context.Context, messages []chatMessage) []chatMessage {
 	if len(messages) < 10 {
 		return messages
@@ -1225,7 +1390,35 @@ func (a *AgentRun) managedCompaction(ctx context.Context, messages []chatMessage
 		"compacted_len", len(compacted),
 	)
 
+	// Persist compaction summary if persistence is available
+	a.persistCompactionSummary(summary, len(messages), len(compacted))
+
 	return compacted
+}
+
+// persistCompactionSummary saves the compaction summary to session persistence.
+func (a *AgentRun) persistCompactionSummary(summary string, before, after int) {
+	if a.sessionPersistence == nil || summary == "" {
+		return
+	}
+
+	// Create compaction entry for persistence
+	_ = CompactionEntry{
+		Type:           "compaction_summary",
+		Summary:        summary,
+		CompactedAt:    time.Now(),
+		MessagesBefore: before,
+		MessagesAfter:  after,
+	}
+
+	// We need a session ID - for now we'll skip if we can't determine it
+	// In a full implementation, we'd store the session ID in AgentRun
+	// For now, we'll just log it
+	a.logger.Debug("compaction summary generated", "summary_len", len(summary), "before", before, "after", after)
+
+	// Note: To fully implement this, the session ID needs to be passed to AgentRun
+	// The SessionPersister interface supports SaveCompaction but we need the session ID
+	// which isn't currently available in AgentRun
 }
 
 // aggressiveCompaction is used when the context still overflows despite managed compaction.

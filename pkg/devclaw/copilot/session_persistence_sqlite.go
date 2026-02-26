@@ -239,6 +239,30 @@ func (p *SQLiteSessionPersistence) Rotate(sessionID string, maxLines int) error 
 	return nil
 }
 
+// SaveCompaction appends a compaction summary entry for the session.
+func (p *SQLiteSessionPersistence) SaveCompaction(sessionID string, entry CompactionEntry) error {
+	metaJSON, _ := json.Marshal(map[string]interface{}{
+		"type":            entry.Type,
+		"summary":         entry.Summary,
+		"compacted_at":    entry.CompactedAt.Format(time.RFC3339),
+		"messages_before": entry.MessagesBefore,
+		"messages_after":  entry.MessagesAfter,
+	})
+
+	_, err := p.db.Exec(`
+		INSERT INTO session_entries (session_id, user_message, assistant_response, created_at, meta)
+		VALUES (?, '', '', ?, ?)`,
+		sessionID,
+		entry.CompactedAt.UTC().Format(time.RFC3339),
+		string(metaJSON),
+	)
+	if err != nil {
+		p.logger.Error("failed to save compaction entry", "session", sessionID, "err", err)
+		return fmt.Errorf("save compaction entry: %w", err)
+	}
+	return nil
+}
+
 // Close is a no-op; the shared *sql.DB is closed at the application level.
 func (p *SQLiteSessionPersistence) Close() error {
 	return nil

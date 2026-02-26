@@ -42,6 +42,21 @@ const (
 	LayerRuntime        PromptLayer = 80 // Runtime info (final line).
 )
 
+// PromptMode controls which prompt layers are included in the final prompt.
+// Used to reduce token usage for subagents and specialized contexts.
+type PromptMode string
+
+const (
+	// PromptModeFull includes all layers (default for main agent).
+	PromptModeFull PromptMode = "full"
+
+	// PromptModeMinimal omits skills, memory, heartbeats (for subagents).
+	PromptModeMinimal PromptMode = "minimal"
+
+	// PromptModeNone includes only core identity (for simple tasks).
+	PromptModeNone PromptMode = "none"
+)
+
 // layerEntry represents a single prompt layer entry.
 type layerEntry struct {
 	layer   PromptLayer
@@ -237,6 +252,62 @@ func (p *PromptComposer) ComposeMinimal() string {
 			layer:   LayerIdentity,
 			content: "## Custom Instructions\n\n" + p.config.Instructions,
 		})
+	}
+
+	return p.assembleLayers(layers)
+}
+
+// ComposeWithMode assembles the system prompt using the specified mode.
+// Use PromptModeFull for the main agent, PromptModeMinimal for subagents,
+// and PromptModeNone for simple tasks requiring only core identity.
+func (p *PromptComposer) ComposeWithMode(session *Session, input string, mode PromptMode) string {
+	// Start with core layers (always included)
+	layers := []layerEntry{
+		{layer: LayerCore, content: p.buildCoreLayer()},
+		{layer: LayerSafety, content: p.buildSafetyLayer()},
+		{layer: LayerTemporal, content: p.buildTemporalLayer()},
+		{layer: LayerRuntime, content: p.buildRuntimeLayer()},
+	}
+
+	// Add additional layers based on mode
+	switch mode {
+	case PromptModeFull:
+		// Full mode: include all layers
+		return p.Compose(session, input)
+
+	case PromptModeMinimal:
+		// Minimal mode: omit heavy/optional layers
+		// Include: Core, Safety, Temporal, Runtime, Identity, Bootstrap, Business
+		if p.config.Instructions != "" {
+			layers = append(layers, layerEntry{
+				layer:   LayerIdentity,
+				content: "## Custom Instructions\n\n" + p.config.Instructions,
+			})
+		}
+		// Include bootstrap but not full skills/memory
+		if bootstrap := p.buildBootstrapLayer(); bootstrap != "" {
+			layers = append(layers, layerEntry{layer: LayerBootstrap, content: bootstrap})
+		}
+		// Include business context if available
+		cfg := session.GetConfig()
+		if cfg.BusinessContext != "" {
+			layers = append(layers, layerEntry{
+				layer:   LayerBusiness,
+				content: "## Workspace Context\n\n" + cfg.BusinessContext,
+			})
+		}
+		// Minimal mode: skip skills, memory, project context, conversation history
+
+	case PromptModeNone:
+		// None mode: only core layers (already added above)
+		// Optionally include identity if very brief
+		if p.config.Instructions != "" && len(p.config.Instructions) < 200 {
+			layers = append(layers, layerEntry{
+				layer:   LayerIdentity,
+				content: "## Instructions\n\n" + p.config.Instructions,
+			})
+		}
+		// Skip everything else
 	}
 
 	return p.assembleLayers(layers)

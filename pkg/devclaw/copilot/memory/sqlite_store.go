@@ -638,6 +638,189 @@ func (s *SQLiteStore) HybridSearch(ctx context.Context, query string, maxResults
 	return merged, nil
 }
 
+// TemporalDecayConfig configures exponential score decay based on memory age.
+type TemporalDecayConfig struct {
+	Enabled      bool
+	HalfLifeDays float64
+}
+
+// ApplyTemporalDecay applies exponential decay to search results based on file age.
+// Files matching the pattern "memory/YYYY-MM-DD.md" are decayed; evergreen files
+// (MEMORY.md or non-dated) are not decayed.
+func (s *SQLiteStore) ApplyTemporalDecay(results []SearchResult, cfg TemporalDecayConfig) []SearchResult {
+	if !cfg.Enabled || len(results) == 0 {
+		return results
+	}
+
+	halfLife := cfg.HalfLifeDays
+	if halfLife <= 0 {
+		halfLife = 30
+	}
+	lambda := math.Log(2) / halfLife
+	now := time.Now()
+
+	for i := range results {
+		fileDate := extractDateFromFileID(results[i].FileID)
+		if fileDate == nil {
+			continue // Evergreen file, no decay
+		}
+
+		ageDays := now.Sub(*fileDate).Hours() / 24
+		if ageDays < 0 {
+			ageDays = 0
+		}
+		decayFactor := math.Exp(-lambda * ageDays)
+		results[i].Score *= decayFactor
+	}
+
+	return results
+}
+
+// extractDateFromFileID extracts a date from file IDs like "memory/2026-02-25.md"
+// or "2026-02-25.md". Returns nil for evergreen files (MEMORY.md or non-dated).
+func extractDateFromFileID(fileID string) *time.Time {
+	// Evergreen files don't decay
+	if strings.Contains(fileID, "MEMORY.md") {
+		return nil
+	}
+
+	// Extract base filename
+	base := fileID
+	if idx := strings.LastIndex(fileID, "/"); idx >= 0 {
+		base = fileID[idx+1:]
+	}
+
+	// Remove extension
+	if idx := strings.LastIndex(base, "."); idx > 0 {
+		base = base[:idx]
+	}
+
+	// Try to parse as date (YYYY-MM-DD)
+	t, err := time.Parse("2006-01-02", base)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
+// MMRConfig configures Maximal Marginal Relevance for search diversification.
+type MMRConfig struct {
+	Enabled bool
+	Lambda  float64
+}
+
+// ApplyMMR applies Maximal Marginal Relevance re-ranking to diversify results.
+// Lambda controls the balance: 0 = max diversity, 1 = max relevance.
+func (s *SQLiteStore) ApplyMMR(results []SearchResult, cfg MMRConfig, maxResults int) []SearchResult {
+	if !cfg.Enabled || len(results) <= maxResults {
+		return results
+	}
+
+	lambda := cfg.Lambda
+	if lambda <= 0 {
+		lambda = 0.7
+	}
+	if lambda > 1 {
+		lambda = 1
+	}
+
+	selected := make([]SearchResult, 0, maxResults)
+	remaining := make([]SearchResult, len(results))
+	copy(remaining, results)
+
+	// First: highest relevance
+	selected = append(selected, remaining[0])
+	remaining = remaining[1:]
+
+	// Pre-tokenize for Jaccard similarity
+	tokenCache := make(map[string]map[string]bool)
+	tokenize := func(text string) map[string]bool {
+		if cached, ok := tokenCache[text]; ok {
+			return cached
+		}
+		tokens := make(map[string]bool)
+		for _, word := range strings.Fields(strings.ToLower(text)) {
+			if len(word) > 2 {
+				tokens[word] = true
+			}
+		}
+		tokenCache[text] = tokens
+		return tokens
+	}
+
+	for len(selected) < maxResults && len(remaining) > 0 {
+		bestIdx := 0
+		bestScore := -1.0
+
+		for i, candidate := range remaining {
+			// MMR = lambda * relevance - (1-lambda) * max_similarity_to_selected
+			maxSim := 0.0
+			candidateTokens := tokenize(candidate.Text)
+			for _, sel := range selected {
+				sim := jaccardSimilarity(candidateTokens, tokenize(sel.Text))
+				if sim > maxSim {
+					maxSim = sim
+				}
+			}
+
+			mmrScore := lambda*candidate.Score - (1-lambda)*maxSim
+			if mmrScore > bestScore {
+				bestScore = mmrScore
+				bestIdx = i
+			}
+		}
+
+		selected = append(selected, remaining[bestIdx])
+		remaining = append(remaining[:bestIdx], remaining[bestIdx+1:]...)
+	}
+
+	return selected
+}
+
+// jaccardSimilarity computes Jaccard similarity between two token sets.
+func jaccardSimilarity(a, b map[string]bool) float64 {
+	if len(a) == 0 && len(b) == 0 {
+		return 1.0
+	}
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+
+	intersection := 0
+	for token := range a {
+		if b[token] {
+			intersection++
+		}
+	}
+
+	union := len(a) + len(b) - intersection
+	if union == 0 {
+		return 0
+	}
+	return float64(intersection) / float64(union)
+}
+
+// HybridSearchWithOptions performs hybrid search with optional temporal decay and MMR.
+func (s *SQLiteStore) HybridSearchWithOptions(ctx context.Context, query string, maxResults int, minScore float64, vectorWeight, bm25Weight float64, decayCfg TemporalDecayConfig, mmrCfg MMRConfig) ([]SearchResult, error) {
+	results, err := s.HybridSearch(ctx, query, maxResults*2, minScore, vectorWeight, bm25Weight)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply temporal decay
+	results = s.ApplyTemporalDecay(results, decayCfg)
+
+	// Re-sort after decay
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	// Apply MMR for diversification
+	results = s.ApplyMMR(results, mmrCfg, maxResults)
+
+	return results, nil
+}
+
 // getEmbeddingCache looks up a cached embedding by text hash.
 func (s *SQLiteStore) getEmbeddingCache(text string) []float32 {
 	hash := hashText(text)

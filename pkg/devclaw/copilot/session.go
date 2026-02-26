@@ -38,6 +38,9 @@ type Session struct {
 	// facts são fatos de longo prazo extraídos e salvos para esta sessão.
 	facts []string
 
+	// compactionSummaries armazena resumos de compaction para reconstrução de contexto.
+	compactionSummaries []CompactionEntry
+
 	// history é o histórico de mensagens da sessão.
 	history []ConversationEntry
 
@@ -66,6 +69,7 @@ type SessionPersister interface {
 	LoadSession(sessionID string) ([]ConversationEntry, []string, error)
 	SaveFacts(sessionID string, facts []string) error
 	SaveMeta(sessionID, channel, chatID string, config SessionConfig, activeSkills []string) error
+	SaveCompaction(sessionID string, entry CompactionEntry) error
 	DeleteSession(sessionID string) error
 	Rotate(sessionID string, maxLines int) error
 	LoadAll() (map[string]*SessionData, error)

@@ -343,6 +343,12 @@ func TestAllHookEvents(t *testing.T) {
 		HookError,
 		HookUserJoin, HookUserLeave,
 		HookChannelConnect, HookChannelDisconnect,
+		// Advanced hooks
+		HookBeforeModelResolve,
+		HookBeforePromptBuild,
+		HookLLMInput,
+		HookLLMOutput,
+		HookToolResultPersist,
 	}
 
 	if len(AllHookEvents) != len(expectedEvents) {

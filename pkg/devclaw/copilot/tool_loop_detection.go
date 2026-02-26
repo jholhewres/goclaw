@@ -36,6 +36,9 @@ type ToolLoopConfig struct {
 
 	// GlobalCircuitBreaker is the max total no-progress calls before hard stop (default: 30).
 	GlobalCircuitBreaker int `yaml:"global_circuit_breaker"`
+
+	// ProgressDetection enables content-based progress analysis (default: true).
+	ProgressDetection bool `yaml:"progress_detection"`
 }
 
 // DefaultToolLoopConfig returns sensible defaults.
@@ -47,6 +50,7 @@ func DefaultToolLoopConfig() ToolLoopConfig {
 		CriticalThreshold:       15,
 		CircuitBreakerThreshold: 25,
 		GlobalCircuitBreaker:    30,
+		ProgressDetection:     true,
 	}
 }
 
@@ -70,10 +74,13 @@ type LoopDetectionResult struct {
 
 // toolCallEntry records a single tool call in the history ring buffer.
 type toolCallEntry struct {
-	hash     string
-	name     string
-	progress bool   // whether this call made progress (output changed from previous)
-	errorMsg string // last error message for this call (for strategy detection)
+	hash           string
+	name           string
+	progress       bool   // whether this call made progress (output changed from previous)
+	errorMsg       string // last error message for this call (for strategy detection)
+	hasProgress    bool   // detected progress indicator in output
+	exitCode       int    // for command-based tools
+	outputHash     string // hash of output for comparison
 }
 
 // knownNoProgressTools are tools that frequently poll external state without
@@ -149,7 +156,11 @@ func NewToolLoopDetector(cfg ToolLoopConfig, logger *slog.Logger) *ToolLoopDetec
 // is making progress. An empty or identical output signals no progress.
 func (d *ToolLoopDetector) RecordToolOutcome(output string) {
 	h := hashOutput(output)
-	madeProgress := h != d.lastOutputHash && output != ""
+	outputChanged := h != d.lastOutputHash && output != ""
+	hasProgressIndicators := detectProgressIndicators(output)
+
+	// Progress is determined by: output changed OR contains success indicators
+	madeProgress := outputChanged || hasProgressIndicators
 
 	if !madeProgress {
 		d.noProgressCount++
@@ -169,10 +180,12 @@ func (d *ToolLoopDetector) RecordToolOutcome(output string) {
 	}
 	// Don't reset counter on success - we want to catch alternating error/success patterns too
 
-	// Update the last history entry's progress flag and error before changing hashes.
+	// Update the last history entry with all progress indicators.
 	if len(d.history) > 0 {
 		d.history[len(d.history)-1].progress = madeProgress
 		d.history[len(d.history)-1].errorMsg = errorMsg
+		d.history[len(d.history)-1].hasProgress = hasProgressIndicators
+		d.history[len(d.history)-1].outputHash = h
 	}
 
 	d.lastOutputHash = h
@@ -204,6 +217,33 @@ func extractErrorMessage(output string) string {
 	}
 
 	return ""
+}
+
+// detectProgressIndicators analyzes output for signs of actual progress.
+// Returns true if output contains indicators of successful work being done.
+func detectProgressIndicators(output string) bool {
+	if output == "" {
+		return false
+	}
+
+	lower := strings.ToLower(output)
+
+	// Success patterns that indicate actual progress
+	successPatterns := []string{
+		"created", "written", "saved", "deleted", "moved",
+		"success", "completed", "installed", "updated",
+		"modified", "changed", "added", "removed",
+		"ok", "done", "finished", "committed",
+		"executed", "ran", "started", "deployed",
+	}
+
+	for _, pattern := range successPatterns {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // RecordAndCheck records a tool call and checks for loops.

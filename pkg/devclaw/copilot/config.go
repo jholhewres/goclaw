@@ -596,6 +596,31 @@ type SearchConfig struct {
 
 	// MinScore is the minimum score threshold (default: 0.1).
 	MinScore float64 `yaml:"min_score"`
+
+	// TemporalDecay configures time-based score decay for memory search.
+	TemporalDecay TemporalDecayConfig `yaml:"temporal_decay"`
+
+	// MMR configures Maximal Marginal Relevance for result diversification.
+	MMR MMRConfig `yaml:"mmr"`
+}
+
+// TemporalDecayConfig configures exponential score decay based on memory age.
+type TemporalDecayConfig struct {
+	// Enabled activates temporal decay (default: false).
+	Enabled bool `yaml:"enabled"`
+
+	// HalfLifeDays is the number of days for score to halve (default: 30).
+	HalfLifeDays float64 `yaml:"half_life_days"`
+}
+
+// MMRConfig configures Maximal Marginal Relevance for search diversification.
+type MMRConfig struct {
+	// Enabled activates MMR re-ranking (default: false).
+	Enabled bool `yaml:"enabled"`
+
+	// Lambda balances relevance vs diversity (default: 0.7).
+	// 0 = max diversity, 1 = max relevance.
+	Lambda float64 `yaml:"lambda"`
 }
 
 // IndexConfig configures automatic memory indexing.
@@ -734,6 +759,14 @@ func DefaultConfig() *Config {
 				HybridWeightBM25:   0.3,
 				MaxResults:         6,
 				MinScore:           0.1,
+				TemporalDecay: TemporalDecayConfig{
+					Enabled:      false,
+					HalfLifeDays: 30,
+				},
+				MMR: MMRConfig{
+					Enabled: false,
+					Lambda:  0.7,
+				},
 			},
 			Index: IndexConfig{
 				Auto:           true,

@@ -150,9 +150,20 @@ func handleMemorySearch(ctx context.Context, store *memory.FileStore, sqliteStor
 
 	// Try hybrid search first if SQLite is available.
 	if sqliteStore != nil {
-		results, err := sqliteStore.HybridSearch(
+		// Build config for temporal decay and MMR
+		decayCfg := memory.TemporalDecayConfig{
+			Enabled:      cfg.Search.TemporalDecay.Enabled,
+			HalfLifeDays: cfg.Search.TemporalDecay.HalfLifeDays,
+		}
+		mmrCfg := memory.MMRConfig{
+			Enabled: cfg.Search.MMR.Enabled,
+			Lambda:  cfg.Search.MMR.Lambda,
+		}
+
+		results, err := sqliteStore.HybridSearchWithOptions(
 			ctx, query, limit, cfg.Search.MinScore,
 			cfg.Search.HybridWeightVector, cfg.Search.HybridWeightBM25,
+			decayCfg, mmrCfg,
 		)
 		if err == nil && len(results) > 0 {
 			var sb strings.Builder
