@@ -248,6 +248,17 @@ func (w *WhatsApp) handleKeepAliveTimeout(evt *events.KeepAliveTimeout) {
 
 	// Increase error count for health monitoring.
 	w.errorCount.Add(1)
+
+	// Trigger reconnection if keepalive fails consistently (3+ errors).
+	// This handles "half-open" connections where the socket appears
+	// connected but is actually dead.
+	if evt.ErrorCount >= 3 && w.getState() == StateConnected {
+		w.logger.Error("whatsapp: keep-alive failed multiple times, forcing reconnection",
+			"error_count", evt.ErrorCount)
+		w.setState(StateReconnecting)
+		w.connected.Store(false)
+		go w.attemptReconnect()
+	}
 }
 
 // handleKeepAliveRestored handles keep-alive recovery.

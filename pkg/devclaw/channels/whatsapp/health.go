@@ -33,9 +33,9 @@ type HealthMonitorConfig struct {
 func DefaultHealthMonitorConfig() HealthMonitorConfig {
 	return HealthMonitorConfig{
 		Enabled:             true,
-		CheckInterval:       30 * time.Second,
-		MaxSilentDuration:   5 * time.Minute,
-		ForceReconnectAfter: 30 * time.Minute,
+		CheckInterval:       15 * time.Second,
+		MaxSilentDuration:   3 * time.Minute,
+		ForceReconnectAfter: 10 * time.Minute,
 	}
 }
 
@@ -72,6 +72,37 @@ func (w *WhatsApp) StartHealthMonitor(ctx context.Context, cfg HealthMonitorConf
 				return
 			case <-ticker.C:
 				w.performHealthCheck(cfg)
+			}
+		}
+	}()
+
+	w.StartPinger(ctx)
+}
+
+// StartPinger sends periodic presence updates to keep connection alive.
+func (w *WhatsApp) StartPinger(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+
+		w.logger.Info("whatsapp pinger started", "interval", "2m")
+
+		for {
+			select {
+			case <-ctx.Done():
+				w.logger.Info("whatsapp pinger stopped")
+				return
+			case <-ticker.C:
+				if w.getState() == StateConnected {
+					// Send presence to keep connection alive
+					if err := w.SendPresence(ctx, true); err != nil {
+						w.logger.Debug("pinger: failed to send presence", "error", err)
+					} else {
+						w.logger.Debug("pinger: sent presence update")
+						// Update last activity time
+						w.UpdateLastMsgTime()
+					}
+				}
 			}
 		}
 	}()
