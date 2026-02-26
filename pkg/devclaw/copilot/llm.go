@@ -1645,6 +1645,16 @@ func (c *LLMClient) CompleteWithToolsStreamUsingModel(ctx context.Context, model
 	for attempt := 0; attempt <= maxStreamRetries; attempt++ {
 		resp, err := c.completeOnceStream(ctx, model, messages, tools, onChunk)
 		if err == nil {
+			// Check if streaming returned empty content (some providers like Z.AI
+			// may have SSE format incompatibilities that result in empty responses)
+			if resp.Content == "" && len(resp.ToolCalls) == 0 && resp.Usage.CompletionTokens == 0 {
+				c.logger.Warn("streaming returned empty response, falling back to non-streaming",
+					"model", model,
+					"provider", c.provider,
+				)
+				// Fall back to non-streaming
+				return c.CompleteWithFallbackUsingModel(ctx, modelOverride, messages, tools)
+			}
 			return resp, nil
 		}
 		lastErr = err
