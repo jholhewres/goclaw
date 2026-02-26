@@ -43,9 +43,6 @@ Thumbs.db
 /HEARTBEAT.md
 /MEMORY.md
 
-# User-specific bootstrap (personal preferences — not for version control)
-configs/bootstrap/USER.md
-
 # User-specific bootstrap (personal preferences, not for version control)
 configs/bootstrap/USER.md
 
