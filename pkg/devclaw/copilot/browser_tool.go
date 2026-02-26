@@ -22,7 +22,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -217,9 +216,6 @@ func (bm *BrowserManager) Start(ctx context.Context) error {
 		bm.logger.Warn("chrome process died, restarting")
 		bm.cleanup()
 	}
-
-	// Kill any existing Chrome processes that might be zombied
-	bm.killZombieChrome()
 
 	chromePath := bm.findChrome()
 	if chromePath == "" {
@@ -622,14 +618,6 @@ func (bm *BrowserManager) isAlive() bool {
 	// Send signal 0 to check if process exists
 	err := bm.cmd.Process.Signal(syscall.Signal(0))
 	return err == nil
-}
-
-// killZombieChrome kills any Chrome processes that might be leftover.
-func (bm *BrowserManager) killZombieChrome() {
-	// Kill any Chrome processes on the same user
-	exec.Command("pkill", "-9", "-u", os.Getenv("USER"), "chrome").Run()
-	exec.Command("pkill", "-9", "-u", os.Getenv("USER"), "chromium").Run()
-	time.Sleep(500 * time.Millisecond)
 }
 
 // ─── Tool Registration ───
