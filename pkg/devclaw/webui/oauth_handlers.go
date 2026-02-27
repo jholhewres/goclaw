@@ -107,11 +107,27 @@ type OAuthProviderInfo struct {
 
 // handleListProviders returns available OAuth providers.
 func (h *OAuthHandlers) handleListProviders(w http.ResponseWriter, r *http.Request) {
+	hasGoogleCreds := getGoogleClientID() != ""
+
 	providers := []OAuthProviderInfo{
 		{ID: "gemini", Label: "Google Gemini", FlowType: "pkce"},
 		{ID: "chatgpt", Label: "ChatGPT/Codex", FlowType: "pkce", Experimental: true},
 		{ID: "qwen", Label: "Qwen Portal", FlowType: "device_code"},
 		{ID: "minimax", Label: "MiniMax Portal", FlowType: "device_code"},
+	}
+
+	// Add Google Workspace providers if credentials are configured
+	if hasGoogleCreds {
+		providers = append(providers,
+			OAuthProviderInfo{ID: "google-gmail", Label: "Gmail", FlowType: "pkce"},
+			OAuthProviderInfo{ID: "google-calendar", Label: "Google Calendar", FlowType: "pkce"},
+			OAuthProviderInfo{ID: "google-drive", Label: "Google Drive", FlowType: "pkce"},
+		)
+	} else {
+		// Show Google Workspace as manual setup required
+		providers = append(providers,
+			OAuthProviderInfo{ID: "google-workspace", Label: "Google Workspace (Manual)", FlowType: "manual"},
+		)
 	}
 
 	writeOAuthJSON(w, http.StatusOK, providers)
