@@ -276,6 +276,13 @@ func WithGoogleLogger(logger *slog.Logger) GoogleOption {
 	}
 }
 
+// WithGoogleName sets the provider name (e.g., "google-gmail", "google-calendar").
+func WithGoogleName(name string) GoogleOption {
+	return func(p *GoogleProvider) {
+		p.name = name
+	}
+}
+
 // WithGoogleService configures the provider for a specific Google service.
 func WithGoogleService(service string) GoogleOption {
 	return func(p *GoogleProvider) {

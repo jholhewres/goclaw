@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -159,8 +160,8 @@ func (h *OAuthHandlers) handleOAuthStart(w http.ResponseWriter, r *http.Request)
 			providers.NewMiniMaxProvider(providers.WithMiniMaxRegion(region)))
 	case "google", "google-gmail", "google-calendar", "google-drive", "google-sheets",
 		"google-docs", "google-slides", "google-contacts", "google-tasks", "google-people":
-		// Google Workspace services require gogcli setup
-		h.startGoogleWorkspaceFlow(ctx, w, r, provider)
+		// Google Workspace services - use PKCE OAuth flow
+		h.startGoogleWorkspacePKCEFlow(ctx, w, r, provider)
 	default:
 		writeOAuthError(w, http.StatusBadRequest, "unknown provider: "+provider)
 	}
@@ -246,10 +247,62 @@ func (h *OAuthHandlers) startDeviceCodeFlow(ctx context.Context, w http.Response
 	writeOAuthJSON(w, http.StatusOK, resp)
 }
 
-// startGoogleWorkspaceFlow provides instructions for Google Workspace OAuth setup.
-// Google Workspace services (Gmail, Calendar, Drive, etc.) require gogcli for OAuth.
-func (h *OAuthHandlers) startGoogleWorkspaceFlow(ctx context.Context, w http.ResponseWriter, r *http.Request, provider string) {
-	// Map provider to service name for gogcli
+// startGoogleWorkspacePKCEFlow starts a PKCE OAuth flow for Google Workspace services.
+// If no client ID is configured, returns manual setup instructions.
+func (h *OAuthHandlers) startGoogleWorkspacePKCEFlow(ctx context.Context, w http.ResponseWriter, r *http.Request, provider string) {
+	// Get client ID from environment or config
+	clientID := getGoogleClientID()
+	clientSecret := getGoogleClientSecret()
+
+	if clientID == "" {
+		// Fall back to manual instructions
+		h.startGoogleWorkspaceManualFlow(ctx, w, r, provider)
+		return
+	}
+
+	// Create provider based on service
+	var p PKCEProvider
+	switch provider {
+	case "google-gmail":
+		p = providers.NewGmailProvider(
+			providers.WithGoogleClientID(clientID),
+			providers.WithGoogleClientSecret(clientSecret),
+		)
+	case "google-calendar":
+		p = providers.NewCalendarProvider(
+			providers.WithGoogleClientID(clientID),
+			providers.WithGoogleClientSecret(clientSecret),
+		)
+	case "google-drive":
+		p = providers.NewDriveProvider(
+			providers.WithGoogleClientID(clientID),
+			providers.WithGoogleClientSecret(clientSecret),
+		)
+	default:
+		// Generic Google provider with full scopes
+		p = providers.NewGoogleProvider(
+			providers.WithGoogleClientID(clientID),
+			providers.WithGoogleClientSecret(clientSecret),
+			providers.WithGoogleService(getServiceFromProvider(provider)),
+			providers.WithGoogleName(provider),
+		)
+	}
+
+	h.startPKCEFlow(ctx, w, r, provider, p)
+}
+
+// getServiceFromProvider extracts service name from provider string
+func getServiceFromProvider(provider string) string {
+	parts := strings.SplitN(provider, "-", 2)
+	if len(parts) > 1 {
+		return parts[1]
+	}
+	return "full"
+}
+
+// startGoogleWorkspaceManualFlow provides instructions for manual OAuth setup.
+func (h *OAuthHandlers) startGoogleWorkspaceManualFlow(ctx context.Context, w http.ResponseWriter, r *http.Request, provider string) {
+	// Map provider to service name
 	serviceMap := map[string]string{
 		"google":          "gmail,calendar,drive",
 		"google-gmail":    "gmail",
@@ -268,22 +321,45 @@ func (h *OAuthHandlers) startGoogleWorkspaceFlow(ctx context.Context, w http.Res
 		services = "gmail,calendar,drive"
 	}
 
-	// Return instructions for gogcli setup
+	// Return instructions for manual setup
 	resp := map[string]any{
-		"flow_type":   "manual",
-		"provider":    provider,
-		"instructions": "Google Workspace services require gogcli for OAuth setup.",
+		"flow_type":    "manual",
+		"provider":     provider,
+		"instructions": "Google Workspace OAuth requires client credentials.",
 		"setup_steps": []string{
-			"1. Install gogcli: go install github.com/steipete/gogcli@latest",
-			"2. Configure OAuth credentials: gog auth credentials <credentials.json>",
-			"3. Authorize your account: gog auth add you@gmail.com --services " + services,
-			"4. The credentials will be automatically available in DevClaw",
+			"1. Create OAuth credentials in Google Cloud Console",
+			"2. Set GOOGLE_CLIENT_ID environment variable",
+			"3. (Optional) Set GOOGLE_CLIENT_SECRET for web application credentials",
+			"4. Restart DevClaw and try again",
 		},
-		"docs_url":    "https://zread.ai/steipete/gogcli/4-authentication-and-account-management",
-		"alternative": "You can also configure OAuth manually via auth_profile_add tool with your refresh token.",
+		"alternative": "Or use gogcli: go install github.com/steipete/gogcli@latest && gog auth add you@gmail.com --services " + services,
+		"docs_url":    "https://console.cloud.google.com/apis/credentials",
 	}
 
 	writeOAuthJSON(w, http.StatusOK, resp)
+}
+
+// getGoogleClientID returns the Google OAuth client ID from environment.
+func getGoogleClientID() string {
+	// Check environment variables
+	if id := os.Getenv("GOOGLE_CLIENT_ID"); id != "" {
+		return id
+	}
+	if id := os.Getenv("GOOGLE_OAUTH_CLIENT_ID"); id != "" {
+		return id
+	}
+	return ""
+}
+
+// getGoogleClientSecret returns the Google OAuth client secret from environment.
+func getGoogleClientSecret() string {
+	if secret := os.Getenv("GOOGLE_CLIENT_SECRET"); secret != "" {
+		return secret
+	}
+	if secret := os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"); secret != "" {
+		return secret
+	}
+	return ""
 }
 
 // handleOAuthCallback handles OAuth callbacks.
@@ -327,6 +403,33 @@ func (h *OAuthHandlers) handleOAuthCallback(w http.ResponseWriter, r *http.Reque
 		cred, err = p.ExchangeCode(ctx, code, flow.pkce.Verifier)
 	case "chatgpt":
 		p := providers.NewChatGPTProvider()
+		cred, err = p.ExchangeCode(ctx, code, flow.pkce.Verifier)
+	case "google-gmail":
+		p := providers.NewGmailProvider(
+			providers.WithGoogleClientID(getGoogleClientID()),
+			providers.WithGoogleClientSecret(getGoogleClientSecret()),
+		)
+		cred, err = p.ExchangeCode(ctx, code, flow.pkce.Verifier)
+	case "google-calendar":
+		p := providers.NewCalendarProvider(
+			providers.WithGoogleClientID(getGoogleClientID()),
+			providers.WithGoogleClientSecret(getGoogleClientSecret()),
+		)
+		cred, err = p.ExchangeCode(ctx, code, flow.pkce.Verifier)
+	case "google-drive":
+		p := providers.NewDriveProvider(
+			providers.WithGoogleClientID(getGoogleClientID()),
+			providers.WithGoogleClientSecret(getGoogleClientSecret()),
+		)
+		cred, err = p.ExchangeCode(ctx, code, flow.pkce.Verifier)
+	case "google", "google-sheets", "google-docs", "google-slides",
+		"google-contacts", "google-tasks", "google-people":
+		p := providers.NewGoogleProvider(
+			providers.WithGoogleClientID(getGoogleClientID()),
+			providers.WithGoogleClientSecret(getGoogleClientSecret()),
+			providers.WithGoogleService(getServiceFromProvider(flow.provider)),
+			providers.WithGoogleName(flow.provider),
+		)
 		cred, err = p.ExchangeCode(ctx, code, flow.pkce.Verifier)
 	default:
 		err = fmt.Errorf("unknown provider: %s", flow.provider)
