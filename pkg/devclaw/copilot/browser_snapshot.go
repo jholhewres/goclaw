@@ -57,13 +57,56 @@ func (r AXRole) String() string {
 	return r.Value
 }
 
+// AXValue is a custom type that can unmarshal from either a string or an object.
+// Chrome CDP sometimes returns name/value as {"type": "string", "value": "text"}
+// and sometimes as just "text".
+type AXValue struct {
+	Value string
+}
+
+// UnmarshalJSON implements json.Unmarshaler for AXValue.
+func (v *AXValue) UnmarshalJSON(data []byte) error {
+	// Try string first
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		v.Value = str
+		return nil
+	}
+
+	// Try object with "value" field
+	var obj struct {
+		Type  string `json:"type"`
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(data, &obj); err == nil {
+		v.Value = obj.Value
+		return nil
+	}
+
+	// Try object with just value
+	var simpleObj map[string]any
+	if err := json.Unmarshal(data, &simpleObj); err == nil {
+		if val, ok := simpleObj["value"].(string); ok {
+			v.Value = val
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cannot unmarshal AXValue from: %s", string(data))
+}
+
+// String returns the value as string.
+func (v AXValue) String() string {
+	return v.Value
+}
+
 // AXNode represents a node in the accessibility tree from CDP.
 type AXNode struct {
 	NodeID      string         `json:"nodeId"`
 	Role        AXRole         `json:"role"`
-	Name        string         `json:"name,omitempty"`
-	Value       string         `json:"value,omitempty"`
-	Description string         `json:"description,omitempty"`
+	Name        AXValue        `json:"name,omitempty"`
+	Value       AXValue        `json:"value,omitempty"`
+	Description AXValue        `json:"description,omitempty"`
 	Properties  map[string]any `json:"properties,omitempty"`
 	Children    []*AXNode      `json:"children,omitempty"`
 
@@ -172,9 +215,9 @@ func (bm *BrowserManager) GetAccessibilityTree(ctx context.Context) (*AXNode, er
 		Nodes []struct {
 			NodeID        string         `json:"nodeId"`
 			Role          AXRole         `json:"role"`
-			Name          string         `json:"name,omitempty"`
-			Value         string         `json:"value,omitempty"`
-			Description   string         `json:"description,omitempty"`
+			Name          AXValue        `json:"name,omitempty"`
+			Value         AXValue        `json:"value,omitempty"`
+			Description   AXValue        `json:"description,omitempty"`
 			Properties    map[string]any `json:"properties,omitempty"`
 			ChildIDs      []string       `json:"childIds,omitempty"`
 			ParentID      string         `json:"parentId,omitempty"`
@@ -193,9 +236,9 @@ func (bm *BrowserManager) GetAccessibilityTree(ctx context.Context) (*AXNode, er
 func (bm *BrowserManager) buildAXTree(nodes []struct {
 	NodeID      string         `json:"nodeId"`
 	Role        AXRole         `json:"role"`
-	Name        string         `json:"name,omitempty"`
-	Value       string         `json:"value,omitempty"`
-	Description string         `json:"description,omitempty"`
+	Name        AXValue        `json:"name,omitempty"`
+	Value       AXValue        `json:"value,omitempty"`
+	Description AXValue        `json:"description,omitempty"`
 	Properties  map[string]any `json:"properties,omitempty"`
 	ChildIDs    []string       `json:"childIds,omitempty"`
 	ParentID    string         `json:"parentId,omitempty"`
@@ -273,7 +316,7 @@ func (bm *BrowserManager) renderSnapshot(builder *strings.Builder, node *AXNode,
 	}
 
 	// Skip structural elements in compact mode
-	if opts.Compact && StructuralRoles[node.Role.Value] && node.Name == "" && len(node.Children) == 0 {
+	if opts.Compact && StructuralRoles[node.Role.Value] && node.Name.Value == "" && len(node.Children) == 0 {
 		return
 	}
 
@@ -294,7 +337,7 @@ func (bm *BrowserManager) renderSnapshot(builder *strings.Builder, node *AXNode,
 		ref = fmt.Sprintf(" [%s]", node.Ref)
 	}
 
-	name := node.Name
+	name := node.Name.Value
 	if name != "" && len(name) > 100 {
 		name = name[:97] + "..."
 	}
@@ -341,7 +384,7 @@ func buildRoleRefs(root *AXNode, interactiveOnly bool) map[string]Ref {
 			node.Ref = refID
 
 			// Handle duplicates
-			key := node.Role.Value + ":" + node.Name
+			key := node.Role.Value + ":" + node.Name.Value
 			nth := 0
 			if seen[key] > 0 {
 				nth = seen[key] + 1
@@ -350,7 +393,7 @@ func buildRoleRefs(root *AXNode, interactiveOnly bool) map[string]Ref {
 
 			refs[refID] = Ref{
 				Role: node.Role.Value,
-				Name: node.Name,
+				Name: node.Name.Value,
 				Nth:  nth,
 			}
 		}
