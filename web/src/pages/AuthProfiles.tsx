@@ -485,13 +485,37 @@ export function AuthProfiles() {
 
                     {profile.mode === 'oauth' && (
                       <div className="flex gap-2">
-                        <a
-                          href={`/api/oauth/start/${profile.provider}`}
+                        <button
+                          onClick={async () => {
+                            try {
+                              const response = await fetch(`/api/oauth/start/${profile.provider}`, {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${localStorage.getItem('devclaw_token')}`,
+                                },
+                              })
+                              const data = await response.json()
+
+                              if (data.flow_type === 'manual') {
+                                // Redirect to manual setup page
+                                window.location.href = '/oauth/google/setup'
+                              } else if (data.flow_type === 'pkce' && data.auth_url) {
+                                // Open popup for PKCE flow
+                                window.open(data.auth_url, 'oauth', 'width=600,height=800,scrollbars=yes')
+                              } else if (data.flow_type === 'device_code') {
+                                // Show device code instructions
+                                alert(`Visit: ${data.verify_url}\nCode: ${data.user_code}`)
+                              }
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : 'Failed to start OAuth')
+                            }
+                          }}
                           className="flex items-center gap-2 px-3 py-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white text-sm rounded-lg transition-colors"
                         >
                           <ExternalLink className="h-4 w-4" />
                           {t('authProfiles.connectOAuth')}
-                        </a>
+                        </button>
                       </div>
                     )}
                   </div>
