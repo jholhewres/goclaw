@@ -111,6 +111,9 @@ export function OAuthSettings() {
 
       if (data.flow_type === 'device_code') {
         setPollingProvider(providerId)
+      } else if (data.flow_type === 'manual') {
+        // Redirect to manual setup page
+        window.location.href = '/oauth/google/setup'
       }
     } catch (err) {
       setError(`Failed to start OAuth login for ${providerId}`)

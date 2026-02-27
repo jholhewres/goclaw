@@ -272,7 +272,7 @@ export interface ToolProfileInfo {
 export interface OAuthProvider {
   id: string
   label: string
-  flow_type: 'pkce' | 'device_code'
+  flow_type: 'pkce' | 'device_code' | 'manual'
   experimental?: boolean
 }
 
@@ -285,7 +285,7 @@ export interface OAuthStatus {
 }
 
 export interface OAuthStartResponse {
-  flow_type: 'pkce' | 'device_code'
+  flow_type: 'pkce' | 'device_code' | 'manual'
   auth_url?: string
   provider: string
   user_code?: string
