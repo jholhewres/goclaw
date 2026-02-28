@@ -51,6 +51,10 @@ type Config struct {
 	// Name is the assistant name shown in responses.
 	Name string `yaml:"name"`
 
+	// Identity configures the assistant's structured identity (persona, theme, avatar).
+	// When set, Identity.Name takes precedence over the top-level Name field.
+	Identity IdentityConfig `yaml:"identity"`
+
 	// Trigger is the keyword that activates the bot (e.g. "@devclaw").
 	Trigger string `yaml:"trigger"`
 
@@ -168,6 +172,68 @@ type Config struct {
 
 	// Browser configures browser automation tools.
 	Browser BrowserConfig `yaml:"browser"`
+
+	// OAuthHub configures the OAuth Hub proxy for centralized OAuth management.
+	OAuthHub OAuthHubConfig `yaml:"oauth_hub"`
+
+	// DevToolsEnabled forces dev tools registration regardless of workspace detection.
+	// nil = auto-detect from workspace (default), true = always enable, false = always disable.
+	DevToolsEnabled *bool `yaml:"dev_tools_enabled,omitempty"`
+}
+
+// OAuthHubConfig configures the OAuth Hub integration.
+type OAuthHubConfig struct {
+	// Mode selects the OAuth strategy:
+	//   "local" (default) - use local TokenManager as before
+	//   "hub"             - delegate OAuth to an OAuth Hub instance
+	Mode string `yaml:"mode"`
+
+	// HubURL is the base URL of the OAuth Hub (e.g. "http://localhost:8443").
+	// Required when Mode is "hub".
+	HubURL string `yaml:"hub_url"`
+
+	// APIKey is the API key for authenticating with the Hub (dk_xxx).
+	// Can also reference a vault key or environment variable.
+	APIKey string `yaml:"api_key"`
+
+	// APIKeyEnvVar is the environment variable containing the API key.
+	// Defaults to "OAUTH_HUB_API_KEY" if APIKey is empty.
+	APIKeyEnvVar string `yaml:"api_key_env_var"`
+}
+
+// IdentityConfig configures the assistant's persona and identity.
+type IdentityConfig struct {
+	// Name is the display name (e.g. "Aria", "DevClaw").
+	Name string `yaml:"name"`
+
+	// Emoji is the reaction/acknowledgment emoji (e.g. "🦊").
+	Emoji string `yaml:"emoji"`
+
+	// Theme is the personality theme (e.g. "helpful hacker", "friendly mentor").
+	Theme string `yaml:"theme"`
+
+	// Avatar is a URL or file path to the assistant's avatar image.
+	Avatar string `yaml:"avatar"`
+
+	// Vibe is a short phrase describing the assistant's tone/style.
+	Vibe string `yaml:"vibe"`
+
+	// Creature is the mascot type (e.g. "fox", "owl", "cat").
+	Creature string `yaml:"creature"`
+}
+
+// IsEmpty returns true if no identity fields are set.
+func (ic IdentityConfig) IsEmpty() bool {
+	return ic.Name == "" && ic.Emoji == "" && ic.Theme == "" &&
+		ic.Avatar == "" && ic.Vibe == "" && ic.Creature == ""
+}
+
+// EffectiveName returns the identity name if set, otherwise the fallback.
+func (ic IdentityConfig) EffectiveName(fallback string) string {
+	if ic.Name != "" {
+		return ic.Name
+	}
+	return fallback
 }
 
 // RoutinesConfig configures background routines for metrics and memory indexing.
@@ -378,6 +444,17 @@ type MediaConfig struct {
 
 	// MaxAudioSize is the max audio size in bytes (default: 25MB).
 	MaxAudioSize int64 `yaml:"max_audio_size"`
+
+	// VisionProviders configures multiple vision providers with priority-based fallback.
+	// When set, describe_image will try these providers in priority order instead of the main LLM.
+	VisionProviders []MediaProviderConfig `yaml:"vision_providers"`
+
+	// TranscriptionProviders configures multiple transcription providers with priority-based fallback.
+	// When set, transcribe_audio will try these providers in priority order.
+	TranscriptionProviders []MediaProviderConfig `yaml:"transcription_providers"`
+
+	// ConcurrencyLimit limits simultaneous media API calls across all providers (default: 3).
+	ConcurrencyLimit int `yaml:"concurrency_limit"`
 }
 
 // DefaultMediaConfig returns sensible defaults for media processing.

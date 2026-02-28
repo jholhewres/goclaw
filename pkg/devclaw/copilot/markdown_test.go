@@ -26,6 +26,9 @@ func TestStripInternalTags(t *testing.T) {
 		{"nested tags", "<final><thinking>deep</thinking></final>", ""},
 		{"text with mixed tags", "Hello [[reply_to_current]] world <final>dup</final>", "Hello  world"},
 		{"only whitespace after strip", "  [[reply_to_current]]  ", ""},
+		{"tools used annotation", "[Tools used: cron_add, web_search]\nHello", "Hello"},
+		{"tools used inline", "[Tools used: calculator_calculate, timestamp_convert]\nDone!", "Done!"},
+		{"tool_provenance tag", "<tool_provenance>cron_list</tool_provenance>\nNo jobs.", "No jobs."},
 	}
 
 	for _, tt := range tests {

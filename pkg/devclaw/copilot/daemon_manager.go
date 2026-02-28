@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -136,15 +137,19 @@ func (dm *DaemonManager) StartDaemon(label, command string, port int, readyPatte
 
 // StopDaemon gracefully stops a daemon (SIGTERM). If force is true, uses SIGKILL.
 func (dm *DaemonManager) StopDaemon(label string, force bool) error {
-	dm.mu.Lock()
+	dm.mu.RLock()
 	d, ok := dm.daemons[label]
-	dm.mu.Unlock()
+	var status string
+	if ok {
+		status = d.Status
+	}
+	dm.mu.RUnlock()
 
 	if !ok {
 		return fmt.Errorf("daemon %q not found", label)
 	}
-	if d.Status != "running" {
-		return fmt.Errorf("daemon %q is not running (status: %s)", label, d.Status)
+	if status != "running" {
+		return fmt.Errorf("daemon %q is not running (status: %s)", label, status)
 	}
 
 	if force {
@@ -170,16 +175,21 @@ func (dm *DaemonManager) StopDaemon(label string, force bool) error {
 func (dm *DaemonManager) RestartDaemon(label string) (*Daemon, error) {
 	dm.mu.RLock()
 	d, ok := dm.daemons[label]
+	var cmd string
+	var port int
+	var status string
+	if ok {
+		cmd = d.Command
+		port = d.Port
+		status = d.Status
+	}
 	dm.mu.RUnlock()
 
 	if !ok {
 		return nil, fmt.Errorf("daemon %q not found", label)
 	}
 
-	cmd := d.Command
-	port := d.Port
-
-	if d.Status == "running" {
+	if status == "running" {
 		if err := dm.StopDaemon(label, false); err != nil {
 			return nil, fmt.Errorf("stopping daemon for restart: %w", err)
 		}
@@ -344,133 +354,130 @@ var _ io.Writer = (*ringBuffer)(nil)
 
 // ---------- Tool Registration ----------
 
-// RegisterDaemonTools registers daemon management tools in the executor.
+// RegisterDaemonTools registers a single "daemon" dispatcher tool that
+// consolidates start, logs, list, stop, restart actions.
 func RegisterDaemonTools(executor *ToolExecutor, dm *DaemonManager) {
-	executor.Register(ToolDefinition{
-		Type: "function",
-		Function: FunctionDef{
-			Name:        "start_daemon",
-			Description: "Start a background process (dev server, watcher, database, etc.) and manage its lifecycle. Returns PID and status.",
-			Parameters: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"command":       map[string]any{"type": "string", "description": "Shell command to run (e.g. 'npm run dev', 'python manage.py runserver')"},
-					"label":         map[string]any{"type": "string", "description": "Unique label for this daemon (e.g. 'frontend', 'api', 'db')"},
-					"port":          map[string]any{"type": "integer", "description": "Port the daemon listens on (for health checks)"},
-					"ready_pattern": map[string]any{"type": "string", "description": "Regex pattern in stdout that indicates the daemon is ready (e.g. 'listening on port')"},
-				},
-				"required": []string{"command", "label"},
-			}),
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action": map[string]any{
+				"type":        "string",
+				"enum":        []string{"start", "logs", "list", "stop", "restart"},
+				"description": "Action: start (launch process), logs (view output), list (show all), stop (terminate), restart (stop+start)",
+			},
+			"label": map[string]any{
+				"type":        "string",
+				"description": "Unique daemon label (e.g. 'frontend', 'api', 'db')",
+			},
+			"command": map[string]any{
+				"type":        "string",
+				"description": "Shell command to run (for start, e.g. 'npm run dev')",
+			},
+			"port": map[string]any{
+				"type":        "integer",
+				"description": "Port the daemon listens on (for start)",
+			},
+			"ready_pattern": map[string]any{
+				"type":        "string",
+				"description": "Regex in stdout indicating daemon is ready (for start)",
+			},
+			"lines": map[string]any{
+				"type":        "integer",
+				"description": "Number of log lines to return (for logs, default: 50)",
+			},
+			"filter": map[string]any{
+				"type":        "string",
+				"description": "Regex filter for log lines (for logs)",
+			},
+			"force": map[string]any{
+				"type":        "boolean",
+				"description": "Force kill with SIGKILL (for stop, default: graceful)",
+			},
 		},
-	}, func(_ context.Context, args map[string]any) (any, error) {
-		command, _ := args["command"].(string)
-		label, _ := args["label"].(string)
-		port, _ := args["port"].(float64)
-		readyPattern, _ := args["ready_pattern"].(string)
+		"required": []string{"action"},
+	}
 
-		d, err := dm.StartDaemon(label, command, int(port), readyPattern)
-		if err != nil {
-			return nil, err
-		}
-		return fmt.Sprintf("Daemon %q started (PID %d, port %d, status: %s)", d.Label, d.PID, d.Port, d.Status), nil
-	})
+	executor.Register(
+		MakeToolDefinition("daemon",
+			"Manage background processes (dev servers, watchers, databases). Actions: start, logs, list, stop, restart.",
+			schema),
+		func(_ context.Context, args map[string]any) (any, error) {
+			action, _ := args["action"].(string)
+			if action == "" {
+				return nil, fmt.Errorf("action is required")
+			}
 
-	executor.Register(ToolDefinition{
-		Type: "function",
-		Function: FunctionDef{
-			Name:        "daemon_logs",
-			Description: "Get the last N lines of output from a running daemon. Supports regex filtering.",
-			Parameters: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"label":  map[string]any{"type": "string", "description": "Daemon label"},
-					"lines":  map[string]any{"type": "integer", "description": "Number of lines to return (default: 50)"},
-					"filter": map[string]any{"type": "string", "description": "Regex filter to match lines"},
-				},
-				"required": []string{"label"},
-			}),
+			switch action {
+			case "start":
+				command, _ := args["command"].(string)
+				label, _ := args["label"].(string)
+				port, _ := args["port"].(float64)
+				readyPattern, _ := args["ready_pattern"].(string)
+				if command == "" || label == "" {
+					return nil, fmt.Errorf("command and label are required for start action")
+				}
+				d, err := dm.StartDaemon(label, command, int(port), readyPattern)
+				if err != nil {
+					return nil, err
+				}
+				return fmt.Sprintf("Daemon %q started (PID %d, port %d, status: %s)", d.Label, d.PID, d.Port, d.Status), nil
+
+			case "logs":
+				label, _ := args["label"].(string)
+				if label == "" {
+					return nil, fmt.Errorf("label is required for logs action")
+				}
+				n := 50
+				if v, ok := args["lines"].(float64); ok {
+					n = int(v)
+				}
+				filter, _ := args["filter"].(string)
+				return dm.GetLogs(label, n, filter)
+
+			case "list":
+				daemons := dm.List()
+				if len(daemons) == 0 {
+					return "No daemons running.", nil
+				}
+				data, _ := json.MarshalIndent(daemons, "", "  ")
+				return string(data), nil
+
+			case "stop":
+				label, _ := args["label"].(string)
+				if label == "" {
+					return nil, fmt.Errorf("label is required for stop action")
+				}
+				force, _ := args["force"].(bool)
+				if err := dm.StopDaemon(label, force); err != nil {
+					return nil, err
+				}
+				return fmt.Sprintf("Daemon %q stopped.", label), nil
+
+			case "restart":
+				label, _ := args["label"].(string)
+				if label == "" {
+					return nil, fmt.Errorf("label is required for restart action")
+				}
+				d, err := dm.RestartDaemon(label)
+				if err != nil {
+					return nil, err
+				}
+				return fmt.Sprintf("Daemon %q restarted (new PID %d, status: %s)", d.Label, d.PID, d.Status), nil
+
+			default:
+				return nil, fmt.Errorf("unknown action: %s (valid: start, logs, list, stop, restart)", action)
+			}
 		},
-	}, func(_ context.Context, args map[string]any) (any, error) {
-		label, _ := args["label"].(string)
-		n := 50
-		if v, ok := args["lines"].(float64); ok {
-			n = int(v)
-		}
-		filter, _ := args["filter"].(string)
-		return dm.GetLogs(label, n, filter)
-	})
-
-	executor.Register(ToolDefinition{
-		Type: "function",
-		Function: FunctionDef{
-			Name:        "daemon_list",
-			Description: "List all managed daemons with their PID, status, port, and uptime.",
-			Parameters: mustJSON(map[string]any{
-				"type":                 "object",
-				"properties":           map[string]any{},
-				"additionalProperties": false,
-			}),
-		},
-	}, func(_ context.Context, _ map[string]any) (any, error) {
-		daemons := dm.List()
-		if len(daemons) == 0 {
-			return "No daemons running.", nil
-		}
-		data, _ := json.MarshalIndent(daemons, "", "  ")
-		return string(data), nil
-	})
-
-	executor.Register(ToolDefinition{
-		Type: "function",
-		Function: FunctionDef{
-			Name:        "daemon_stop",
-			Description: "Stop a running daemon. Uses graceful shutdown by default; set force=true for immediate kill.",
-			Parameters: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"label": map[string]any{"type": "string", "description": "Daemon label"},
-					"force": map[string]any{"type": "boolean", "description": "Force kill (SIGKILL) instead of graceful stop"},
-				},
-				"required": []string{"label"},
-			}),
-		},
-	}, func(_ context.Context, args map[string]any) (any, error) {
-		label, _ := args["label"].(string)
-		force, _ := args["force"].(bool)
-		if err := dm.StopDaemon(label, force); err != nil {
-			return nil, err
-		}
-		return fmt.Sprintf("Daemon %q stopped.", label), nil
-	})
-
-	executor.Register(ToolDefinition{
-		Type: "function",
-		Function: FunctionDef{
-			Name:        "daemon_restart",
-			Description: "Restart a daemon with the same configuration. Stops the old process and starts a new one.",
-			Parameters: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"label": map[string]any{"type": "string", "description": "Daemon label"},
-				},
-				"required": []string{"label"},
-			}),
-		},
-	}, func(_ context.Context, args map[string]any) (any, error) {
-		label, _ := args["label"].(string)
-		d, err := dm.RestartDaemon(label)
-		if err != nil {
-			return nil, err
-		}
-		return fmt.Sprintf("Daemon %q restarted (new PID %d, status: %s)", d.Label, d.PID, d.Status), nil
-	})
+	)
 }
 
-// mustJSON marshals a value to json.RawMessage, panicking on error.
+// mustJSON marshals a value to json.RawMessage.
+// Only used during tool registration with static literals; a failure here
+// indicates a programming error and is fatal at startup.
 func mustJSON(v any) json.RawMessage {
 	b, err := json.Marshal(v)
 	if err != nil {
-		panic(fmt.Sprintf("mustJSON: %v", err))
+		log.Fatalf("mustJSON: %v", err)
 	}
 	return b
 }

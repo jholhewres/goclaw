@@ -53,7 +53,7 @@ func ContextWithSession(ctx context.Context, sessionID string) context.Context {
 }
 
 // ContextWithDelivery returns a new context carrying the delivery target.
-// This is used by tools like cron_add to know where to deliver scheduled messages.
+// This is used by tools like the scheduler dispatcher to know where to deliver scheduled messages.
 func ContextWithDelivery(ctx context.Context, channel, chatID string) context.Context {
 	return context.WithValue(ctx, ctxKeyDeliveryTarget{}, DeliveryTarget{
 		Channel: channel,
@@ -866,6 +866,14 @@ func (e *ToolExecutor) executeSingle(ctx context.Context, call ToolCall) ToolRes
 		return result
 	}
 
+	// Validate required parameters against the tool's schema.
+	if err := validateRequiredArgs(tool.Definition, args); err != nil {
+		result.Content = formatToolError(name, fmt.Errorf("invalid arguments: %w", err))
+		result.Error = err
+		e.logger.Warn("tool argument validation failed", "name", name, "error", err)
+		return result
+	}
+
 	// Security check: verify the caller has permission.
 	var check ToolCheckResult
 	if guard != nil {
@@ -1037,14 +1045,8 @@ func (e *ToolExecutor) executeSingle(ctx context.Context, call ToolCall) ToolRes
 
 	e.logger.Debug("executing tool", "name", name, "args_keys", mapKeys(args))
 
-	// Progress heartbeat is handled by the ProgressSender cooldown in assistant.go.
-	// Individual tools (e.g. claude-code) send their own progress; we don't add
-	// a redundant generic heartbeat to avoid flooding the user.
-	progressDone := make(chan struct{})
-
 	start := time.Now()
 	output, err := tool.Handler(execCtx, args)
-	close(progressDone)
 	duration := time.Since(start)
 
 	// ── After-tool hooks ──
@@ -1255,6 +1257,31 @@ func parseToolArgs(raw string) (map[string]any, error) {
 		return nil, fmt.Errorf("invalid JSON arguments: %w", err)
 	}
 	return args, nil
+}
+
+// validateRequiredArgs checks that required parameters from the tool's JSON schema
+// are present in the parsed arguments. This catches hallucinated tool calls where
+// the LLM omits required parameters.
+func validateRequiredArgs(def ToolDefinition, args map[string]any) error {
+	if len(def.Function.Parameters) == 0 {
+		return nil
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(def.Function.Parameters, &schema); err != nil {
+		return nil // Can't parse schema; skip validation.
+	}
+	required, _ := schema["required"].([]any)
+	for _, r := range required {
+		key, _ := r.(string)
+		if key == "" {
+			continue
+		}
+		val, present := args[key]
+		if !present || val == nil {
+			return fmt.Errorf("required parameter %q missing", key)
+		}
+	}
+	return nil
 }
 
 // formatToolOutput converts tool output to a string suitable for the LLM.

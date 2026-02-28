@@ -55,9 +55,9 @@ Long-term memory for remembering information across conversations and sessions.
 ## When NOT to Use Memory
 | Data Type | Use Instead |
 |-----------|-------------|
-| API keys, tokens, passwords | **vault_save** |
-| Database URLs with credentials | **vault_save** |
-| Private keys, secrets | **vault_save** |
+| API keys, tokens, passwords | **vault(action=save)** |
+| Database URLs with credentials | **vault(action=save)** |
+| Private keys, secrets | **vault(action=save)** |
 
 **Rule:** If exposure could cause harm → vault, not memory.
 

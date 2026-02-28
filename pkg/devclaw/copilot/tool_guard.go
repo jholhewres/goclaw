@@ -90,7 +90,7 @@ type ToolGuardConfig struct {
 	RequireConfirmation []string `yaml:"require_confirmation"`
 
 	// DestructiveProtection configures rate limiting and batch detection for
-	// destructive tools like cron_remove, vault_delete, etc.
+	// destructive tools. With dispatcher consolidation, configure at action level.
 	DestructiveProtection DestructiveToolsConfig `yaml:"destructive_protection"`
 }
 
@@ -106,11 +106,11 @@ func DefaultToolGuardConfig() ToolGuardConfig {
 		AllowReboot:      false, // Don't allow reboot by default
 		ToolPermissions: map[string]string{
 			// System tools with machine access.
-			"bash":         "owner",
-			"ssh":          "owner",
-			"scp":          "owner",
-			"exec":         "admin",
-			"set_env":      "owner",
+			"bash":    "owner",
+			"ssh":     "owner",
+			"scp":     "owner",
+			"exec":    "admin",
+			"set_env": "owner",
 			// File tools.
 			"write_file":   "admin",
 			"edit_file":    "admin",
@@ -118,21 +118,14 @@ func DefaultToolGuardConfig() ToolGuardConfig {
 			"list_files":   "user",
 			"search_files": "user",
 			"glob_files":   "user",
-			// Skill management.
-			"install_skill": "admin",
-			"remove_skill":  "admin",
-			"init_skill":    "admin",
-			"edit_skill":    "admin",
-			"add_script":    "admin",
-			"search_skills": "user",
-			"list_skills":   "user",
-			"test_skill":    "user",
+			// Dispatchers (consolidated tools).
+			"skill_manage": "user", // action-level checks within handler
+			"scheduler":    "user", // action-level checks within handler
+			"vault":        "user", // action-level checks within handler
+			"sessions":     "user",  // action-level checks within handler
+			"daemon":       "owner",
 			// Memory.
 			"memory": "user",
-			// Scheduler.
-			"cron_add":    "admin",
-			"cron_list":   "user",
-			"cron_remove": "admin",
 			// Web.
 			"web_search": "user",
 			"web_fetch":  "user",
@@ -152,9 +145,11 @@ var ToolGroups = map[string][]string{
 	"group:fs":        {"read_file", "write_file", "edit_file", "list_files", "search_files", "glob_files"},
 	"group:runtime":   {"bash", "exec", "ssh", "scp", "set_env"},
 	"group:subagents": {"spawn_subagent", "list_subagents", "wait_subagent", "stop_subagent"},
-	"group:skills":    {"install_skill", "remove_skill", "search_skills", "list_skills", "test_skill", "edit_skill", "add_script", "init_skill", "skill_defaults_list", "skill_defaults_install"},
-	"group:scheduler": {"cron_add", "cron_list", "cron_remove"},
-	"group:vault":     {"vault_save", "vault_get", "vault_list", "vault_delete"},
+	"group:skills":    {"skill_manage"},
+	"group:scheduler": {"scheduler"},
+	"group:vault":     {"vault"},
+	"group:sessions":  {"sessions"},
+	"group:daemon":    {"daemon"},
 	"group:media":     {"describe_image", "transcribe_audio", "image-gen_generate_image"},
 	"group:teams": {
 		"team_manage",

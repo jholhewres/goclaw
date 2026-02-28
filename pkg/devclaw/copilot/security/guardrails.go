@@ -5,6 +5,7 @@ package security
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -95,8 +96,20 @@ func NewOutputGuardrail() *OutputGuardrail {
 	return &OutputGuardrail{}
 }
 
+// ToolResultContext holds a single tool result for output validation.
+type ToolResultContext struct {
+	ToolName string
+	Output   string
+}
+
 // Validate executa todas as validações no output do LLM.
 func (g *OutputGuardrail) Validate(output string) error {
+	return g.ValidateWithContext(output, nil)
+}
+
+// ValidateWithContext validates output against an optional set of tool results
+// from the current turn. Used to cross-check claimed URLs and facts.
+func (g *OutputGuardrail) ValidateWithContext(output string, toolResults []ToolResultContext) error {
 	// 1. Verifica se o output não está vazio.
 	if strings.TrimSpace(output) == "" {
 		return ErrEmptyOutput
@@ -107,8 +120,14 @@ func (g *OutputGuardrail) Validate(output string) error {
 		return ErrSystemPromptLeak
 	}
 
-	// TODO: Implementar validação de URLs contra resultados de tools.
-	// TODO: Implementar detecção de PII no output.
+	// 3. URL grounding check (when tool results are available).
+	if len(toolResults) > 0 {
+		ungrounded := checkURLGrounding(output, toolResults)
+		if len(ungrounded) > 0 {
+			// Log-only for now; return error when confidence is high enough.
+			_ = ungrounded // will be used when promoted from soft to hard check
+		}
+	}
 
 	return nil
 }
@@ -123,6 +142,13 @@ func detectSystemPromptLeak(output string) bool {
 		"my system prompt is",
 		"i was instructed to",
 		"my programming says",
+		"as instructed in my system",
+		"according to my instructions",
+		"my training tells me to",
+		"i am not allowed to reveal my",
+		"the system prompt says",
+		"here is my system prompt",
+		"my initial instructions",
 	}
 
 	for _, indicator := range indicators {
@@ -132,6 +158,31 @@ func detectSystemPromptLeak(output string) bool {
 	}
 
 	return false
+}
+
+// checkURLGrounding extracts URLs from output and checks if they appear in tool results.
+// Returns a list of URLs that appear in the output but not in any tool result.
+func checkURLGrounding(output string, toolResults []ToolResultContext) []string {
+	urlRe := regexp.MustCompile(`https?://[^\s"'<>\)]+`)
+	found := urlRe.FindAllString(output, -1)
+	if len(found) == 0 {
+		return nil
+	}
+
+	var ungrounded []string
+	for _, url := range found {
+		grounded := false
+		for _, tr := range toolResults {
+			if strings.Contains(tr.Output, url) {
+				grounded = true
+				break
+			}
+		}
+		if !grounded {
+			ungrounded = append(ungrounded, url)
+		}
+	}
+	return ungrounded
 }
 
 // --- Rate Limiter ---

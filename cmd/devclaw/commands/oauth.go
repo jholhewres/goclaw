@@ -44,6 +44,7 @@ Examples:
 	cmd.AddCommand(newOAuthLoginCommand())
 	cmd.AddCommand(newOAuthStatusCommand())
 	cmd.AddCommand(newOAuthLogoutCommand())
+	cmd.AddCommand(newOAuthHubCommand())
 
 	return cmd
 }

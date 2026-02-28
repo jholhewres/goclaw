@@ -98,6 +98,11 @@ type SessionConfig struct {
 
 	// Verbose enables narration of tool calls and internal steps.
 	Verbose bool `yaml:"verbose"`
+
+	// ToolProfile selects which tools are available in this session.
+	// Empty = inherit from workspace/global config. Options: "minimal", "coding",
+	// "messaging", "team", "full", or a custom profile name.
+	ToolProfile string `yaml:"tool_profile"`
 }
 
 // ConversationEntry representa uma troca de mensagem na sessão.
@@ -105,16 +110,25 @@ type ConversationEntry struct {
 	UserMessage       string
 	AssistantResponse string
 	Timestamp         time.Time
+	// ToolSummary is a comma-separated digest of tools called during this turn.
+	// Injected into history so future turns know what was actually verified vs. inferred.
+	ToolSummary string `json:"tool_summary,omitempty"`
 }
 
 // AddMessage adiciona uma nova entrada de conversa à sessão.
 // Aplica o limite de maxHistory, removendo mensagens antigas quando excedido.
 // Persiste a entrada em disco se persistence estiver configurada.
 func (s *Session) AddMessage(userMsg, assistantResp string) {
+	s.AddMessageWithTools(userMsg, assistantResp, "")
+}
+
+// AddMessageWithTools adds a conversation entry with an optional tool summary.
+func (s *Session) AddMessageWithTools(userMsg, assistantResp, toolSummary string) {
 	entry := ConversationEntry{
 		UserMessage:       userMsg,
 		AssistantResponse: assistantResp,
 		Timestamp:         time.Now(),
+		ToolSummary:       toolSummary,
 	}
 
 	s.mu.Lock()

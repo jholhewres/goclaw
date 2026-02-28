@@ -254,7 +254,12 @@ func (s *SQLiteStore) IndexChunks(ctx context.Context, fileID string, chunks []C
 	}
 	defer stmt.Close()
 
-	newEmbedIdx := 0
+	// Build a map from chunk index → embedding index for O(1) lookup.
+	chunkToEmbed := make(map[int]int, len(embedIndices))
+	for j, idx := range embedIndices {
+		chunkToEmbed[idx] = j
+	}
+
 	for i, chunk := range chunks {
 		var embJSON sql.NullString
 
@@ -262,14 +267,10 @@ func (s *SQLiteStore) IndexChunks(ctx context.Context, fileID string, chunks []C
 		if existing, ok := existingChunks[chunk.Hash]; ok && existing != "" {
 			embJSON = sql.NullString{String: existing, Valid: true}
 		} else if newEmbeddings != nil {
-			// Find the new embedding for this chunk.
-			for j, idx := range embedIndices {
-				if idx == i && j < len(newEmbeddings) && newEmbeddings[j] != nil {
-					data, _ := json.Marshal(newEmbeddings[j])
-					embJSON = sql.NullString{String: string(data), Valid: true}
-					newEmbedIdx++
-					break
-				}
+			// Look up the new embedding for this chunk.
+			if j, ok := chunkToEmbed[i]; ok && j < len(newEmbeddings) && newEmbeddings[j] != nil {
+				data, _ := json.Marshal(newEmbeddings[j])
+				embJSON = sql.NullString{String: string(data), Valid: true}
 			}
 		}
 
@@ -353,91 +354,6 @@ func (s *SQLiteStore) ftsQuery(ftsQuery string, maxResults int) ([]SearchResult,
 	}
 
 	return results, nil
-}
-
-// extractKeywords extracts meaningful keywords from a conversational query
-// by removing stop words and short tokens.
-func extractKeywords(query string) []string {
-	words := strings.Fields(strings.ToLower(query))
-	var keywords []string
-	for _, w := range words {
-		w = strings.Trim(w, ".,;:!?\"'()[]{}*")
-		if len(w) < 3 || stopWords[w] {
-			continue
-		}
-		keywords = append(keywords, w)
-	}
-	return keywords
-}
-
-// expandQueryForFTS converts extracted keywords into an FTS5 OR query.
-func expandQueryForFTS(keywords []string) string {
-	if len(keywords) == 0 {
-		return ""
-	}
-	var parts []string
-	for _, kw := range keywords {
-		s := sanitizeFTS5Query(kw)
-		if s != "" {
-			parts = append(parts, s)
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, " OR ")
-}
-
-// mergeSearchResults deduplicates and merges two result sets.
-func mergeSearchResults(a, b []SearchResult, maxResults int) []SearchResult {
-	seen := make(map[string]bool)
-	var merged []SearchResult
-	for _, r := range a {
-		key := r.FileID + "|" + r.Text
-		if !seen[key] {
-			seen[key] = true
-			merged = append(merged, r)
-		}
-	}
-	for _, r := range b {
-		key := r.FileID + "|" + r.Text
-		if !seen[key] {
-			seen[key] = true
-			merged = append(merged, r)
-		}
-	}
-	if len(merged) > maxResults {
-		merged = merged[:maxResults]
-	}
-	return merged
-}
-
-// stopWords are common words filtered out during keyword extraction.
-var stopWords = map[string]bool{
-	"the": true, "and": true, "for": true, "are": true, "but": true,
-	"not": true, "you": true, "all": true, "can": true, "had": true,
-	"her": true, "was": true, "one": true, "our": true, "out": true,
-	"has": true, "its": true, "let": true, "may": true, "who": true,
-	"did": true, "get": true, "got": true, "him": true, "his": true,
-	"how": true, "man": true, "new": true, "now": true, "old": true,
-	"see": true, "way": true, "day": true, "too": true, "use": true,
-	"that": true, "with": true, "have": true, "this": true, "will": true,
-	"your": true, "from": true, "they": true, "been": true, "said": true,
-	"each": true, "which": true, "their": true, "what": true, "about": true,
-	"would": true, "there": true, "when": true, "make": true, "like": true,
-	"time": true, "just": true, "know": true, "take": true, "come": true,
-	"could": true, "than": true, "look": true, "only": true, "into": true,
-	"over": true, "such": true, "also": true, "back": true, "some": true,
-	"them": true, "then": true, "these": true, "thing": true, "where": true,
-	"much": true, "should": true, "well": true, "after": true,
-	// Portuguese stop words
-	"que": true, "não": true, "com": true, "uma": true, "para": true,
-	"por": true, "mais": true, "como": true, "mas": true, "dos": true,
-	"das": true, "nos": true, "nas": true, "foi": true, "ser": true,
-	"tem": true, "são": true, "seu": true, "sua": true, "isso": true,
-	"este": true, "esta": true, "esse": true, "essa": true, "aqui": true,
-	"ele": true, "ela": true, "eles": true, "elas": true, "nós": true,
-	"vocé": true, "voce": true, "você": true, "também": true,
 }
 
 // searchLikeFallback performs a simple LIKE search when FTS5 is not available.
@@ -942,14 +858,6 @@ func cosineSimilarity(a, b []float32) float64 {
 func hashText(text string) string {
 	h := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(h[:])
-}
-
-// truncateText returns the first n characters of text.
-func truncateText(text string, n int) string {
-	if len(text) <= n {
-		return text
-	}
-	return text[:n]
 }
 
 // sanitizeFTS5Query escapes FTS5 special characters and wraps the query in

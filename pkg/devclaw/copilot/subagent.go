@@ -82,22 +82,15 @@ type SubagentConfig struct {
 }
 
 // DefaultSubagentDeniedTools lists tools subagents should not access.
-// Subagents should not manage sessions, spawn recursively, or access memory/cron.
+// Note: spawn tools (spawn_subagent, list_subagents, wait_subagent, stop_subagent)
+// are intentionally omitted — they are managed by depth-based logic in createChildExecutor.
 var DefaultSubagentDeniedTools = []string{
-	// Subagent management tools (prevent recursion).
-	"spawn_subagent",
-	"list_subagents",
-	"wait_subagent",
-	"stop_subagent",
 	// Memory tool (subagents should not pollute parent's memory).
 	"memory",
-	// Scheduler tools (subagents should not create cron jobs).
-	"cron_add",
-	"cron_remove",
-	// Skill management (subagents should not install/remove skills).
-	"install_skill",
-	"remove_skill",
-	"init_skill",
+	// Scheduler dispatcher (subagents should not create/remove jobs).
+	"scheduler",
+	// Skill management dispatcher (subagents should not install/remove skills).
+	"skill_manage",
 }
 
 // DefaultSubagentConfig returns safe defaults.
@@ -453,12 +446,6 @@ func (m *SubagentManager) Spawn(
 		return nil, fmt.Errorf("max spawn depth exceeded (depth=%d, max=%d)", depth, maxDepth)
 	}
 
-	// Check concurrency limit.
-	activeCount := m.ActiveCount()
-	if activeCount >= m.cfg.MaxConcurrent {
-		return nil, fmt.Errorf("max concurrent subagents reached (%d/%d)", activeCount, m.cfg.MaxConcurrent)
-	}
-
 	// Create the run.
 	runID := uuid.New().String()[:8]
 	timeout := time.Duration(m.cfg.TimeoutSeconds) * time.Second
@@ -488,7 +475,19 @@ func (m *SubagentManager) Spawn(
 		run.Label = fmt.Sprintf("subagent-%s", runID)
 	}
 
+	// Check concurrency limit and register atomically to prevent TOCTOU race.
 	m.mu.Lock()
+	activeCount := 0
+	for _, r := range m.runs {
+		if r.Status == SubagentStatusRunning {
+			activeCount++
+		}
+	}
+	if activeCount >= m.cfg.MaxConcurrent {
+		m.mu.Unlock()
+		cancel()
+		return nil, fmt.Errorf("max concurrent subagents reached (%d/%d)", activeCount, m.cfg.MaxConcurrent)
+	}
 	m.runs[runID] = run
 	m.mu.Unlock()
 
@@ -747,6 +746,17 @@ func (m *SubagentManager) Cleanup(maxAge time.Duration) int {
 
 // ─── Tool Executor Filtering ───
 
+// defaultSubagentDeny lists tools that are always denied to subagents.
+// These are administrative or side-effect-heavy tools that subagents should not access.
+var defaultSubagentDeny = map[string]bool{
+	"sessions":       true,
+	"security_audit": true,
+	"canvas_create":  true,
+	"canvas_update":  true,
+	"canvas_list":    true,
+	"canvas_stop":    true,
+}
+
 // createChildExecutor creates a filtered ToolExecutor for the subagent,
 // excluding denied tools to prevent recursion and unsafe operations.
 // Supports group references (e.g. "group:memory") in the deny list.
@@ -763,9 +773,12 @@ func (m *SubagentManager) createChildExecutor(parent *ToolExecutor, depth int) *
 	child.callerLevel = parent.callerLevel
 	child.callerJID = parent.callerJID
 
-	// Build deny set — expand group references.
+	// Build deny set — expand group references + default deny list.
 	expanded := ExpandToolGroups(m.cfg.DeniedTools)
-	denySet := make(map[string]bool, len(expanded)+4)
+	denySet := make(map[string]bool, len(expanded)+len(defaultSubagentDeny)+4)
+	for name := range defaultSubagentDeny {
+		denySet[name] = true
+	}
 	for _, name := range expanded {
 		denySet[name] = true
 	}

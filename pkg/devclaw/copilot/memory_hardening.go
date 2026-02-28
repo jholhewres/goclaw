@@ -106,8 +106,13 @@ func escapeHTMLEntities(s string) string {
 	return s
 }
 
-// stripDangerousTags removes XML/HTML-like tags that could confuse the LLM
-// into treating memory content as structured instructions.
+// StripDangerousTags removes XML/HTML-like tags that could confuse the LLM
+// into treating content as structured instructions.
+func StripDangerousTags(s string) string {
+	return stripDangerousTags(s)
+}
+
+// stripDangerousTags is the internal implementation.
 func stripDangerousTags(s string) string {
 	// Remove common instruction-like tags.
 	dangerousTags := []string{

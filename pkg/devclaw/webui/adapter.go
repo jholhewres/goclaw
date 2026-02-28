@@ -405,13 +405,16 @@ func (a *AssistantAdapter) GetToolGroups() map[string][]string {
 	return map[string][]string{
 		"group:memory":    {"memory"},
 		"group:web":       {"web_search", "web_fetch"},
-		"group:fs":        {"read_file", "write_file", "edit_file", "list_files", "search_files", "glob_files"},
+		"group:fs":        {"read_file", "write_file", "edit_file", "list_files", "search_files", "glob_files", "apply_patch"},
 		"group:runtime":   {"bash", "exec", "ssh", "scp", "set_env"},
 		"group:subagents": {"spawn_subagent", "list_subagents", "wait_subagent", "stop_subagent"},
-		"group:skills":    {"install_skill", "remove_skill", "search_skills", "list_skills"},
-		"group:scheduler": {"cron_add", "cron_list", "cron_remove"},
-		"group:vault":     {"vault_save", "vault_get", "vault_list", "vault_delete"},
-		"group:teams":     {"team_list", "team_create", "team_update", "team_delete"},
+		"group:skills":    {"skill_manage"},
+		"group:scheduler": {"scheduler"},
+		"group:vault":     {"vault"},
+		"group:sessions":  {"sessions"},
+		"group:daemon":    {"daemon"},
+		"group:media":     {"describe_image", "transcribe_audio", "image-gen_generate_image"},
+		"group:teams":     {"team_manage", "team_agent", "team_task", "team_memory", "team_comm"},
 	}
 }
 

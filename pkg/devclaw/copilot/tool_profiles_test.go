@@ -456,19 +456,13 @@ func TestInferToolCategory(t *testing.T) {
 		{"memory", "Memory"},
 
 		// Scheduling
-		{"cron_add", "Scheduling"},
-		{"cron_list", "Scheduling"},
-		{"cron_remove", "Scheduling"},
+		{"scheduler", "Scheduling"},
 
 		// Vault
-		{"vault_save", "Vault"},
-		{"vault_get", "Vault"},
-		{"vault_list", "Vault"},
-		{"vault_delete", "Vault"},
+		{"vault", "Vault"},
 
 		// Agents
-		{"sessions_list", "Agents"},
-		{"sessions_send", "Agents"},
+		{"sessions", "Agents"},
 		{"spawn_subagent", "Agents"},
 		{"list_subagents", "Agents"},
 
@@ -495,9 +489,7 @@ func TestInferToolCategory(t *testing.T) {
 		{"team_task", "Team"},
 
 		// Skills
-		{"install_skill", "Skills"},
-		{"list_skills", "Skills"},
-		{"search_skills", "Skills"},
+		{"skill_manage", "Skills"},
 
 		// Media
 		{"describe_image", "Media"},

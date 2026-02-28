@@ -15,24 +15,38 @@ import (
 
 // RegisterMediaTools registers describe_image and transcribe_audio tools
 // when the LLM client and config support them.
+// If VisionProviders or TranscriptionProviders are configured in MediaConfig,
+// a MediaRegistry is used for priority-based fallback across multiple providers.
 func RegisterMediaTools(executor *ToolExecutor, llmClient *LLMClient, cfg *Config, logger *slog.Logger) {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
-	media := cfg.Media.Effective()
+	mediaCfg := cfg.Media.Effective()
 
-	if media.VisionEnabled && llmClient != nil {
-		registerDescribeImageTool(executor, llmClient, media, logger)
+	// Build registry if multi-provider configs are present.
+	var registry *MediaRegistry
+	if len(mediaCfg.VisionProviders) > 0 || len(mediaCfg.TranscriptionProviders) > 0 {
+		registry = NewMediaRegistry(
+			mediaCfg.VisionProviders,
+			mediaCfg.TranscriptionProviders,
+			mediaCfg.ConcurrencyLimit,
+			logger,
+		)
+		SetGlobalMediaRegistry(registry)
 	}
 
-	if media.TranscriptionEnabled && llmClient != nil {
-		registerTranscribeAudioTool(executor, llmClient, media, logger)
+	if mediaCfg.VisionEnabled && llmClient != nil {
+		registerDescribeImageTool(executor, llmClient, mediaCfg, registry, logger)
+	}
+
+	if mediaCfg.TranscriptionEnabled && llmClient != nil {
+		registerTranscribeAudioTool(executor, llmClient, mediaCfg, registry, logger)
 	}
 }
 
-func registerDescribeImageTool(executor *ToolExecutor, llm *LLMClient, media MediaConfig, logger *slog.Logger) {
+func registerDescribeImageTool(executor *ToolExecutor, llm *LLMClient, media MediaConfig, registry *MediaRegistry, logger *slog.Logger) {
 	executor.Register(
-		MakeToolDefinition("describe_image", "Describe or analyze an image. IMPORTANT: The image_base64 parameter must contain the ACTUAL base64 data from a previous screenshot or image capture - do NOT use placeholders like 'BASE64_DATA_FROM_SCREENSHOT'. To analyze a browser screenshot, first call browser_screenshot to capture it, then use the base64 data returned in that result.", map[string]any{
+		MakeToolDefinition("describe_image", "Analyze an image from base64 data. Use real base64 from screenshot captures, not placeholders.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"image_base64": map[string]any{
@@ -94,6 +108,16 @@ func registerDescribeImageTool(executor *ToolExecutor, llm *LLMClient, media Med
 				"prompt", truncate(prompt, 50),
 			)
 
+			// Use multi-provider registry if available, otherwise single provider.
+			if registry != nil && registry.HasVisionProviders() {
+				desc, err := registry.DescribeImageWithFallback(ctx, "", imageBase64, mimeType, prompt, detail)
+				if err != nil {
+					logger.Error("vision registry failed", "error", err)
+					return nil, fmt.Errorf("vision API: %w", err)
+				}
+				return desc, nil
+			}
+
 			desc, err := llm.CompleteWithVision(ctx, "", imageBase64, mimeType, prompt, detail)
 			if err != nil {
 				logger.Error("vision API failed", "error", err)
@@ -106,9 +130,9 @@ func registerDescribeImageTool(executor *ToolExecutor, llm *LLMClient, media Med
 	logger.Debug("registered describe_image tool")
 }
 
-func registerTranscribeAudioTool(executor *ToolExecutor, llm *LLMClient, media MediaConfig, logger *slog.Logger) {
+func registerTranscribeAudioTool(executor *ToolExecutor, llm *LLMClient, media MediaConfig, registry *MediaRegistry, logger *slog.Logger) {
 	executor.Register(
-		MakeToolDefinition("transcribe_audio", "Transcribe audio/voice to text using the Whisper API. Takes base64-encoded audio data. Use when the user shares voice notes or audio files.", map[string]any{
+		MakeToolDefinition("transcribe_audio", "Transcribe audio/voice to text from base64-encoded audio data.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"audio_base64": map[string]any{
@@ -147,6 +171,16 @@ func registerTranscribeAudioTool(executor *ToolExecutor, llm *LLMClient, media M
 				"filename", filename,
 			)
 
+			// Use multi-provider registry if available, otherwise single provider.
+			if registry != nil && registry.HasTranscriptionProviders() {
+				transcript, err := registry.TranscribeAudioWithFallback(ctx, decoded, filename, media.TranscriptionModel, media)
+				if err != nil {
+					logger.Error("transcription registry failed", "error", err)
+					return nil, fmt.Errorf("transcription: %w", err)
+				}
+				return transcript, nil
+			}
+
 			transcript, err := llm.TranscribeAudio(ctx, decoded, filename, media.TranscriptionModel, media)
 			if err != nil {
 				logger.Error("transcription failed", "error", err)
@@ -173,7 +207,7 @@ func RegisterNativeMediaTools(executor *ToolExecutor, mediaSvc *media.MediaServi
 
 func registerSendImageTool(executor *ToolExecutor, mediaSvc *media.MediaService, channelMgr *channels.Manager, logger *slog.Logger) {
 	executor.Register(
-		MakeToolDefinition("send_image", "Send an image to the user. The image can be specified by media_id (from previously uploaded media), a local file path, or a URL. Works across all connected channels.", map[string]any{
+		MakeToolDefinition("send_image", "Send an image to the user via media_id, file path, or URL.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"media_id": map[string]any{
@@ -210,7 +244,7 @@ func registerSendImageTool(executor *ToolExecutor, mediaSvc *media.MediaService,
 
 func registerSendAudioTool(executor *ToolExecutor, mediaSvc *media.MediaService, channelMgr *channels.Manager, logger *slog.Logger) {
 	executor.Register(
-		MakeToolDefinition("send_audio", "Send an audio file to the user. The audio can be specified by media_id (from previously uploaded media), a local file path, or a URL. Works across all connected channels.", map[string]any{
+		MakeToolDefinition("send_audio", "Send an audio file to the user via media_id, file path, or URL.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"media_id": map[string]any{
@@ -243,7 +277,7 @@ func registerSendAudioTool(executor *ToolExecutor, mediaSvc *media.MediaService,
 
 func registerSendDocumentTool(executor *ToolExecutor, mediaSvc *media.MediaService, channelMgr *channels.Manager, logger *slog.Logger) {
 	executor.Register(
-		MakeToolDefinition("send_document", "Send a document to the user. The document can be specified by media_id (from previously uploaded media), a local file path, or a URL. Works across all connected channels.", map[string]any{
+		MakeToolDefinition("send_document", "Send a document to the user via media_id, file path, or URL.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"media_id": map[string]any{

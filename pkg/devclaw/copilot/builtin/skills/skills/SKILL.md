@@ -8,11 +8,11 @@ trigger: automatic
 
 Create, install, and manage skills that extend agent capabilities.
 
-## IMPORTANT: Always Use Tools
+## IMPORTANT: Always Use the skill_manage Tool
 
 **NEVER create skills with bash commands (mkdir, echo, etc.)**
 
-ALWAYS use the `init_skill` tool to create skills. The tool handles:
+ALWAYS use `skill_manage(action=init)` to create skills. The tool handles:
 - Directory creation in the correct location
 - SKILL.md template generation
 - Database table creation (if requested)
@@ -21,57 +21,55 @@ ALWAYS use the `init_skill` tool to create skills. The tool handles:
 
 **When creating skills for users:**
 1. NEVER show technical tool syntax in chat responses
-2. ALWAYS ask: "Você quer que essa skill tenha um banco de dados para salvar dados estruturados (contatos, tarefas, etc.)?"
+2. ALWAYS ask: "Do you want this skill to have a database for storing structured data (contacts, tasks, etc.)?"
 3. Explain the options:
-   - **Com banco de dados**: dados persistentes, consultas estruturadas, ideal para CRM, tarefas, contatos
-   - **Sem banco de dados**: usa memória/vault, ideal para integrações de API, automações
+   - **With database**: persistent data, structured queries, ideal for CRM, tasks, contacts
+   - **Without database**: uses memory/vault, ideal for API integrations, automations
 
 ## Architecture
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Agent Context                          │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-┌───────────────┐  ┌───────────────┐  ┌───────────────┐
-│   CREATE      │  │   DISCOVER    │  │   MANAGE      │
-├───────────────┤  ├───────────────┤  ├───────────────┤
-│ init_skill    │  │ search_skills │  │ list_skills   │
-│ edit_skill    │  │ skill_defaults│  │ test_skill    │
-│ add_script    │  │    _list      │  │ remove_skill  │
-└───────────────┘  │ install_skill │  └───────────────┘
-                     └───────────────┘
+                      Agent Context
+                           |
+        +------------------+------------------+
+        |                  |                  |
+        v                  v                  v
++---------------+  +---------------+  +---------------+
+|   CREATE      |  |   DISCOVER    |  |   MANAGE      |
++---------------+  +---------------+  +---------------+
+| action=init   |  | action=search |  | action=list   |
+| action=edit   |  | action=       |  | action=test   |
+| action=       |  |  defaults_list|  | action=remove |
+|  add_script   |  | action=install|  |               |
++---------------+  +---------------+  +---------------+
 ```
 
 ## Skill Structure
 ```
 ./skills/my-skill/           # Skills are created in the project's skills/ directory
-├── SKILL.md                 # Instructions for the agent
-│   ├── ---
-│   │   name: my-skill
-│   │   description: "What this skill does"
-│   │   trigger: automatic
-│   │   ---
-│   └── # Markdown content
-├── scripts/                 # Executable scripts (optional)
-└── references/              # Reference docs (optional)
+  SKILL.md                   # Instructions for the agent
+    ---
+    name: my-skill
+    description: "What this skill does"
+    trigger: automatic
+    ---
+    # Markdown content
+  scripts/                   # Executable scripts (optional)
+  references/                # Reference docs (optional)
 ```
 
-## Tools
-| Tool | Action | Category |
-|------|--------|----------|
-| `init_skill` | Create new skill | Create |
-| `edit_skill` | Edit instructions | Create |
+## Actions
+| Action | Description | Category |
+|--------|-------------|----------|
+| `init` | Create new skill | Create |
+| `edit` | Edit instructions | Create |
 | `add_script` | Add executable | Create |
-| `list_skills` | List installed | Manage |
-| `test_skill` | Test skill | Manage |
-| `install_skill` | Install from source | Discover |
-| `search_skills` | Search ClawHub | Discover |
-| `skill_defaults_list` | List bundled | Discover |
-| `skill_defaults_install` | Install bundled | Discover |
-| `remove_skill` | Remove skill | Manage |
+| `list` | List installed | Manage |
+| `test` | Test skill | Manage |
+| `install` | Install from source | Discover |
+| `search` | Search ClawHub | Discover |
+| `defaults_list` | List bundled | Discover |
+| `defaults_install` | Install bundled | Discover |
+| `remove` | Remove skill | Manage |
 
 ### Database Tools
 | Tool | Action | Description |
@@ -88,15 +86,16 @@ ALWAYS use the `init_skill` tool to create skills. The tool handles:
 ## Creating Skills
 
 ### Initialize
-Use the init_skill tool (NOT bash commands):
+Use skill_manage (NOT bash commands):
 ```
-init_skill(name="my-api-client", description="Interact with MyAPI service")
+skill_manage(action="init", name="my-api-client", description="Interact with MyAPI service")
 # Output: Skill created at ./skills/my-api-client/
 ```
 
 ### Initialize with Database
 ```bash
-init_skill(
+skill_manage(
+    action="init",
     name="crm",
     description="Contact and lead management",
     with_database=true,
@@ -115,44 +114,44 @@ When `with_database=true`, the skill automatically gets a database table for sto
 
 ### Edit Instructions
 ```bash
-edit_skill(name="my-api-client", content="# MyAPI Client\n\n## Authentication\nUse vault_get('MYAPI_KEY')")
+skill_manage(action="edit", name="my-api-client", content="# MyAPI Client\n\n## Authentication\nUse vault(action=get, name='MYAPI_KEY')")
 ```
 
 ### Add Script
 ```bash
-add_script(skill_name="my-api-client", script_name="fetch_users", script_content='#!/bin/bash\n...')
+skill_manage(action="add_script", skill_name="my-api-client", script_name="fetch_users", content='#!/bin/bash\n...')
 ```
 
 ### Test
 ```bash
-test_skill(name="my-api-client", input="fetch all users")
+skill_manage(action="test", name="my-api-client", input="fetch all users")
 ```
 
 ## Installing Skills
 
 ### From ClawHub
 ```bash
-search_skills(query="github")
-install_skill(source="github-integration")
+skill_manage(action="search", query="github")
+skill_manage(action="install", source="github-integration")
 ```
 
 ### From GitHub
 ```bash
-install_skill(source="https://github.com/user/skill-repo")
+skill_manage(action="install", source="https://github.com/user/skill-repo")
 ```
 
 ### Bundled Defaults
 ```bash
-skill_defaults_list()
-skill_defaults_install(names="github,jira")
-skill_defaults_install(names="all")
+skill_manage(action="defaults_list")
+skill_manage(action="defaults_install", names="github,jira")
+skill_manage(action="defaults_install", names="all")
 ```
 
 ## Managing Skills
 
 ### List
 ```bash
-list_skills()
+skill_manage(action="list")
 # Output:
 # Installed skills (5):
 # [builtin] memory
@@ -162,7 +161,7 @@ list_skills()
 
 ### Remove
 ```bash
-remove_skill(name="old-skill")
+skill_manage(action="remove", name="old-skill")
 ```
 
 ## Common Patterns
@@ -170,22 +169,23 @@ remove_skill(name="old-skill")
 ### Create Custom Integration
 ```bash
 # 1. Initialize
-init_skill(name="company-api", description="CompanyAPI client")
+skill_manage(action="init", name="company-api", description="CompanyAPI client")
 
 # 2. Add instructions
-edit_skill(name="company-api", content="# CompanyAPI\n\nUse vault_get('COMPANY_API_KEY')")
+skill_manage(action="edit", name="company-api", content="# CompanyAPI\n\nUse vault(action=get, name='COMPANY_API_KEY')")
 
 # 3. Add script
-add_script(skill_name="company-api", script_name="get_employee", script_content='...')
+skill_manage(action="add_script", skill_name="company-api", script_name="get_employee", content='...')
 
 # 4. Test
-test_skill(name="company-api", input="get employee 123")
+skill_manage(action="test", name="company-api", input="get employee 123")
 ```
 
 ### Create Skill with Database (CRM Example)
 ```bash
 # 1. Initialize with database
-init_skill(
+skill_manage(
+    action="init",
     name="crm",
     description="Customer relationship management",
     with_database=true,
@@ -200,8 +200,8 @@ init_skill(
 
 # 2. Use the database
 skill_db_insert(skill_name="crm", table_name="contacts", data={
-    "name": "João Silva",
-    "email": "joao@empresa.com"
+    "name": "John Smith",
+    "email": "john@company.com"
 })
 
 # 3. Query data
@@ -222,6 +222,6 @@ skill_db_query(skill_name="crm", table_name="contacts", where={"status": "lead"}
 ## Common Mistakes
 | Mistake | Correct Approach |
 |---------|------------------|
-| Hardcoding API keys | Use vault_get in scripts |
+| Hardcoding API keys | Use vault(action=get) in scripts |
 | Vague description | Be specific about capabilities |
-| Not testing | Always test_skill after creation |
+| Not testing | Always skill_manage(action=test) after creation |

@@ -158,6 +158,10 @@ type WhatsApp struct {
 	// messagesClosed tracks if the messages channel has been closed.
 	// This prevents sending to a closed channel which would cause a panic.
 	messagesClosed atomic.Bool
+
+	// container is the whatsmeow SQLite session store, kept for device
+	// recreation after logout/session invalidation.
+	container *sqlstore.Container
 }
 
 // New creates a new WhatsApp channel instance.
@@ -335,6 +339,7 @@ func (w *WhatsApp) Connect(ctx context.Context) error {
 		w.setState(StateDisconnected)
 		return fmt.Errorf("creating session store: %w", err)
 	}
+	w.container = container
 
 	// Get or create device.
 	device, err := w.getDevice(w.ctx, container)
@@ -825,6 +830,38 @@ func (w *WhatsApp) loginWithQR(ctx context.Context) error {
 	}
 }
 
+// resetClientForQR tears down the current (invalidated) session, creates a
+// fresh device, and starts the QR login flow. Used after server-side logout
+// where the old device store has stale foreign key references.
+func (w *WhatsApp) resetClientForQR(ctx context.Context) error {
+	// 1. Disconnect the transport — loginWithQR needs a disconnected client
+	//    to call GetQRChannel before Connect.
+	if w.client != nil {
+		w.client.Disconnect()
+
+		// 2. Delete the invalidated device store to avoid FK constraint
+		//    failures when whatsmeow creates a new device identity.
+		if w.client.Store != nil {
+			if err := w.client.Store.Delete(ctx); err != nil {
+				w.logger.Warn("whatsapp: failed to delete stale device store", "error", err)
+			}
+		}
+	}
+
+	// 3. Create a fresh device and client.
+	if w.container == nil {
+		return fmt.Errorf("session container not initialized")
+	}
+	newDevice := w.container.NewDevice()
+	w.client = whatsmeow.NewClient(newDevice, waLog.Noop)
+	w.client.AddEventHandler(w.handleEvent)
+	w.client.EnableAutoReconnect = true
+	w.client.InitialAutoReconnect = true
+
+	// 4. Start QR login flow.
+	return w.loginWithQR(ctx)
+}
+
 // RequestNewQR disconnects and reconnects to generate a fresh QR code.
 // This is used when the web UI needs a new QR after timeout.
 // A default timeout of 2 minutes is applied if the context has no deadline.
@@ -847,6 +884,8 @@ func (w *WhatsApp) RequestNewQR(ctx context.Context) error {
 	})
 
 	// Re-login with QR in a goroutine (non-blocking for the web handler).
+	// Use resetClientForQR if the device store was invalidated (ID is nil
+	// after logout) to avoid FK constraint failures.
 	go func() {
 		// Apply default timeout if context has no deadline.
 		qrCtx := ctx
@@ -856,7 +895,13 @@ func (w *WhatsApp) RequestNewQR(ctx context.Context) error {
 			defer cancel()
 		}
 
-		if err := w.loginWithQR(qrCtx); err != nil {
+		var err error
+		if w.client.Store == nil || w.client.Store.ID == nil {
+			err = w.resetClientForQR(qrCtx)
+		} else {
+			err = w.loginWithQR(qrCtx)
+		}
+		if err != nil {
 			w.logger.Error("whatsapp: QR re-login failed", "error", err)
 		}
 	}()

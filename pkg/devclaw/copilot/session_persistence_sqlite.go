@@ -29,13 +29,20 @@ func NewSQLiteSessionPersistence(db *sql.DB, logger *slog.Logger) *SQLiteSession
 
 // SaveEntry appends a conversation entry for the given session.
 func (p *SQLiteSessionPersistence) SaveEntry(sessionID string, entry ConversationEntry) error {
+	meta := map[string]string{}
+	if entry.ToolSummary != "" {
+		meta["tool_summary"] = entry.ToolSummary
+	}
+	metaJSON, _ := json.Marshal(meta)
+
 	_, err := p.db.Exec(`
 		INSERT INTO session_entries (session_id, user_message, assistant_response, created_at, meta)
-		VALUES (?, ?, ?, ?, '{}')`,
+		VALUES (?, ?, ?, ?, ?)`,
 		sessionID,
 		entry.UserMessage,
 		entry.AssistantResponse,
 		entry.Timestamp.UTC().Format(time.RFC3339),
+		string(metaJSON),
 	)
 	if err != nil {
 		p.logger.Error("failed to save session entry", "session", sessionID, "err", err)
@@ -48,7 +55,7 @@ func (p *SQLiteSessionPersistence) SaveEntry(sessionID string, entry Conversatio
 func (p *SQLiteSessionPersistence) LoadSession(sessionID string) ([]ConversationEntry, []string, error) {
 	// Load entries.
 	rows, err := p.db.Query(`
-		SELECT user_message, assistant_response, created_at
+		SELECT user_message, assistant_response, created_at, COALESCE(meta, '{}')
 		FROM session_entries
 		WHERE session_id = ?
 		ORDER BY id ASC`, sessionID)
@@ -62,11 +69,25 @@ func (p *SQLiteSessionPersistence) LoadSession(sessionID string) ([]Conversation
 		var (
 			e         ConversationEntry
 			createdAt string
+			metaStr   string
 		)
-		if err := rows.Scan(&e.UserMessage, &e.AssistantResponse, &createdAt); err != nil {
+		if err := rows.Scan(&e.UserMessage, &e.AssistantResponse, &createdAt, &metaStr); err != nil {
 			return nil, nil, fmt.Errorf("scan session entry: %w", err)
 		}
 		e.Timestamp, _ = time.Parse(time.RFC3339, createdAt)
+		// Extract metadata from meta JSON.
+		if metaStr != "" && metaStr != "{}" {
+			var metaMap map[string]interface{}
+			if json.Unmarshal([]byte(metaStr), &metaMap) == nil {
+				// Skip compaction summary entries — metadata, not conversation.
+				if typeVal, _ := metaMap["type"].(string); typeVal == "compaction_summary" {
+					continue
+				}
+				if ts, ok := metaMap["tool_summary"].(string); ok {
+					e.ToolSummary = ts
+				}
+			}
+		}
 		entries = append(entries, e)
 	}
 	if err := rows.Err(); err != nil {

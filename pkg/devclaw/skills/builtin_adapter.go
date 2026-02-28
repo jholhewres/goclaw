@@ -493,7 +493,7 @@ func (s *skillDBSkill) SystemPrompt() string {
 2. Describe actions in natural language: "Salvei o contato" instead of "skill_db_insert(...)"
 3. When the user asks to create a skill, ALWAYS ask if they want database storage for structured data or just memory-based storage
 
-**When creating skills with init_skill:**
+**When creating skills with skill_manage (action=init):**
 1. First ask: "Você quer que essa skill tenha um banco de dados para salvar dados estruturados (contatos, tarefas, etc.)?"
 2. If yes, use with_database=true and define appropriate columns
 3. If no, create the skill without database (memory only)

@@ -173,6 +173,25 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			logger.Warn("failed to initialize OAuth handlers", "error", err)
 		} else {
+			// Wire up Hub mode if configured
+			if cfg.OAuthHub.Mode == "hub" && cfg.OAuthHub.HubURL != "" {
+				apiKey := cfg.OAuthHub.APIKey
+				if apiKey == "" {
+					envVar := cfg.OAuthHub.APIKeyEnvVar
+					if envVar == "" {
+						envVar = "OAUTH_HUB_API_KEY"
+					}
+					apiKey = os.Getenv(envVar)
+				}
+				if apiKey != "" {
+					oauthHandlers.SetHubConfig(&webui.HubConfig{
+						Enabled: true,
+						HubURL:  cfg.OAuthHub.HubURL,
+						APIKey:  apiKey,
+					})
+					logger.Info("OAuth Hub mode enabled for WebUI", "hub_url", cfg.OAuthHub.HubURL)
+				}
+			}
 			webServer.SetOAuthHandlers(oauthHandlers)
 		}
 

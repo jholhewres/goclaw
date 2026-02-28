@@ -183,27 +183,45 @@ const (
 var replyTagRe = regexp.MustCompile(`\[\[reply_to[^\]]*\]\]`)
 
 // internalTagRe matches XML-style internal tags that should never reach the
-// user: <final>, </final>, <thinking>, </thinking>, and their content when
-// it duplicates the already-streamed response.
-var internalTagRe = regexp.MustCompile(`</?(?:final|thinking|reasoning)>`)
+// user: <final>, </final>, <thinking>, </thinking>, <tool_provenance>, and
+// their content when it duplicates the already-streamed response.
+var internalTagRe = regexp.MustCompile(`</?(?:final|thinking|reasoning|tool_provenance)>`)
+
+// toolsUsedRe matches "[Tools used: ...]" annotations that may be generated
+// by the LLM mimicking the internal history format. These must be stripped
+// before the user sees the text.
+var toolsUsedRe = regexp.MustCompile(`(?m)^\[Tools used:[^\]]*\]\n?`)
 
 // duplicatedFinalRe matches <final>...</final> blocks that contain a full
 // duplicate of the response (LLM wrapping already-streamed text). The entire
 // block including content is removed to prevent duplication.
 var duplicatedFinalRe = regexp.MustCompile(`(?s)<final>\s*(.*?)\s*</final>`)
 
+// toolProvenanceRe matches <tool_provenance>...</tool_provenance> blocks
+// including their content. These are internal annotations added to conversation
+// history and must be fully stripped if they leak into user-facing output.
+var toolProvenanceRe = regexp.MustCompile(`(?s)<tool_provenance>.*?</tool_provenance>\n?`)
+
 // StripInternalTags removes all internal control tags and sentinel tokens
 // from LLM output so they never reach the user. Handles:
 //   - [[reply_to_*]] delivery tags
 //   - <final>...</final> and <thinking>...</thinking> XML tags
+//   - [Tools used: ...] annotations (LLM may mimic the history format)
 //   - NO_REPLY / HEARTBEAT_OK sentinel tokens
 func StripInternalTags(text string) string {
 	// First: remove full <final>...</final> blocks — these typically contain
 	// a duplicate of the already-streamed response.
 	text = duplicatedFinalRe.ReplaceAllString(text, "")
 
+	// Remove <tool_provenance>...</tool_provenance> blocks (internal history annotations).
+	text = toolProvenanceRe.ReplaceAllString(text, "")
+
 	// Remove any remaining standalone open/close tags.
 	text = internalTagRe.ReplaceAllString(text, "")
+
+	// Remove [Tools used: ...] annotations that the LLM may generate
+	// by mimicking the internal conversation history format.
+	text = toolsUsedRe.ReplaceAllString(text, "")
 
 	// Remove reply tags and sentinel tokens.
 	text = replyTagRe.ReplaceAllString(text, "")

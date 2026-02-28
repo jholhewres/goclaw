@@ -23,9 +23,9 @@ import (
 	"github.com/jholhewres/devclaw/pkg/devclaw/skills"
 )
 
-// RegisterSkillCreatorTools registers skill management tools in the executor.
-// skillsDir is the workspace-level directory where user-created skills live.
-// skillDB is the skill database for creating tables when with_database is true.
+// RegisterSkillCreatorTools registers a single "skill_manage" dispatcher tool
+// that consolidates init, edit, add_script, list, test, install, search,
+// defaults_list, defaults_install, remove actions.
 func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry, skillsDir string, skillDB *SkillDB, logger *slog.Logger) {
 	if skillsDir == "" {
 		skillsDir = "./skills"
@@ -34,132 +34,195 @@ func RegisterSkillCreatorTools(executor *ToolExecutor, registry *skills.Registry
 		logger = slog.Default()
 	}
 
-	// init_skill
-	executor.Register(
-		MakeToolDefinition("init_skill", "Create a new skill with a SKILL.md template. ALWAYS use this tool to create skills - NEVER use bash commands like mkdir or echo. The skill will be created in the project's skills/ directory. Use with_database=true to automatically create a database table for storing structured data.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Skill name (lowercase, hyphens allowed, e.g. 'my-skill')",
-				},
-				"description": map[string]any{
-					"type":        "string",
-					"description": "Brief description of what the skill does",
-				},
-				"instructions": map[string]any{
-					"type":        "string",
-					"description": "Detailed instructions for the agent on how to use this skill (markdown)",
-				},
-				"emoji": map[string]any{
-					"type":        "string",
-					"description": "Optional emoji for the skill",
-				},
-				"with_database": map[string]any{
-					"type":        "boolean",
-					"description": "If true, creates a database table for this skill to store structured data",
-				},
-				"database_table": map[string]any{
-					"type":        "string",
-					"description": "Name of the database table to create (default: 'data'). Only used if with_database is true.",
-				},
-				"database_schema": map[string]any{
-					"type":        "object",
-					"description": "Column definitions for the database table. Keys are column names, values are SQL types like 'TEXT NOT NULL', 'INTEGER', etc. Only used if with_database is true.",
-					"additionalProperties": map[string]any{
-						"type": "string",
-					},
-				},
+	installer := skills.NewInstaller(skillsDir, logger)
+
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action": map[string]any{
+				"type":        "string",
+				"enum":        []string{"init", "edit", "add_script", "list", "test", "install", "search", "defaults_list", "defaults_install", "remove"},
+				"description": "Action: init (create skill), edit (modify SKILL.md), add_script, list, test, install (from ClawHub/GitHub/URL), search (ClawHub), defaults_list, defaults_install, remove",
 			},
-			"required": []string{"name", "description"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			name, _ := args["name"].(string)
-			description, _ := args["description"].(string)
-			instructions, _ := args["instructions"].(string)
-			emoji, _ := args["emoji"].(string)
-			withDatabase, _ := args["with_database"].(bool)
-			databaseTable, _ := args["database_table"].(string)
-			databaseSchemaRaw, _ := args["database_schema"].(map[string]any)
+			"name": map[string]any{
+				"type":        "string",
+				"description": "Skill name (for init/edit/test/remove)",
+			},
+			"description": map[string]any{
+				"type":        "string",
+				"description": "Skill description (for init)",
+			},
+			"instructions": map[string]any{
+				"type":        "string",
+				"description": "Agent instructions markdown (for init)",
+			},
+			"emoji": map[string]any{
+				"type":        "string",
+				"description": "Skill emoji (for init)",
+			},
+			"with_database": map[string]any{
+				"type":        "boolean",
+				"description": "Create database table (for init)",
+			},
+			"database_table": map[string]any{
+				"type":        "string",
+				"description": "Database table name (for init, default: 'data')",
+			},
+			"database_schema": map[string]any{
+				"type":        "object",
+				"description": "Column definitions (for init with_database)",
+				"additionalProperties": map[string]any{"type": "string"},
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "New SKILL.md content (for edit) or script source (for add_script)",
+			},
+			"skill_name": map[string]any{
+				"type":        "string",
+				"description": "Target skill (for add_script)",
+			},
+			"script_name": map[string]any{
+				"type":        "string",
+				"description": "Script filename (for add_script)",
+			},
+			"input": map[string]any{
+				"type":        "string",
+				"description": "Test input (for test)",
+			},
+			"source": map[string]any{
+				"type":        "string",
+				"description": "Install source: ClawHub slug, GitHub URL, or local path (for install)",
+			},
+			"query": map[string]any{
+				"type":        "string",
+				"description": "Search query (for search)",
+			},
+			"names": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"description": "Skill names to install (for defaults_install). Use [\"all\"] for all.",
+			},
+		},
+		"required": []string{"action"},
+	}
 
-			if name == "" || description == "" {
-				return nil, fmt.Errorf("name and description are required")
+	executor.Register(
+		MakeToolDefinition("skill_manage",
+			"Manage skills: init, edit, add_script, list, test, install, search, defaults_list, defaults_install, remove.",
+			schema),
+		func(ctx context.Context, args map[string]any) (any, error) {
+			action, _ := args["action"].(string)
+			if action == "" {
+				return nil, fmt.Errorf("action is required")
 			}
 
-			// Sanitize name (convert to lowercase, replace spaces with hyphens).
-			displayName := name
-			name = sanitizeSkillName(name)
-
-			// For database, use underscore version.
-			dbSkillName := strings.ReplaceAll(name, "-", "_")
-
-			// Check for name collision: my-skill and my_skill would map to same db name.
-			if withDatabase && skillDB != nil {
-				existingTables, err := skillDB.ListTables("")
-				if err == nil {
-					for _, t := range existingTables {
-						if t.SkillName == dbSkillName {
-							// Find which skill has this name (could be with hyphens or underscores).
-							existingSkillName := strings.ReplaceAll(t.SkillName, "_", "-")
-							return nil, fmt.Errorf("skill name collision: '%s' would conflict with existing skill '%s' in database. Skill names that differ only in hyphens vs underscores are not allowed when using database", name, existingSkillName)
-						}
-					}
+			// Write actions require admin level (they create files/directories).
+			// Read-only actions (list, search, test, defaults_list) are safe for any user.
+			if isSkillWriteAction(action) {
+				level := CallerLevelFromContext(ctx)
+				if level != AccessOwner && level != AccessAdmin {
+					return nil, fmt.Errorf("action %q requires admin access (current: %s). Ask an admin to perform this action", action, level)
 				}
 			}
 
-			// Check if skill already exists.
-			if existing, _ := registry.Get(name); existing != nil {
-				return nil, fmt.Errorf("skill '%s' already exists. Use edit_skill to modify it, or choose a different name", name)
+			switch action {
+			case "init":
+				return handleSkillInit(registry, skillsDir, skillDB, args)
+			case "edit":
+				return handleSkillEdit(skillsDir, args)
+			case "add_script":
+				return handleSkillAddScript(skillsDir, args)
+			case "list":
+				return handleSkillList(registry, skillsDir)
+			case "test":
+				return handleSkillTest(ctx, registry, args)
+			case "install":
+				return handleSkillInstall(ctx, installer, registry, args)
+			case "search":
+				return handleSkillSearch(args)
+			case "defaults_list":
+				return handleSkillDefaultsList(skillsDir)
+			case "defaults_install":
+				return handleSkillDefaultsInstall(ctx, registry, skillsDir, args)
+			case "remove":
+				return handleSkillRemove(registry, skillsDir, args)
+			default:
+				return nil, fmt.Errorf("unknown action: %s", action)
 			}
+		},
+	)
+}
 
-			// Also check if directory exists (skill not yet loaded).
-			skillDir := filepath.Join(skillsDir, name)
-			if _, err := os.Stat(skillDir); err == nil {
-				return nil, fmt.Errorf("skill directory '%s' already exists. Use edit_skill to modify it, or choose a different name", skillDir)
-			}
+func handleSkillInit(registry *skills.Registry, skillsDir string, skillDB *SkillDB, args map[string]any) (any, error) {
+	name, _ := args["name"].(string)
+	description, _ := args["description"].(string)
+	instructions, _ := args["instructions"].(string)
+	emoji, _ := args["emoji"].(string)
+	withDatabase, _ := args["with_database"].(bool)
+	databaseTable, _ := args["database_table"].(string)
+	databaseSchemaRaw, _ := args["database_schema"].(map[string]any)
 
-			// Create directory structure.
-			if err := os.MkdirAll(skillDir, 0o755); err != nil {
-				return nil, fmt.Errorf("creating skill directory: %w", err)
-			}
-			if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755); err != nil {
-				return nil, fmt.Errorf("creating scripts directory: %w", err)
-			}
+	if name == "" || description == "" {
+		return nil, fmt.Errorf("name and description are required for init action")
+	}
 
-			// Handle database creation.
-			var dbInfo string
-			if withDatabase && skillDB != nil {
-				if databaseTable == "" {
-					databaseTable = "data"
+	displayName := name
+	name = sanitizeSkillName(name)
+	dbSkillName := strings.ReplaceAll(name, "-", "_")
+
+	if withDatabase && skillDB != nil {
+		existingTables, err := skillDB.ListTables("")
+		if err == nil {
+			for _, t := range existingTables {
+				if t.SkillName == dbSkillName {
+					existingSkillName := strings.ReplaceAll(t.SkillName, "_", "-")
+					return nil, fmt.Errorf("skill name collision: '%s' would conflict with existing skill '%s' in database", name, existingSkillName)
 				}
-
-				// Convert schema.
-				databaseSchema := make(map[string]string)
-				for k, v := range databaseSchemaRaw {
-					if vs, ok := v.(string); ok {
-						databaseSchema[k] = vs
-					}
-				}
-
-				// Create table.
-				err := skillDB.CreateTable(dbSkillName, databaseTable, displayName, description, databaseSchema)
-				if err != nil {
-					// Clean up directory on error.
-					os.RemoveAll(skillDir)
-					return nil, fmt.Errorf("creating database table: %w", err)
-				}
-
-				dbInfo = fmt.Sprintf("\n\nDatabase table '%s_%s' created for storing data.", dbSkillName, databaseTable)
 			}
+		}
+	}
 
-			// Build SKILL.md content.
-			if instructions == "" {
-				instructions = fmt.Sprintf("# %s\n\nDescribe how the agent should use this skill.", name)
+	if _, exists := registry.Get(name); exists {
+		return nil, fmt.Errorf("skill '%s' already exists. Use action=edit to modify it", name)
+	}
+
+	skillDir := filepath.Join(skillsDir, name)
+	if _, err := os.Stat(skillDir); err == nil {
+		return nil, fmt.Errorf("skill directory '%s' already exists. Use action=edit to modify it", skillDir)
+	}
+
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating skill directory: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755); err != nil {
+		return nil, fmt.Errorf("creating scripts directory: %w", err)
+	}
+
+	var dbInfo string
+	if withDatabase && skillDB != nil {
+		if databaseTable == "" {
+			databaseTable = "data"
+		}
+		databaseSchema := make(map[string]string)
+		for k, v := range databaseSchemaRaw {
+			if vs, ok := v.(string); ok {
+				databaseSchema[k] = vs
 			}
+		}
+		err := skillDB.CreateTable(dbSkillName, databaseTable, displayName, description, databaseSchema)
+		if err != nil {
+			os.RemoveAll(skillDir)
+			return nil, fmt.Errorf("creating database table: %w", err)
+		}
+		dbInfo = fmt.Sprintf("\n\nDatabase table '%s_%s' created for storing data.", dbSkillName, databaseTable)
+	}
 
-			// Add database usage instructions if applicable.
-			if withDatabase && skillDB != nil {
-				dbInstructions := fmt.Sprintf(`
+	if instructions == "" {
+		instructions = fmt.Sprintf("# %s\n\nDescribe how the agent should use this skill.", name)
+	}
+
+	if withDatabase && skillDB != nil {
+		dbInstructions := fmt.Sprintf(`
 
 ## Database
 
@@ -172,7 +235,7 @@ This skill has a database table for storing structured data.
 
 ### The skill_db Tool
 
-` + "```" + `
+`+"```"+`
 # LIST records (use this when user asks to "list" or "show")
 skill_db(action="query", skill_name="%s", table_name="%s")
 
@@ -187,7 +250,7 @@ skill_db(action="update", skill_name="%s", table_name="%s", row_id="ID", data={"
 
 # DELETE a record
 skill_db(action="delete", skill_name="%s", table_name="%s", row_id="ID")
-` + "```" + `
+`+"```"+`
 
 ### Quick Reference
 | User asks... | Use action=... |
@@ -197,403 +260,221 @@ skill_db(action="delete", skill_name="%s", table_name="%s", row_id="ID")
 | "update/change X" | update |
 | "delete/remove X" | delete |
 `, dbSkillName, dbSkillName, databaseTable, dbSkillName, databaseTable, dbSkillName, databaseTable, dbSkillName, databaseTable, dbSkillName, databaseTable)
+		instructions += dbInstructions
+	}
 
-				instructions += dbInstructions
-			}
+	metadata := map[string]any{
+		"openclaw": map[string]any{"emoji": emoji, "always": false},
+		"database": withDatabase,
+	}
+	metaJSON, _ := json.Marshal(metadata)
 
-			metadata := map[string]any{
-				"openclaw": map[string]any{
-					"emoji":  emoji,
-					"always": false,
-				},
-				"database": withDatabase,
-			}
-			metaJSON, _ := json.Marshal(metadata)
+	skillMD := fmt.Sprintf("---\nname: %s\ndescription: \"%s\"\nmetadata: %s\n---\n%s\n", name, description, string(metaJSON), instructions)
 
-			skillMD := fmt.Sprintf(`---
-name: %s
-description: "%s"
-metadata: %s
----
-%s
-`, name, description, string(metaJSON), instructions)
+	skillFile := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skillFile, []byte(skillMD), 0o644); err != nil {
+		return nil, fmt.Errorf("writing SKILL.md: %w", err)
+	}
 
-			skillFile := filepath.Join(skillDir, "SKILL.md")
-			if err := os.WriteFile(skillFile, []byte(skillMD), 0o644); err != nil {
-				return nil, fmt.Errorf("writing SKILL.md: %w", err)
-			}
+	return fmt.Sprintf("Skill '%s' created at %s%s\n\nTo add scripts: use action=add_script.\nTo test: use action=test.", name, skillDir, dbInfo), nil
+}
 
-			result := fmt.Sprintf("Skill '%s' created at %s%s\n\nTo add scripts: use add_script tool.\nTo test: use test_skill tool.", name, skillDir, dbInfo)
-			return result, nil
-		},
-	)
+func handleSkillEdit(skillsDir string, args map[string]any) (any, error) {
+	name, _ := args["name"].(string)
+	content, _ := args["content"].(string)
+	if name == "" || content == "" {
+		return nil, fmt.Errorf("name and content are required for edit action")
+	}
+	skillFile := filepath.Join(skillsDir, sanitizeSkillName(name), "SKILL.md")
+	if _, err := os.Stat(skillFile); os.IsNotExist(err) {
+		return nil, fmt.Errorf("skill '%s' not found at %s", name, skillFile)
+	}
+	if err := os.WriteFile(skillFile, []byte(content), 0o644); err != nil {
+		return nil, fmt.Errorf("writing SKILL.md: %w", err)
+	}
+	return fmt.Sprintf("Skill '%s' updated.", name), nil
+}
 
-	// edit_skill
-	executor.Register(
-		MakeToolDefinition("edit_skill", "Edit the SKILL.md instructions of an existing skill.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Skill name to edit",
-				},
-				"content": map[string]any{
-					"type":        "string",
-					"description": "New full content for SKILL.md (including frontmatter)",
-				},
-			},
-			"required": []string{"name", "content"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			name, _ := args["name"].(string)
-			content, _ := args["content"].(string)
+func handleSkillAddScript(skillsDir string, args map[string]any) (any, error) {
+	skillName, _ := args["skill_name"].(string)
+	scriptName, _ := args["script_name"].(string)
+	content, _ := args["content"].(string)
+	if skillName == "" || scriptName == "" || content == "" {
+		return nil, fmt.Errorf("skill_name, script_name, and content are required for add_script action")
+	}
+	scriptsDir := filepath.Join(skillsDir, sanitizeSkillName(skillName), "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating scripts directory: %w", err)
+	}
+	scriptPath := filepath.Join(scriptsDir, scriptName)
+	if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
+		return nil, fmt.Errorf("writing script: %w", err)
+	}
+	return fmt.Sprintf("Script '%s' added to skill '%s'.", scriptName, skillName), nil
+}
 
-			if name == "" || content == "" {
-				return nil, fmt.Errorf("name and content are required")
-			}
+func handleSkillList(registry *skills.Registry, skillsDir string) (any, error) {
+	allSkills := registry.List()
+	if len(allSkills) == 0 {
+		return "No skills installed.", nil
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Installed skills (%d):\n\n", len(allSkills))
+	for _, meta := range allSkills {
+		fmt.Fprintf(&sb, "- **%s** v%s by %s\n  %s\n  Category: %s, Tags: %s\n",
+			meta.Name, meta.Version, meta.Author, meta.Description,
+			meta.Category, strings.Join(meta.Tags, ", "))
+	}
+	userSkills := listUserSkillDirs(skillsDir)
+	if len(userSkills) > 0 {
+		fmt.Fprintf(&sb, "\nUser skills directory (%d):\n", len(userSkills))
+		for _, name := range userSkills {
+			fmt.Fprintf(&sb, "- %s\n", name)
+		}
+	}
+	return sb.String(), nil
+}
 
-			skillFile := filepath.Join(skillsDir, sanitizeSkillName(name), "SKILL.md")
-			if _, err := os.Stat(skillFile); os.IsNotExist(err) {
-				return nil, fmt.Errorf("skill '%s' not found at %s", name, skillFile)
-			}
+func handleSkillTest(ctx context.Context, registry *skills.Registry, args map[string]any) (any, error) {
+	name, _ := args["name"].(string)
+	input, _ := args["input"].(string)
+	if name == "" {
+		return nil, fmt.Errorf("name is required for test action")
+	}
+	skill, ok := registry.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("skill '%s' not found in registry", name)
+	}
+	testCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	result, err := skill.Execute(testCtx, input)
+	if err != nil {
+		return nil, fmt.Errorf("skill execution failed: %w", err)
+	}
+	return fmt.Sprintf("Skill '%s' test result:\n\n%s", name, result), nil
+}
 
-			if err := os.WriteFile(skillFile, []byte(content), 0o644); err != nil {
-				return nil, fmt.Errorf("writing SKILL.md: %w", err)
-			}
+func handleSkillInstall(ctx context.Context, installer *skills.Installer, registry *skills.Registry, args map[string]any) (any, error) {
+	source, _ := args["source"].(string)
+	if source == "" {
+		return nil, fmt.Errorf("source is required for install action")
+	}
+	installCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	result, err := installer.Install(installCtx, source)
+	if err != nil {
+		return nil, fmt.Errorf("install failed: %w", err)
+	}
+	reloadCtx, reloadCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer reloadCancel()
+	reloaded, reloadErr := registry.Reload(reloadCtx)
+	reloadMsg := ""
+	if reloadErr != nil {
+		reloadMsg = fmt.Sprintf("\nWarning: skill catalog refresh failed: %v", reloadErr)
+	} else {
+		reloadMsg = fmt.Sprintf("\nSkill catalog refreshed (%d skills loaded).", reloaded)
+	}
+	status := "installed"
+	if !result.IsNew {
+		status = "updated"
+	}
+	return fmt.Sprintf("Skill '%s' %s successfully.\nPath: %s\nSource: %s%s",
+		result.Name, status, result.Path, result.Source, reloadMsg), nil
+}
 
-			return fmt.Sprintf("Skill '%s' updated.", name), nil
-		},
-	)
+func handleSkillSearch(args map[string]any) (any, error) {
+	query, _ := args["query"].(string)
+	if query == "" {
+		return nil, fmt.Errorf("query is required for search action")
+	}
+	client := skills.NewClawHubClient("")
+	result, err := client.Search(query, 10)
+	if err != nil {
+		return nil, fmt.Errorf("ClawHub search failed: %w", err)
+	}
+	if len(result.Results) == 0 {
+		return fmt.Sprintf("No skills found for %q on ClawHub.", query), nil
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "ClawHub results for %q (%d found):\n\n", query, len(result.Results))
+	for _, s := range result.Results {
+		fmt.Fprintf(&sb, "- **%s** (%s)\n  %s\n  Score: %.2f\n  Install: skill_manage action=install source=%q\n\n",
+			s.DisplayName, s.Slug, s.Summary, s.Score, s.Slug)
+	}
+	return sb.String(), nil
+}
 
-	// add_script
-	executor.Register(
-		MakeToolDefinition("add_script", "Add an executable script to a skill. Scripts are placed in the skill's scripts/ directory.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"skill_name": map[string]any{
-					"type":        "string",
-					"description": "Skill to add the script to",
-				},
-				"script_name": map[string]any{
-					"type":        "string",
-					"description": "Script filename (e.g. 'main.py', 'fetch.js', 'run.sh')",
-				},
-				"content": map[string]any{
-					"type":        "string",
-					"description": "Script source code",
-				},
-			},
-			"required": []string{"skill_name", "script_name", "content"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			skillName, _ := args["skill_name"].(string)
-			scriptName, _ := args["script_name"].(string)
-			content, _ := args["content"].(string)
+func handleSkillDefaultsList(skillsDir string) (any, error) {
+	defaults := skills.DefaultSkills()
+	installed := listUserSkillDirs(skillsDir)
+	installedSet := make(map[string]bool, len(installed))
+	for _, n := range installed {
+		installedSet[n] = true
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Default skills available (%d):\n\n", len(defaults))
+	for _, d := range defaults {
+		status := "not installed"
+		if installedSet[d.Name] {
+			status = "installed"
+		}
+		fmt.Fprintf(&sb, "- **%s** — %s [%s]\n", d.Name, d.Description, status)
+	}
+	sb.WriteString("\nUse action=defaults_install with names to install. Pass [\"all\"] for all.")
+	return sb.String(), nil
+}
 
-			if skillName == "" || scriptName == "" || content == "" {
-				return nil, fmt.Errorf("skill_name, script_name, and content are required")
-			}
+func handleSkillDefaultsInstall(ctx context.Context, registry *skills.Registry, skillsDir string, args map[string]any) (any, error) {
+	rawNames, _ := args["names"].([]any)
+	if len(rawNames) == 0 {
+		return nil, fmt.Errorf("names is required for defaults_install action: pass skill names or [\"all\"]")
+	}
+	var names []string
+	for _, v := range rawNames {
+		if s, ok := v.(string); ok {
+			names = append(names, s)
+		}
+	}
+	if len(names) == 1 && strings.ToLower(names[0]) == "all" {
+		names = skills.DefaultSkillNames()
+	}
+	installed, skipped, failed := skills.InstallDefaultSkills(skillsDir, names)
+	reloadCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	reloaded, reloadErr := registry.Reload(reloadCtx)
+	reloadMsg := ""
+	if reloadErr != nil {
+		reloadMsg = fmt.Sprintf("\nWarning: catalog refresh failed: %v", reloadErr)
+	} else {
+		reloadMsg = fmt.Sprintf("\nSkill catalog refreshed (%d skills loaded).", reloaded)
+	}
+	var sb strings.Builder
+	sb.WriteString("Default skills installation complete.\n")
+	fmt.Fprintf(&sb, "  Installed: %d\n", installed)
+	if skipped > 0 {
+		fmt.Fprintf(&sb, "  Already existed: %d\n", skipped)
+	}
+	if failed > 0 {
+		fmt.Fprintf(&sb, "  Failed: %d\n", failed)
+	}
+	sb.WriteString(reloadMsg)
+	return sb.String(), nil
+}
 
-			scriptsDir := filepath.Join(skillsDir, sanitizeSkillName(skillName), "scripts")
-			if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
-				return nil, fmt.Errorf("creating scripts directory: %w", err)
-			}
-
-			scriptPath := filepath.Join(scriptsDir, scriptName)
-			if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
-				return nil, fmt.Errorf("writing script: %w", err)
-			}
-
-			return fmt.Sprintf("Script '%s' added to skill '%s'.", scriptName, skillName), nil
-		},
-	)
-
-	// list_skills
-	executor.Register(
-		MakeToolDefinition("list_skills", "List all installed skills (both built-in and user-created).", map[string]any{
-			"type":                 "object",
-			"properties":           map[string]any{},
-			"additionalProperties": false,
-		}),
-		func(_ context.Context, _ map[string]any) (any, error) {
-			allSkills := registry.List()
-
-			if len(allSkills) == 0 {
-				return "No skills installed.", nil
-			}
-
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("Installed skills (%d):\n\n", len(allSkills)))
-
-			for _, meta := range allSkills {
-				sb.WriteString(fmt.Sprintf("- **%s** v%s by %s\n  %s\n  Category: %s, Tags: %s\n",
-					meta.Name, meta.Version, meta.Author,
-					meta.Description,
-					meta.Category, strings.Join(meta.Tags, ", ")))
-			}
-
-			// Also list user-created skills not yet loaded.
-			userSkills := listUserSkillDirs(skillsDir)
-			if len(userSkills) > 0 {
-				sb.WriteString(fmt.Sprintf("\nUser skills directory (%d):\n", len(userSkills)))
-				for _, name := range userSkills {
-					sb.WriteString(fmt.Sprintf("- %s\n", name))
-				}
-			}
-
-			return sb.String(), nil
-		},
-	)
-
-	// test_skill
-	executor.Register(
-		MakeToolDefinition("test_skill", "Test a skill by executing it with sample input.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Skill name to test",
-				},
-				"input": map[string]any{
-					"type":        "string",
-					"description": "Test input to send to the skill",
-				},
-			},
-			"required": []string{"name", "input"},
-		}),
-		func(ctx context.Context, args map[string]any) (any, error) {
-			name, _ := args["name"].(string)
-			input, _ := args["input"].(string)
-
-			if name == "" {
-				return nil, fmt.Errorf("name is required")
-			}
-
-			skill, ok := registry.Get(name)
-			if !ok {
-				return nil, fmt.Errorf("skill '%s' not found in registry", name)
-			}
-
-			testCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-
-			result, err := skill.Execute(testCtx, input)
-			if err != nil {
-				return nil, fmt.Errorf("skill execution failed: %w", err)
-			}
-
-			return fmt.Sprintf("Skill '%s' test result:\n\n%s", name, result), nil
-		},
-	)
-
-	// install_skill — install skills from ClawHub, GitHub, URL, or local path.
-	installer := skills.NewInstaller(skillsDir, logger)
-
-	executor.Register(
-		MakeToolDefinition("install_skill", "Install a skill from ClawHub, GitHub, URL, or local path. Supports: ClawHub slugs (e.g. 'steipete/trello'), ClawHub URLs (https://clawhub.ai/user/skill), GitHub URLs (https://github.com/user/repo), HTTP URLs (zip or SKILL.md), and local paths.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"source": map[string]any{
-					"type":        "string",
-					"description": "Skill source: ClawHub slug (steipete/trello), GitHub URL, HTTP URL, or local path",
-				},
-			},
-			"required": []string{"source"},
-		}),
-		func(ctx context.Context, args map[string]any) (any, error) {
-			source, _ := args["source"].(string)
-			if source == "" {
-				return nil, fmt.Errorf("source is required")
-			}
-
-			installCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-			defer cancel()
-
-			result, err := installer.Install(installCtx, source)
-			if err != nil {
-				return nil, fmt.Errorf("install failed: %w", err)
-			}
-
-			// Hot-reload: reload the registry to pick up the new skill.
-			reloadCtx, reloadCancel := context.WithTimeout(ctx, 10*time.Second)
-			defer reloadCancel()
-
-			reloaded, reloadErr := registry.Reload(reloadCtx)
-			reloadMsg := ""
-			if reloadErr != nil {
-				reloadMsg = fmt.Sprintf("\nWarning: skill catalog refresh failed: %v", reloadErr)
-			} else {
-				reloadMsg = fmt.Sprintf("\nSkill catalog refreshed (%d skills loaded).", reloaded)
-			}
-
-			status := "installed"
-			if !result.IsNew {
-				status = "updated"
-			}
-
-			return fmt.Sprintf("Skill '%s' %s successfully.\nPath: %s\nSource: %s%s",
-				result.Name, status, result.Path, result.Source, reloadMsg), nil
-		},
-	)
-
-	// search_skills — search ClawHub for available skills.
-	executor.Register(
-		MakeToolDefinition("search_skills", "Search the ClawHub skill registry for available skills by keyword.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query": map[string]any{
-					"type":        "string",
-					"description": "Search query (e.g. 'calendar', 'trello', 'github')",
-				},
-			},
-			"required": []string{"query"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			query, _ := args["query"].(string)
-			if query == "" {
-				return nil, fmt.Errorf("query is required")
-			}
-
-			client := skills.NewClawHubClient("")
-			result, err := client.Search(query, 10)
-			if err != nil {
-				return nil, fmt.Errorf("ClawHub search failed: %w", err)
-			}
-
-			if len(result.Results) == 0 {
-				return fmt.Sprintf("No skills found for %q on ClawHub.", query), nil
-			}
-
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("ClawHub results for %q (%d found):\n\n", query, len(result.Results)))
-			for _, s := range result.Results {
-				sb.WriteString(fmt.Sprintf("- **%s** (%s)\n  %s\n  Score: %.2f\n  Install: `devclaw skill install %s` or ask me to install it\n\n",
-					s.DisplayName, s.Slug, s.Summary, s.Score, s.Slug))
-			}
-			return sb.String(), nil
-		},
-	)
-
-	// skill_defaults_list — list available default skills.
-	executor.Register(
-		MakeToolDefinition("skill_defaults_list", "List all default skills bundled with DevClaw that can be installed instantly (no internet required).", map[string]any{
-			"type":                 "object",
-			"properties":           map[string]any{},
-			"additionalProperties": false,
-		}),
-		func(_ context.Context, _ map[string]any) (any, error) {
-			defaults := skills.DefaultSkills()
-			installed := listUserSkillDirs(skillsDir)
-			installedSet := make(map[string]bool, len(installed))
-			for _, n := range installed {
-				installedSet[n] = true
-			}
-
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("Default skills available (%d):\n\n", len(defaults)))
-			for _, d := range defaults {
-				status := "not installed"
-				if installedSet[d.Name] {
-					status = "✓ installed"
-				}
-				sb.WriteString(fmt.Sprintf("- **%s** — %s [%s]\n", d.Name, d.Description, status))
-			}
-			sb.WriteString("\nUse skill_defaults_install to install one or more. Pass names: [\"web-search\",\"weather\"] or \"all\" for all.")
-			return sb.String(), nil
-		},
-	)
-
-	// skill_defaults_install — install default skills from the embedded catalog.
-	executor.Register(
-		MakeToolDefinition("skill_defaults_install", "Install one or more default skills bundled with DevClaw. Pass specific names or 'all' to install everything. No internet required.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"names": map[string]any{
-					"type":        "array",
-					"items":       map[string]any{"type": "string"},
-					"description": "Skill names to install, e.g. [\"web-search\",\"weather\"]. Use [\"all\"] to install all defaults.",
-				},
-			},
-			"required": []string{"names"},
-		}),
-		func(ctx context.Context, args map[string]any) (any, error) {
-			rawNames, _ := args["names"].([]any)
-			if len(rawNames) == 0 {
-				return nil, fmt.Errorf("names is required: pass skill names or [\"all\"]")
-			}
-
-			// Parse names.
-			var names []string
-			for _, v := range rawNames {
-				if s, ok := v.(string); ok {
-					names = append(names, s)
-				}
-			}
-
-			// Handle "all".
-			if len(names) == 1 && strings.ToLower(names[0]) == "all" {
-				names = skills.DefaultSkillNames()
-			}
-
-			installed, skipped, failed := skills.InstallDefaultSkills(skillsDir, names)
-
-			// Hot-reload the registry to pick up new skills.
-			reloadCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			reloaded, reloadErr := registry.Reload(reloadCtx)
-			reloadMsg := ""
-			if reloadErr != nil {
-				reloadMsg = fmt.Sprintf("\nWarning: catalog refresh failed: %v", reloadErr)
-			} else {
-				reloadMsg = fmt.Sprintf("\nSkill catalog refreshed (%d skills loaded).", reloaded)
-			}
-
-			var sb strings.Builder
-			sb.WriteString("Default skills installation complete.\n")
-			sb.WriteString(fmt.Sprintf("  Installed: %d\n", installed))
-			if skipped > 0 {
-				sb.WriteString(fmt.Sprintf("  Already existed: %d\n", skipped))
-			}
-			if failed > 0 {
-				sb.WriteString(fmt.Sprintf("  Failed: %d\n", failed))
-			}
-			sb.WriteString(reloadMsg)
-			return sb.String(), nil
-		},
-	)
-
-	// remove_skill — remove an installed skill.
-	executor.Register(
-		MakeToolDefinition("remove_skill", "Remove an installed skill by name.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Name of the skill to remove",
-				},
-			},
-			"required": []string{"name"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			name, _ := args["name"].(string)
-			if name == "" {
-				return nil, fmt.Errorf("name is required")
-			}
-
-			targetDir := filepath.Join(skillsDir, sanitizeSkillName(name))
-			if _, err := os.Stat(targetDir); os.IsNotExist(err) {
-				return nil, fmt.Errorf("skill '%s' not found at %s", name, targetDir)
-			}
-
-			if err := os.RemoveAll(targetDir); err != nil {
-				return nil, fmt.Errorf("removing skill: %w", err)
-			}
-
-			registry.Remove(name)
-
-			return fmt.Sprintf("Skill '%s' removed successfully.", name), nil
-		},
-	)
+func handleSkillRemove(registry *skills.Registry, skillsDir string, args map[string]any) (any, error) {
+	name, _ := args["name"].(string)
+	if name == "" {
+		return nil, fmt.Errorf("name is required for remove action")
+	}
+	targetDir := filepath.Join(skillsDir, sanitizeSkillName(name))
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("skill '%s' not found at %s", name, targetDir)
+	}
+	if err := os.RemoveAll(targetDir); err != nil {
+		return nil, fmt.Errorf("removing skill: %w", err)
+	}
+	registry.Remove(name)
+	return fmt.Sprintf("Skill '%s' removed successfully.", name), nil
 }
 
 // sanitizeSkillName normalizes a skill name to filesystem-safe format.
@@ -627,4 +508,16 @@ func listUserSkillDirs(skillsDir string) []string {
 		}
 	}
 	return names
+}
+
+// isSkillWriteAction returns true for actions that create, modify, or delete
+// files on disk. These require admin access to prevent privilege escalation
+// in restricted profiles (e.g., messaging channels).
+func isSkillWriteAction(action string) bool {
+	switch action {
+	case "init", "edit", "add_script", "install", "defaults_install", "remove":
+		return true
+	default:
+		return false
+	}
 }

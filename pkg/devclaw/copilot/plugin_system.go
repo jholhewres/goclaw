@@ -62,6 +62,13 @@ func NewPluginManager() *PluginManager {
 	}
 }
 
+// HasPlugins returns true if any plugins are installed.
+func (pm *PluginManager) HasPlugins() bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return len(pm.plugins) > 0
+}
+
 // Install adds a plugin to the manager.
 func (pm *PluginManager) Install(p *Plugin) error {
 	pm.mu.Lock()

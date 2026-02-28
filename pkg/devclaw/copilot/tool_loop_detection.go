@@ -86,8 +86,7 @@ type toolCallEntry struct {
 // knownNoProgressTools are tools that frequently poll external state without
 // making progress. These get hard-blocked earlier than generic repeats.
 var knownNoProgressTools = map[string]map[string]bool{
-	"process":   {"poll": true, "log": true},
-	"cron_list": {"": true},
+	"process": {"poll": true, "log": true},
 }
 
 // destructiveTools are tools that can cause data loss or irreversible changes.
@@ -95,11 +94,12 @@ var knownNoProgressTools = map[string]map[string]bool{
 // Note: Dispatcher tools (team_agent, team_manage, team_task) are NOT included
 // because they have multiple actions, not all destructive. The DestructiveTracker
 // handles those with action-specific checking.
-var destructiveTools = map[string]bool{
-	"cron_remove":     true,
-	"vault_delete":    true,
-	"sessions_delete": true,
-}
+// destructiveTools tracks tools that can cause data loss.
+// Note: With dispatcher consolidation, destructive actions (scheduler remove,
+// vault delete, sessions delete) are now sub-actions within their dispatchers.
+// The dispatchers themselves are not destructive (most actions are safe).
+// Action-level protection is handled within each dispatcher handler.
+var destructiveTools = map[string]bool{}
 
 // ToolLoopDetector tracks tool call history and detects loops.
 type ToolLoopDetector struct {
@@ -314,9 +314,8 @@ func (d *ToolLoopDetector) RecordAndCheck(toolName string, args map[string]any) 
 	}
 
 	// 2b. Destructive batch detection: BLOCK on consecutive destructive calls.
-	// Destructive operations (vault_delete, cron_remove, sessions_delete) should
-	// be limited to prevent accidental mass deletions. We use LoopBreaker (hard stop)
-	// because LoopCritical (warning) was insufficient - agents ignored it and continued.
+	// With dispatcher consolidation, destructive actions are now sub-actions
+	// within dispatchers. This check remains for any user-configured destructive tools.
 	if destructiveTools[toolName] {
 		d.destructiveBatchCount++
 		if toolName == d.lastDestructiveTool {

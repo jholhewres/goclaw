@@ -8,56 +8,54 @@ trigger: automatic
 
 Multi-agent system for spawning isolated workers and coordinating across sessions.
 
-## ⚠️ CRITICAL RULES
+## CRITICAL RULES
 
 | Rule | Reason |
 |-------|--------|
 | Use `spawn_subagent` for complex/parallel tasks | Don't overload main context |
-| **DO NOT** use `cron_add` when asked for subagent | Different tools |
+| **DO NOT** use `scheduler` when asked for subagent | Different tools |
 | Wait for result with `wait_subagent` | If you need the result |
 | Use descriptive labels | Easier identification |
 
-### ❌ Wrong
+### Wrong
 ```
 User: "create a subagent to create a skill"
-Agent: Uses cron_add ❌
-Agent: Creates schedule ❌
+Agent: Uses scheduler(action=add)
+Agent: Creates schedule
 ```
 
-### ✓ Correct
+### Correct
 ```
 User: "create a subagent to create a skill"
-Agent: spawn_subagent(task="Create skill...", label="skill-creator") ✓
+Agent: spawn_subagent(task="Create skill...", label="skill-creator")
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Main Agent                              │
-│                   (Current Session)                          │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-         ┌─────────────────┴─────────────────┐
-         │                                   │
-         ▼                                   ▼
-┌─────────────────┐                 ┌─────────────────┐
-│    SPAWNING     │                 │ COMMUNICATION   │
-├─────────────────┤                 ├─────────────────┤
-│ spawn_subagent  │                 │ sessions_list   │
-│ list_subagents  │                 │ sessions_send   │
-│ wait_subagent   │                 │ sessions_export │
-│ stop_subagent   │                 │ sessions_delete │
-└────────┬────────┘                 └────────┬────────┘
-         │                                   │
-         ▼                                   ▼
-┌─────────────────┐                 ┌─────────────────┐
-│  Subagent Run   │                 │ Existing Session│
-│  (isolated)     │                 │ (another agent) │
-│  - New session  │                 │ - Separate chat │
-│  - Limited ctx  │                 │ - Cross-agent   │
-│  - Reports back │                 │   messaging     │
-└─────────────────┘                 └─────────────────┘
+                      Main Agent
+                   (Current Session)
+                           |
+         +-----------------+-----------------+
+         |                                   |
+         v                                   v
++-----------------+                 +-----------------+
+|    SPAWNING     |                 | COMMUNICATION   |
++-----------------+                 +-----------------+
+| spawn_subagent  |                 | sessions        |
+| list_subagents  |                 |  (action=list)  |
+| wait_subagent   |                 |  (action=send)  |
+| stop_subagent   |                 |  (action=export)|
++---------+-------+                 |  (action=delete)|
+         |                          +--------+--------+
+         v                                   v
++-----------------+                 +-----------------+
+|  Subagent Run   |                 | Existing Session|
+|  (isolated)     |                 | (another agent) |
+|  - New session  |                 | - Separate chat |
+|  - Limited ctx  |                 | - Cross-agent   |
+|  - Reports back |                 |   messaging     |
++-----------------+                 +-----------------+
 ```
 
 ## Two Modes
@@ -65,7 +63,7 @@ Agent: spawn_subagent(task="Create skill...", label="skill-creator") ✓
 | Mode | Tools | Purpose |
 |------|-------|---------|
 | **Spawning** | `spawn_subagent`, `list_subagents`, `wait_subagent`, `stop_subagent` | Create new isolated agents |
-| **Communication** | `sessions_list`, `sessions_send`, `sessions_export`, `sessions_delete` | Talk to existing agents |
+| **Communication** | `sessions(action=list/send/export/delete)` | Talk to existing agents |
 
 ---
 
@@ -75,19 +73,19 @@ Agent: spawn_subagent(task="Create skill...", label="skill-creator") ✓
 
 | Scenario | Use spawn_subagent |
 |---------|-------------------|
-| Long research task | ✓ |
-| Multiple parallel tasks | ✓ |
-| Create skills/plugins | ✓ |
-| Complex analysis | ✓ |
-| Background processing | ✓ |
+| Long research task | Yes |
+| Multiple parallel tasks | Yes |
+| Create skills/plugins | Yes |
+| Complex analysis | Yes |
+| Background processing | Yes |
 
 ### When NOT to Use
 
 | Scenario | Alternative |
 |---------|-------------|
-| Schedule task for specific time | `cron_add` |
-| Reminder | `cron_add` with type="at" |
-| Communicate with existing agent | `sessions_send` |
+| Schedule task for specific time | `scheduler(action=add)` |
+| Reminder | `scheduler(action=add, type=at)` |
+| Communicate with existing agent | `sessions(action=send)` |
 
 ### Spawn a Subagent
 
@@ -175,17 +173,18 @@ result_c = wait_subagent(subagent_id="sub_003")
 ### Discover Other Agents
 
 ```bash
-sessions_list()
+sessions(action="list")
 # Output:
 # Active sessions (3):
-# - [whatsapp] 5511999999 (id: abc123, ws: main) — 15 msgs — last active: 2m ago
-# - [webui] user-session (id: def456, ws: dev) — 8 msgs — last active: 5m ago
+# - [whatsapp] 5511999999 (id: abc123, ws: main) -- 15 msgs -- last active: 2m ago
+# - [webui] user-session (id: def456, ws: dev) -- 8 msgs -- last active: 5m ago
 ```
 
 ### Send Message to Another Agent
 
 ```bash
-sessions_send(
+sessions(
+  action="send",
   session_id="abc123",
   message="Task completed. Results saved to output.md",
   sender_label="research-agent"
@@ -196,7 +195,7 @@ sessions_send(
 ### Export Session
 
 ```bash
-sessions_export(session_id="abc123")
+sessions(action="export", session_id="abc123")
 # Output:
 # {
 #   "session_id": "abc123",
@@ -213,7 +212,7 @@ sessions_export(session_id="abc123")
 ```bash
 # User: "create a subagent to create a skill for https://viacep.com.br/"
 
-# 1. Spawn subagent (NOT cron_add!)
+# 1. Spawn subagent (NOT scheduler!)
 spawn_subagent(
   task="Create skill for ViaCEP API (https://viacep.com.br/).
         The skill should:
@@ -255,16 +254,17 @@ wait_subagent(subagent_id="sub_abc123")
 ### Cross-Agent Collaboration
 ```bash
 # 1. Find collaborator session
-sessions_list()
+sessions(action="list")
 
 # 2. Request help
-sessions_send(
+sessions(
+  action="send",
   session_id="backend-agent-session",
   message="Need API endpoint for user preferences. Can you create GET /api/user/preferences?",
   sender_label="frontend-agent"
 )
 
-# Backend agent responds via sessions_send to your session
+# Backend agent responds via sessions(action=send) to your session
 ```
 
 ---
@@ -297,11 +297,11 @@ list_subagents()
 
 ### Used wrong tool
 
-**Cause:** Confusion between spawn and cron.
+**Cause:** Confusion between spawn and scheduler.
 
 **Correction:**
 - Subagent = immediate parallel execution
-- Cron = schedule for specific time
+- Scheduler = schedule for specific time
 
 ### "Session not found"
 
@@ -309,7 +309,7 @@ list_subagents()
 
 **Solution:**
 ```bash
-sessions_list()  # List all first
+sessions(action="list")  # List all first
 ```
 
 ---
@@ -326,7 +326,7 @@ sessions_list()  # List all first
 
 | Mistake | Correction |
 |---------|-----------|
-| Using `cron_add` when asked for subagent | Use `spawn_subagent` |
+| Using `scheduler` when asked for subagent | Use `spawn_subagent` |
 | Not checking list_subagents | Verify status |
 | Waiting without timeout | Always set timeout |
 | Vague task in spawn | Be specific about expected output |

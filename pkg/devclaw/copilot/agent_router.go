@@ -37,6 +37,9 @@ type AgentProfileConfig struct {
 
 	// RunTimeoutSeconds is the max run time for this agent.
 	RunTimeoutSeconds int `yaml:"run_timeout_seconds"`
+
+	// Identity overrides the global identity for this agent profile.
+	Identity *IdentityConfig `yaml:"identity,omitempty"`
 }
 
 // RoutingConfig defines how messages are routed to agents.

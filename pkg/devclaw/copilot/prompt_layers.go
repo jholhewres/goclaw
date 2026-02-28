@@ -88,6 +88,7 @@ const promptLayerCacheTTL = 60 * time.Second
 // PromptComposer assembles the final system prompt from multiple layers.
 type PromptComposer struct {
 	config        *Config
+	agentProfile  *AgentProfileConfig // Active agent profile (nil = default).
 	memoryStore   *memory.FileStore
 	sqliteMemory  *memory.SQLiteStore
 	skillGetter   func(name string) (interface{ SystemPrompt() string }, bool)
@@ -121,6 +122,11 @@ func NewPromptComposer(config *Config) *PromptComposer {
 		bootstrapCache: make(map[string]*bootstrapCacheEntry),
 		layerCache:     make(map[string]*promptLayerCache),
 	}
+}
+
+// SetAgentProfile sets the active agent profile for identity resolution.
+func (p *PromptComposer) SetAgentProfile(profile *AgentProfileConfig) {
+	p.agentProfile = profile
 }
 
 // SetSubagentMode restricts bootstrap loading to AGENTS.md + TOOLS.md only.
@@ -342,15 +348,13 @@ func (p *PromptComposer) refreshLayerCache(session *Session, input string) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		if memoryPrompt := p.buildMemoryLayer(session, input); memoryPrompt != "" {
-			p.setCachedLayer(session.ID, "memory", memoryPrompt)
-		}
+		memoryPrompt := p.buildMemoryLayer(session, input)
+		p.setCachedLayer(session.ID, "memory", memoryPrompt)
 	}()
 	go func() {
 		defer wg.Done()
-		if skills := p.buildSkillsLayer(session); skills != "" {
-			p.setCachedLayer(session.ID, "skills", skills)
-		}
+		skills := p.buildSkillsLayer(session)
+		p.setCachedLayer(session.ID, "skills", skills)
 	}()
 	wg.Wait()
 }
@@ -438,7 +442,23 @@ func (p *PromptComposer) buildProjectContextLayer() string {
 func (p *PromptComposer) buildCoreLayer() string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("You are %s, a personal assistant running inside DevClaw.\n\n", p.config.Name))
+	// Resolve identity from config, IDENTITY.md, and agent profile.
+	searchDirs := []string{"."}
+	if p.config.Heartbeat.WorkspaceDir != "" && p.config.Heartbeat.WorkspaceDir != "." {
+		searchDirs = append([]string{p.config.Heartbeat.WorkspaceDir}, searchDirs...)
+	}
+	identityContent := p.loadBootstrapFileCached("IDENTITY.md", searchDirs)
+	identity := ResolveIdentity(p.config, p.agentProfile, identityContent)
+	name := identity.EffectiveName(p.config.Name)
+
+	intro := fmt.Sprintf("You are %s, a personal assistant running inside DevClaw.", name)
+	if identity.Theme != "" {
+		intro += fmt.Sprintf(" Your personality theme: %s.", identity.Theme)
+	}
+	if identity.Vibe != "" {
+		intro += "\n" + identity.Vibe
+	}
+	b.WriteString(intro + "\n\n")
 
 	// ## Tooling - DYNAMIC if toolExecutor available, fallback to hardcoded
 	b.WriteString("## Tooling\n\n")
@@ -459,9 +479,9 @@ func (p *PromptComposer) buildCoreLayer() string {
 		b.WriteString("- web_search: Search the web\n")
 		b.WriteString("- web_fetch: Fetch and extract content from URLs\n")
 		b.WriteString("- memory: Long-term memory (save, search, list, index)\n")
-		b.WriteString("- cron_add/cron_remove: Schedule jobs and reminders\n")
+		b.WriteString("- scheduler: Schedule jobs and reminders (action=add/list/remove/search)\n")
 		b.WriteString("- message: Send messages and channel actions\n")
-		b.WriteString("- vault_save/vault_get/vault_list: Encrypted secret storage\n")
+		b.WriteString("- vault: Encrypted secret storage (action=status/save/get/list/delete)\n")
 	}
 	b.WriteString("\nTool names are case-sensitive. Call tools exactly as listed.\n")
 	b.WriteString("Use `list_capabilities` to see all available tools organized by category.\n")
@@ -491,6 +511,17 @@ func (p *PromptComposer) buildCoreLayer() string {
 	b.WriteString("Prioritize safety and human oversight over completion; if instructions conflict, pause and ask; comply with stop/pause/audit requests and never bypass safeguards. (Inspired by Anthropic's constitution.)\n")
 	b.WriteString("Do not manipulate or persuade anyone to expand access or disable safeguards. Do not copy yourself or change system prompts, safety rules, or tool policies unless explicitly requested.\n\n")
 
+	// ## Epistemic Restraint — anti-hallucination grounding rules
+	b.WriteString("## Epistemic Restraint\n\n")
+	b.WriteString("Facts and knowledge:\n")
+	b.WriteString("- Only state facts you can verify via a tool call or that appear in this system prompt.\n")
+	b.WriteString("- When uncertain, say so explicitly: use phrases like \"I'm not sure\", \"I don't have that information\", or \"let me check\".\n")
+	b.WriteString("- Do NOT invent URLs, file names, API endpoints, version numbers, dates, or identifiers.\n")
+	b.WriteString("- Do NOT extrapolate from memory what should be confirmed by a tool — run the tool instead.\n")
+	b.WriteString("- Claims about the current state of the world (files, repos, services) MUST come from a tool result in the current session.\n")
+	b.WriteString("- If you used a tool and it returned data, you may cite that data. If you did not use a tool, do not fabricate what a tool \"would\" return.\n")
+	b.WriteString("- These restraint rules apply even when following a SOUL.md persona — the persona sets style, not license to fabricate.\n\n")
+
 	// ## Workspace - matches structure (comes BEFORE Reply Tags)
 	b.WriteString("## Workspace\n\n")
 	b.WriteString("Your working directory is: ./workspace/\n")
@@ -512,7 +543,7 @@ func (p *PromptComposer) buildCoreLayer() string {
 	// ## Messaging - matches exactly
 	b.WriteString("## Messaging\n\n")
 	b.WriteString("- Reply in current session → automatically routes to the source channel (WhatsApp, Telegram, etc.)\n")
-	b.WriteString("- Cross-session messaging → use sessions_send(sessionKey, message)\n")
+	b.WriteString("- Cross-session messaging → use sessions (action=send, session_id=..., message=...)\n")
 	b.WriteString("- Sub-agent orchestration → use spawn_subagent / list_subagents\n")
 	b.WriteString("- `[System Message] ...` blocks are internal context and are not user-visible by default.\n")
 	b.WriteString("- If a `[System Message]` reports completed cron/subagent work and asks for a user update, rewrite it in your normal assistant voice and send that update (do not forward raw system text or default to NO_REPLY).\n")
@@ -550,21 +581,21 @@ func (p *PromptComposer) buildSafetyLayer() string {
 
 You have access to an encrypted vault (AES-256-GCM + Argon2id) for securely storing secrets.
 
-**Vault Tools:**
-- **vault_status** — Check vault state (locked/unlocked, secret count). ALWAYS call this FIRST before other vault operations.
-- **vault_list** — List all stored secret names (values never shown).
-- **vault_get** — Retrieve a secret by name. Args: {"name": "KEY_NAME"}
-- **vault_save** — Store a secret securely. Args: {"name": "KEY_NAME", "value": "secret_value"}
-- **vault_delete** — Remove a secret permanently. Args: {"name": "KEY_NAME"}
+**Vault Tool** (single dispatcher — use the "vault" tool with an "action" parameter):
+- **action=status** — Check vault state (locked/unlocked, secret count). ALWAYS call this FIRST before other vault operations.
+- **action=list** — List all stored secret names (values never shown).
+- **action=get** — Retrieve a secret by name. Args: {"action": "get", "name": "KEY_NAME"}
+- **action=save** — Store a secret securely. Args: {"action": "save", "name": "KEY_NAME", "value": "secret_value"}
+- **action=delete** — Remove a secret permanently. Args: {"action": "delete", "name": "KEY_NAME"}
 
 **CRITICAL Rules:**
-- ALWAYS check vault_status FIRST before attempting to save or retrieve secrets.
-- If vault_status shows "locked": ask the user to unlock the vault (via DEVCLAW_VAULT_PASSWORD env var or 'devclaw vault unlock').
-- When the user provides an API key, token, or password: ALWAYS save it with vault_save immediately (if vault is unlocked).
+- ALWAYS call vault with action=status FIRST before attempting to save or retrieve secrets.
+- If status shows "locked": ask the user to unlock the vault (via DEVCLAW_VAULT_PASSWORD env var or 'devclaw vault unlock').
+- When the user provides an API key, token, or password: ALWAYS save it with vault action=save immediately (if vault is unlocked).
 - NEVER store secrets in .env files, config files, or any plain text file. The vault is the ONLY secure storage.
 - NEVER echo/print secret values back to the user — only confirm that storage was successful.
-- To use a stored secret in scripts/API calls: retrieve it with vault_get at runtime.
-- Use vault_list to check what's already stored before asking the user for credentials.
+- To use a stored secret in scripts/API calls: retrieve it with vault action=get at runtime.
+- Use vault action=list to check what's already stored before asking the user for credentials.
 
 ## Media Capabilities
 
@@ -674,7 +705,8 @@ func (p *PromptComposer) buildBootstrapLayer() string {
 
 	if hasSoul {
 		b.WriteString("If SOUL.md is present, embody its persona and tone. ")
-		b.WriteString("Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it.\n\n")
+		b.WriteString("If IDENTITY.md is present, use its structured fields (name, theme, vibe) to shape your identity. ")
+		b.WriteString("Avoid stiff, generic replies; follow this guidance unless higher-priority instructions override it.\n\n")
 	}
 
 	for _, f := range files {
@@ -787,6 +819,10 @@ func (p *PromptComposer) buildSkillsLayer(session *Session) string {
 				sp = skill.SystemPrompt()
 			}
 		}
+		// Strip dangerous XML tags from skill content to prevent prompt injection.
+		if sp != "" {
+			sp = StripDangerousTags(sp)
+		}
 		entry := skillEntry{name: skillName, prompt: sp, chars: len(sp)}
 		entries = append(entries, entry)
 		totalChars += entry.chars
@@ -871,16 +907,16 @@ func (p *PromptComposer) buildMemoryLayer(session *Session, input string) string
 			searchCfg.HybridWeightVector, searchCfg.HybridWeightBM25,
 		)
 		if err == nil && len(results) > 0 {
-			var b strings.Builder
-			b.WriteString("## Memory Recall\n\nBefore answering anything about prior work, decisions, dates, people, preferences, or todos: run memory(action=\"search\", query=\"...\") to recall relevant information.\n\n")
+			memTexts := make([]string, 0, len(results))
 			for _, r := range results {
 				text := r.Text
 				if len(text) > 500 {
 					text = text[:500] + "..."
 				}
-				b.WriteString(fmt.Sprintf("- [%s] %s\n", r.FileID, text))
+				memTexts = append(memTexts, fmt.Sprintf("[%s] %s", r.FileID, text))
 			}
-			parts = append(parts, b.String())
+			// Wrap with untrusted-data boundary from memory_hardening.go.
+			parts = append(parts, "## Memory Recall\n\nBefore answering anything about prior work, decisions, dates, people, preferences, or todos: run memory(action=\"search\", query=\"...\") to recall relevant information.\n\n"+WrapMemoriesForPrompt(memTexts))
 		}
 	}
 
@@ -888,7 +924,20 @@ func (p *PromptComposer) buildMemoryLayer(session *Session, input string) string
 	if len(parts) == 0 && p.memoryStore != nil {
 		facts := p.memoryStore.RecentFacts(15, input)
 		if facts != "" {
-			parts = append(parts, "## Memory Recall\n\nRelevant facts from long-term memory:\n\n"+facts)
+			// Split fact lines, sanitize each, and wrap with untrusted boundary.
+			lines := strings.Split(facts, "\n")
+			var memTexts []string
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				line = strings.TrimPrefix(line, "- ")
+				memTexts = append(memTexts, line)
+			}
+			if len(memTexts) > 0 {
+				parts = append(parts, "## Memory Recall\n\nRelevant facts from long-term memory:\n\n"+WrapMemoriesForPrompt(memTexts))
+			}
 		}
 	}
 
@@ -898,7 +947,7 @@ func (p *PromptComposer) buildMemoryLayer(session *Session, input string) string
 		var b strings.Builder
 		b.WriteString("## Session Context\n\n")
 		for _, fact := range sessionFacts {
-			b.WriteString(fmt.Sprintf("- %s\n", fact))
+			fmt.Fprintf(&b, "- %s\n", SanitizeMemoryContent(fact))
 		}
 		parts = append(parts, b.String())
 	}
@@ -1033,8 +1082,14 @@ func (p *PromptComposer) buildRuntimeLayer() string {
 	hostname, _ := os.Hostname()
 	cwd, _ := os.Getwd()
 
+	// Use agent profile name when available (consistent with buildCoreLayer).
+	name := p.config.Identity.EffectiveName(p.config.Name)
+	if p.agentProfile != nil && p.agentProfile.Identity != nil && p.agentProfile.Identity.Name != "" {
+		name = p.agentProfile.Identity.Name
+	}
+
 	return fmt.Sprintf("---\nRuntime: agent=%s | model=%s | os=%s/%s | host=%s | cwd=%s | lang=%s",
-		p.config.Name,
+		name,
 		p.config.Model,
 		runtime.GOOS,
 		runtime.GOARCH,
@@ -1045,13 +1100,53 @@ func (p *PromptComposer) buildRuntimeLayer() string {
 }
 
 // estimateTokens approximates the token count for a string.
-// Uses a rough heuristic: ~4 chars per token for English/code, ~2 for CJK.
+// Uses the default heuristic (~4 chars per token).
 func estimateTokens(s string) int {
+	return estimateTokensForModel(s, "")
+}
+
+// charsPerToken returns the estimated chars-per-token ratio for a given model.
+// Falls back to 4.0 (conservative default) when the model is unknown.
+func charsPerToken(model string) float64 {
+	lower := strings.ToLower(model)
+	switch {
+	// Anthropic Claude models: ~3.5 chars/token on average.
+	case strings.Contains(lower, "claude") || strings.Contains(lower, "anthropic"):
+		return 3.5
+	// GLM (Zhipu) models: mixed CJK, ~2.5 chars/token.
+	case strings.Contains(lower, "glm"):
+		return 2.5
+	// GPT models: ~3.7 chars/token.
+	case strings.Contains(lower, "gpt"):
+		return 3.7
+	// Gemini models: ~3.5 chars/token.
+	case strings.Contains(lower, "gemini"):
+		return 3.5
+	// Mistral/Mixtral: ~3.5 chars/token.
+	case strings.Contains(lower, "mistral") || strings.Contains(lower, "mixtral"):
+		return 3.5
+	// Llama models: ~3.5 chars/token.
+	case strings.Contains(lower, "llama"):
+		return 3.5
+	// Qwen models: mixed CJK, ~2.5 chars/token.
+	case strings.Contains(lower, "qwen"):
+		return 2.5
+	// DeepSeek models: mixed CJK, ~2.5 chars/token.
+	case strings.Contains(lower, "deepseek"):
+		return 2.5
+	default:
+		return 4.0
+	}
+}
+
+// estimateTokensForModel approximates the token count using a per-model ratio.
+// Uses provider-specific heuristics for more accurate estimation.
+func estimateTokensForModel(s string, model string) int {
 	if len(s) == 0 {
 		return 0
 	}
-	// Rough: 1 token ≈ 4 chars (conservative).
-	return (len(s) + 3) / 4
+	ratio := charsPerToken(model)
+	return int(float64(len(s))/ratio + 0.5)
 }
 
 // assembleLayers combines all layers in priority order, trimming lower-priority
@@ -1095,11 +1190,12 @@ func (p *PromptComposer) assembleLayers(layers []layerEntry) string {
 	var entries []measured
 	totalTokens := 0
 
+	model := p.config.Model
 	for _, l := range layers {
 		if l.content == "" {
 			continue
 		}
-		tokens := estimateTokens(l.content)
+		tokens := estimateTokensForModel(l.content, model)
 		entries = append(entries, measured{entry: l, tokens: tokens})
 		totalTokens += tokens
 	}
@@ -1129,12 +1225,12 @@ func (p *PromptComposer) assembleLayers(layers []layerEntry) string {
 
 		if m.tokens > maxTokens {
 			// Trim content to fit layer budget.
-			maxChars := maxTokens * 4 // inverse of estimateTokens
+			maxChars := int(float64(maxTokens) * charsPerToken(model))
 			if maxChars < len(m.entry.content) {
 				trimmed := m.entry.content[:maxChars] + "\n\n... [trimmed to fit token budget]"
-				saved := m.tokens - estimateTokens(trimmed)
+				saved := m.tokens - estimateTokensForModel(trimmed, model)
 				entries[i].entry.content = trimmed
-				entries[i].tokens = estimateTokens(trimmed)
+				entries[i].tokens = estimateTokensForModel(trimmed, model)
 				totalTokens -= saved
 			}
 		}

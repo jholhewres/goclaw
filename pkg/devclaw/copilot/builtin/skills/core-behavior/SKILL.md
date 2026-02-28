@@ -43,8 +43,8 @@ Before creating, deleting, or modifying:
 
 | Task | Tool | DO NOT USE |
 |------|------|------------|
-| Create subagent | `spawn_subagent` | ~~cron_add~~ |
-| Schedule reminder | `cron_add` | ~~spawn_subagent~~ |
+| Create subagent | `spawn_subagent` | ~~scheduler~~ |
+| Schedule reminder | `scheduler(action=add)` | ~~spawn_subagent~~ |
 | Send file | `send_document` | ~~just create file~~ |
 | Send image | `send_image` | ~~just create image~~ |
 
@@ -108,7 +108,7 @@ Step 4 - Confirm sent:
 
 ```
 ❌ User: "Create a subagent..."
-   Agent: cron_add(...) (wrong!)
+   Agent: scheduler(action=add, ...) (wrong!)
 
 ✓ User: "Create a subagent..."
    Agent: spawn_subagent(...) (correct!)

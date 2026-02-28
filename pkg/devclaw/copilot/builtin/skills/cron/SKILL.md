@@ -4,11 +4,11 @@ description: "Schedule jobs to run at specific times or intervals"
 trigger: automatic
 ---
 
-# Cron / Scheduler
+# Scheduler
 
 Schedule **jobs** to execute commands at specific times or intervals.
 
-## ⚠️ CRITICAL RULES
+## CRITICAL RULES
 
 | Rule | Reason |
 |-------|--------|
@@ -17,19 +17,19 @@ Schedule **jobs** to execute commands at specific times or intervals.
 | **NEVER** add "follow-up" or extra items | Only what was requested |
 | **ONE** action at a time | Don't batch multiple schedules |
 
-### ❌ Wrong
+### Wrong
 ```
 User: "I have a meeting at 15:30"
-Agent: Creates reminder for 15:20 automatically ❌
+Agent: Creates reminder for 15:20 automatically
 ```
 
-### ✓ Correct
+### Correct
 ```
 User: "I have a meeting at 15:30"
-Agent: "Got it. Would you like me to create a reminder?" ✓
+Agent: "Got it. Would you like me to create a reminder?"
 
 User: "Yes, 10 minutes before"
-Agent: Creates schedule as requested ✓
+Agent: Creates schedule as requested
 ```
 
 ## Terminology
@@ -37,16 +37,17 @@ Agent: Creates schedule as requested ✓
 | Term | Meaning |
 |-------|---------|
 | **Job** | A scheduled task |
-| **Tools** | `cron_add`, `cron_list`, `cron_remove` |
+| **Tool** | `scheduler` (single dispatcher with actions) |
 | **Types** | `at` (one-time), `every` (interval), `cron` (cron expression) |
 
-## Tools
+## Actions
 
-| Tool | Action | Only Use When |
-|------|--------|---------------|
-| `cron_add` | Create a new job | User EXPLICITLY asks |
-| `cron_list` | List all jobs | User asks or needs to verify |
-| `cron_remove` | Remove a job | User EXPLICITLY asks |
+| Action | Description | Only Use When |
+|--------|-------------|---------------|
+| `add` | Create a new job | User EXPLICITLY asks |
+| `list` | List all jobs | User asks or needs to verify |
+| `remove` | Remove a job | User EXPLICITLY asks |
+| `search` | Search reminders history | User asks about past reminders |
 
 ## Schedule Types
 
@@ -54,21 +55,24 @@ Agent: Creates schedule as requested ✓
 Executes once and auto-removes. Use for reminders and delayed tasks.
 
 ```bash
-cron_add(
+scheduler(
+  action="add",
   id="meeting-reminder",
   type="at",
   schedule="30m",           # In 30 minutes
   command="Reminder: meeting in 5 minutes"
 )
 
-cron_add(
+scheduler(
+  action="add",
   id="callback-client",
   type="at",
   schedule="14:30",         # Today at 14:30
   command="Call client about proposal"
 )
 
-cron_add(
+scheduler(
+  action="add",
   id="review-friday",
   type="at",
   schedule="2026-02-28 09:00",  # Specific date
@@ -80,14 +84,16 @@ cron_add(
 Executes repeatedly at fixed intervals.
 
 ```bash
-cron_add(
+scheduler(
+  action="add",
   id="health-check",
   type="every",
   schedule="5m",            # Every 5 minutes
   command="Check server status"
 )
 
-cron_add(
+scheduler(
+  action="add",
   id="sync-data",
   type="every",
   schedule="1h",            # Every hour
@@ -99,21 +105,24 @@ cron_add(
 Executes based on standard cron expression.
 
 ```bash
-cron_add(
+scheduler(
+  action="add",
   id="daily-report",
   type="cron",
   schedule="0 9 * * *",     # Every day at 9:00
   command="Generate daily report"
 )
 
-cron_add(
+scheduler(
+  action="add",
   id="weekly-backup",
   type="cron",
   schedule="0 2 * * 0",     # Sunday at 2:00
   command="Execute weekly backup"
 )
 
-cron_add(
+scheduler(
+  action="add",
   id="monthly-invoice",
   type="cron",
   schedule="0 9 1 * *",     # 1st of each month at 9:00
@@ -124,12 +133,12 @@ cron_add(
 ## Cron Expressions
 
 ```
-┌───────────── minute (0-59)
-│ ┌───────────── hour (0-23)
-│ │ ┌───────────── day of month (1-31)
-│ │ │ ┌───────────── month (1-12)
-│ │ │ │ ┌───────────── day of week (0-6, 0=Sunday)
-│ │ │ │ │
+minute (0-59)
+| hour (0-23)
+| | day of month (1-31)
+| | | month (1-12)
+| | | | day of week (0-6, 0=Sunday)
+| | | | |
 * * * * *
 ```
 
@@ -146,24 +155,24 @@ cron_add(
 ## List Jobs
 
 ```bash
-cron_list()
+scheduler(action="list")
 # Output:
 # Scheduled jobs (3):
-# 1. [at] meeting-reminder: 30m → "Reminder: meeting..."
-# 2. [every] health-check: 5m → "Check server status..."
-# 3. [cron] daily-report: 0 9 * * * → "Generate daily report..."
+# 1. [at] meeting-reminder: 30m -> "Reminder: meeting..."
+# 2. [every] health-check: 5m -> "Check server status..."
+# 3. [cron] daily-report: 0 9 * * * -> "Generate daily report..."
 ```
 
 ## Remove Job
 
-**⚠️ Only remove when user explicitly asks**
+**Only remove when user explicitly asks**
 
 ```bash
-cron_remove(id="health-check")
+scheduler(action="remove", id="health-check")
 # Output: Job 'health-check' removed
 ```
 
-## Parameters for `cron_add`
+## Parameters for `scheduler(action=add)`
 
 | Parameter | Required | Description |
 |-----------|-------------|-----------|
@@ -189,7 +198,8 @@ cron_remove(id="health-check")
 # User: "Remind me to call the client in 20 minutes"
 
 # 1. Create EXACTLY what was requested
-cron_add(
+scheduler(
+  action="add",
   id="call-reminder",
   type="at",
   schedule="20m",
@@ -216,56 +226,23 @@ send_message("Would you like me to create a reminder?")
 ```bash
 # User: "What schedules do I have?"
 
-cron_list()
+scheduler(action="list")
 # Show list...
 ```
 
-## Troubleshooting
-
-### "Job already exists"
-
-**Cause:** Duplicate ID.
-
-**Solution:**
-```bash
-# List first to verify
-cron_list()
-
-# Use different ID or remove existing (only if user asks)
-```
-
-### "Invalid schedule"
-
-**Cause:** Wrong format for type.
-
-**Solution:**
-- `at`: duration (`30m`) or time (`14:30`)
-- `every`: interval (`5m`, `1h`)
-- `cron`: cron expression (`0 9 * * *`)
-
-## Important Notes
-
-| Note | Reason |
-|------|--------|
-| Jobs persist after restart | Saved in configuration |
-| `at` removes automatically | Executes once and gone |
-| Use descriptive IDs | Easier to manage later |
-| `channel`/`chat_id` are optional | Use current context by default |
-| Reminders are tracked | Even removed reminders can be searched |
-
 ## Searching for Reminders
 
-Use `reminder_search` to find past or current reminders:
+Use `scheduler(action=search)` to find past or current reminders:
 
 ```bash
 # Search for a specific reminder
-reminder_search(query="reunião")
+scheduler(action="search", query="meeting")
 
 # List all reminders (including removed)
-reminder_search(include_removed=true)
+scheduler(action="search", include_removed=true)
 
 # List only active reminders
-reminder_search()
+scheduler(action="search")
 ```
 
 This is useful when user asks "what reminders did I have?" or "remove the reminder about X".
@@ -280,4 +257,4 @@ This is useful when user asks "what reminders did I have?" or "remove the remind
 | Forgetting to specify `type` | Default is `cron`, may not be desired |
 | Invalid schedule for type | Each type accepts different format |
 | Duplicate ID | Overwrites existing job |
-| Can't find a reminder | Use `reminder_search` to search history |
+| Can't find a reminder | Use `scheduler(action=search)` to search history |

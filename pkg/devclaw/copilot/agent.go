@@ -122,6 +122,7 @@ type AgentRun struct {
 	usageRecorder         func(model string, usage LLMUsage) // Called after each successful LLM response.
 	cfg                   AgentConfig                        // Agent configuration including memory flush settings.
 	sessionPersistence    SessionPersister                   // For persisting compaction summaries
+	sessionID             string                             // Session ID for compaction summary persistence
 
 	// interruptCh receives follow-up user messages that should be injected into
 	// the active agent loop. Between turns, the agent drains this channel and
@@ -141,7 +142,15 @@ type AgentRun struct {
 	// loopDetector tracks tool call history and detects repetitive patterns.
 	loopDetector *ToolLoopDetector
 
+	// lastRunToolSummary accumulates tool names called during this run.
+	lastRunToolSummary string
+
 	logger *slog.Logger
+}
+
+// ToolSummary returns a digest of all tools called during this run.
+func (a *AgentRun) ToolSummary() string {
+	return strings.TrimSuffix(a.lastRunToolSummary, "; ")
 }
 
 // NewAgentRun creates a new agent runner.
@@ -183,6 +192,12 @@ func NewAgentRunWithConfig(llm *LLMClient, executor *ToolExecutor, cfg AgentConf
 // tool calls are accumulated silently.
 func (a *AgentRun) SetStreamCallback(cb StreamCallback) {
 	a.streamCallback = cb
+}
+
+// SetSessionPersistence wires session persistence for compaction summary storage.
+func (a *AgentRun) SetSessionPersistence(p SessionPersister, sessionID string) {
+	a.sessionPersistence = p
+	a.sessionID = sessionID
 }
 
 // SetModelOverride sets the model to use instead of the default.
@@ -273,7 +288,15 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 		tools = allTools
 	}
 
-	// Limit tools to 128 for OpenAI API compatibility
+	// Compact tool descriptions to save tokens in the tool definitions payload.
+	const maxDescLen = 120
+	for i := range tools {
+		if len(tools[i].Function.Description) > maxDescLen {
+			tools[i].Function.Description = tools[i].Function.Description[:maxDescLen-3] + "..."
+		}
+	}
+
+	// Limit tools to 128 for OpenAI API compatibility.
 	const maxTools = 128
 	if len(tools) > maxTools {
 		a.logger.Warn("too many tools, truncating to max",
@@ -579,6 +602,15 @@ func (a *AgentRun) RunWithUsage(ctx context.Context, systemPrompt string, histor
 			}
 		}
 
+		// Accumulate tool names for provenance tracking.
+		if len(resp.ToolCalls) > 0 {
+			names := make([]string, len(resp.ToolCalls))
+			for i, tc := range resp.ToolCalls {
+				names[i] = tc.Function.Name
+			}
+			a.lastRunToolSummary += strings.Join(names, ",") + "; "
+		}
+
 		// Inject deferred loop warning AFTER tool results (valid message order:
 		// assistant→tool→user). This ensures providers that validate message
 		// sequences don't reject the request.
@@ -781,31 +813,51 @@ func describeToolAction(name string, args map[string]any) string {
 	case "transcribe_audio":
 		return "🎤 Transcrevendo áudio..."
 
-	// ── Scheduler ──
-	case "cron_add":
-		return "⏰ Criando agendamento..."
-	case "cron_list":
-		return "⏰ Listando agendamentos..."
-	case "cron_remove":
-		return "⏰ Removendo agendamento..."
-
-	// ── Vault ──
-	case "vault_save":
-		return "🔐 Salvando no cofre..."
-	case "vault_get":
-		return "🔐 Buscando no cofre..."
-	case "vault_list":
-		return "🔐 Listando cofre..."
-
-	// ── Skills ──
-	case "install_skill":
-		s, _ := args["name"].(string)
-		if s != "" {
-			return "📦 Instalando skill: " + s
+	// ── Scheduler dispatcher ──
+	case "scheduler":
+		action, _ := args["action"].(string)
+		switch action {
+		case "add":
+			return "⏰ Criando agendamento..."
+		case "list":
+			return "⏰ Listando agendamentos..."
+		case "remove":
+			return "⏰ Removendo agendamento..."
+		default:
+			return "⏰ Gerenciando agendamentos..."
 		}
-		return "📦 Instalando skill..."
-	case "list_skills", "search_skills":
-		return "📋 Listando skills..."
+
+	// ── Vault dispatcher ──
+	case "vault":
+		action, _ := args["action"].(string)
+		switch action {
+		case "save":
+			return "🔐 Salvando no cofre..."
+		case "get":
+			return "🔐 Buscando no cofre..."
+		case "list":
+			return "🔐 Listando cofre..."
+		case "delete":
+			return "🔐 Removendo do cofre..."
+		default:
+			return "🔐 Gerenciando cofre..."
+		}
+
+	// ── Skills dispatcher ──
+	case "skill_manage":
+		action, _ := args["action"].(string)
+		switch action {
+		case "install":
+			s, _ := args["name"].(string)
+			if s != "" {
+				return "📦 Instalando skill: " + s
+			}
+			return "📦 Instalando skill..."
+		case "list", "search":
+			return "📋 Listando skills..."
+		default:
+			return "📦 Gerenciando skills..."
+		}
 
 	// ── Subagents ──
 	case "spawn_subagent":
@@ -956,9 +1008,17 @@ func (a *AgentRun) buildMessages(systemPrompt string, history []ConversationEntr
 			Content: entry.UserMessage,
 		})
 		if entry.AssistantResponse != "" {
+			content := entry.AssistantResponse
+			// Annotate with tool provenance so the LLM knows what was
+			// actually verified vs. inferred in previous turns.
+			// Uses XML tags to avoid the LLM mimicking the annotation
+			// as plain text in its own responses.
+			if entry.ToolSummary != "" {
+				content = "<tool_provenance>" + entry.ToolSummary + "</tool_provenance>\n" + content
+			}
 			messages = append(messages, chatMessage{
 				Role:    "assistant",
-				Content: entry.AssistantResponse,
+				Content: content,
 			})
 		}
 	}
@@ -1289,7 +1349,7 @@ func (a *AgentRun) maybeMemoryFlush(ctx context.Context, messages []chatMessage,
 }
 
 // estimateTokens provides a rough token estimate for a slice of messages.
-// Uses 4 chars per token as a rough approximation.
+// Uses model-aware chars-per-token ratio for more accurate estimation.
 func (a *AgentRun) estimateTokens(messages []chatMessage) int {
 	charCount := 0
 	for _, m := range messages {
@@ -1297,15 +1357,14 @@ func (a *AgentRun) estimateTokens(messages []chatMessage) int {
 		if s, ok := m.Content.(string); ok {
 			charCount += len(s)
 		} else if m.Content != nil {
-			// Try to stringify non-string content
 			charCount += len(fmt.Sprintf("%v", m.Content))
 		}
 		if m.ToolCallID != "" {
 			charCount += len(m.ToolCallID)
 		}
 	}
-	// Rough estimate: ~4 chars per token
-	return charCount / 4
+	ratio := charsPerToken(a.modelOverride)
+	return int(float64(charCount)/ratio + 0.5)
 }
 
 // getModelContextWindow returns the context window size for the current model.
@@ -1398,12 +1457,11 @@ func (a *AgentRun) managedCompaction(ctx context.Context, messages []chatMessage
 
 // persistCompactionSummary saves the compaction summary to session persistence.
 func (a *AgentRun) persistCompactionSummary(summary string, before, after int) {
-	if a.sessionPersistence == nil || summary == "" {
+	if a.sessionPersistence == nil || a.sessionID == "" || summary == "" {
 		return
 	}
 
-	// Create compaction entry for persistence
-	_ = CompactionEntry{
+	entry := CompactionEntry{
 		Type:           "compaction_summary",
 		Summary:        summary,
 		CompactedAt:    time.Now(),
@@ -1411,14 +1469,11 @@ func (a *AgentRun) persistCompactionSummary(summary string, before, after int) {
 		MessagesAfter:  after,
 	}
 
-	// We need a session ID - for now we'll skip if we can't determine it
-	// In a full implementation, we'd store the session ID in AgentRun
-	// For now, we'll just log it
-	a.logger.Debug("compaction summary generated", "summary_len", len(summary), "before", before, "after", after)
-
-	// Note: To fully implement this, the session ID needs to be passed to AgentRun
-	// The SessionPersister interface supports SaveCompaction but we need the session ID
-	// which isn't currently available in AgentRun
+	if err := a.sessionPersistence.SaveCompaction(a.sessionID, entry); err != nil {
+		a.logger.Warn("failed to persist compaction summary", "session", a.sessionID, "err", err)
+	} else {
+		a.logger.Debug("compaction summary persisted", "session", a.sessionID, "summary_len", len(summary), "before", before, "after", after)
+	}
 }
 
 // aggressiveCompaction is used when the context still overflows despite managed compaction.
@@ -1554,7 +1609,13 @@ func (a *AgentRun) summarizeMiddle(ctx context.Context, middle []chatMessage) st
 	prompt := []chatMessage{
 		{
 			Role:    "system",
-			Content: "You are a summarizing assistant. Your job is to read a truncated transcript of an agent's past actions and summarize what was attempted, what the results were, and what the current status is. Keep your summary extremely concise (max 3-4 sentences). Focus on facts, failures, and discoveries. NEVER use text formatting like bold or headers.",
+			Content: "You are a summarizing assistant. Your job is to read a truncated transcript of an agent's past actions " +
+				"and summarize what was attempted, what the results were, and what the current status is. " +
+				"Keep your summary extremely concise (max 3-4 sentences). " +
+				"Focus on CONFIRMED facts from tool results — do NOT speculate or invent outcomes. " +
+				"If a tool result was ambiguous or errored, say so explicitly. " +
+				"Do NOT assert that something was done successfully unless the tool result confirmed it. " +
+				"NEVER use text formatting like bold or headers.",
 		},
 		{
 			Role:    "user",

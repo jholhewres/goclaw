@@ -51,18 +51,24 @@ var BuiltInProfiles = map[string]ToolProfile{
 	},
 	"coding": {
 		Name:        "coding",
-		Description: "Software development - file access, git, docker, tests, reminders",
+		Description: "Software development - file access, git, docker, tests, skills, reminders",
 		Allow: []string{
 			"group:fs",
 			"group:web",
 			"group:memory",
 			"group:scheduler",
 			"group:vault",
+			"group:skills",
+			"group:sessions",
+			"group:subagents",
+			"group:daemon",
+			"group:media",
 			"bash",
 			"exec",
 			"git_*",
 			"docker_*",
 			"test_*",
+			"list_capabilities",
 		},
 		Deny: []string{
 			"ssh",
@@ -71,20 +77,22 @@ var BuiltInProfiles = map[string]ToolProfile{
 	},
 	"messaging": {
 		Name:        "messaging",
-		Description: "Chat channel usage - web search, memory, reminders, skills, and vault",
+		Description: "Chat channel usage - web, memory, reminders, skills (read-only), vault, media",
 		Allow: []string{
 			"group:web",
 			"group:memory",
 			"group:scheduler",
 			"group:vault",
 			"group:skills",
-			"list_skills",
-			"search_skills",
+			"group:sessions",
+			"group:media",
+			"list_capabilities",
 		},
 		Deny: []string{
 			"group:runtime",
 			"group:fs",
 			"group:subagents",
+			"group:daemon",
 			"bash",
 			"exec",
 		},
@@ -120,6 +128,52 @@ var BuiltInProfiles = map[string]ToolProfile{
 		Allow:       []string{"*"},
 		Deny:        []string{},
 	},
+}
+
+// InferProfileForChannel returns the default tool profile name for a channel.
+// Messaging channels (WhatsApp, Discord, Telegram, Slack) get "messaging"
+// to avoid exposing filesystem/runtime tools. WebUI and CLI get "full".
+func InferProfileForChannel(channel string) string {
+	switch strings.ToLower(channel) {
+	case "whatsapp", "discord", "telegram", "slack":
+		return "messaging"
+	case "webui", "cli":
+		return "full"
+	default:
+		return "full"
+	}
+}
+
+// ExtendProfileWithSkills creates a copy of the profile that also allows
+// tools from the given active skills. Skill tools follow the naming pattern
+// "skillname_toolname", so we add "skillname_*" wildcards to the allow list.
+// If the profile already allows all tools ("*"), returns it unchanged.
+func ExtendProfileWithSkills(base *ToolProfile, activeSkills []string) *ToolProfile {
+	if base == nil || len(activeSkills) == 0 {
+		return base
+	}
+
+	// If allow list already contains "*", no need to extend.
+	for _, a := range base.Allow {
+		if a == "*" {
+			return base
+		}
+	}
+
+	extended := ToolProfile{
+		Name:        base.Name,
+		Description: base.Description,
+		Allow:       make([]string, len(base.Allow), len(base.Allow)+len(activeSkills)),
+		Deny:        append([]string(nil), base.Deny...),
+	}
+	copy(extended.Allow, base.Allow)
+
+	for _, skill := range activeSkills {
+		sanitized := sanitizeToolName(skill)
+		extended.Allow = append(extended.Allow, sanitized+"_*")
+	}
+
+	return &extended
 }
 
 // ResolveProfile returns the allow and deny lists for a profile.
@@ -325,15 +379,15 @@ func InferToolCategory(name string) string {
 		return "Memory"
 
 	// Scheduling
-	case strings.HasPrefix(name, "cron_"):
+	case name == "scheduler" || strings.HasPrefix(name, "cron_"):
 		return "Scheduling"
 
 	// Vault/secrets
-	case strings.HasPrefix(name, "vault_"):
+	case name == "vault" || strings.HasPrefix(name, "vault_"):
 		return "Vault"
 
 	// Sessions/agents
-	case strings.HasPrefix(name, "sessions_") ||
+	case name == "sessions" || strings.HasPrefix(name, "sessions_") ||
 		strings.Contains(name, "subagent"):
 		return "Agents"
 
@@ -365,8 +419,12 @@ func InferToolCategory(name string) string {
 	case strings.HasPrefix(name, "team_"):
 		return "Team"
 
+	// Daemon management
+	case name == "daemon":
+		return "Daemon"
+
 	// Skills management
-	case strings.HasSuffix(name, "_skill") ||
+	case name == "skill_manage" || strings.HasSuffix(name, "_skill") ||
 		strings.Contains(name, "skill"):
 		return "Skills"
 

@@ -40,7 +40,7 @@ func sanitizeOutput(output string) string {
 	}
 	for _, pattern := range tokenPatterns {
 		re := regexp.MustCompile(`(?i)` + pattern)
-		output = re.ReplaceAllString(output, "$1 [SANITIZED]")
+		output = re.ReplaceAllString(output, "[SANITIZED]")
 	}
 
 	// Sanitize URLs with credentials (user:pass@host).
@@ -61,7 +61,7 @@ func sanitizeOutput(output string) string {
 // RegisterSystemTools registers all built-in system tools in the executor.
 // These are core tools available regardless of which skills are loaded.
 // If ssrfGuard is non-nil, web_fetch will validate URLs against SSRF rules.
-func RegisterSystemTools(executor *ToolExecutor, sandboxRunner *sandbox.Runner, memStore *memory.FileStore, sqliteStore *memory.SQLiteStore, memCfg MemoryConfig, sched *scheduler.Scheduler, dataDir string, ssrfGuard *security.SSRFGuard, vault *Vault, webSearchCfg WebSearchConfig, skillDB *SkillDB) {
+func RegisterSystemTools(executor *ToolExecutor, sandboxRunner *sandbox.Runner, memStore *memory.FileStore, sqliteStore *memory.SQLiteStore, memCfg MemoryConfig, sched *scheduler.Scheduler, dataDir string, ssrfGuard *security.SSRFGuard, vault *Vault, webSearchCfg WebSearchConfig, skillDB *SkillDB, gatewayCfg GatewayConfig, toolGuardCfg ToolGuardConfig) {
 	registerWebSearchTool(executor, webSearchCfg)
 	registerWebFetchTool(executor, ssrfGuard)
 	registerFileTools(executor, dataDir)
@@ -82,12 +82,21 @@ func RegisterSystemTools(executor *ToolExecutor, sandboxRunner *sandbox.Runner, 
 	}
 
 	if sched != nil {
-		registerCronTools(executor, sched, skillDB)
+		RegisterSchedulerDispatcher(executor, sched, skillDB)
 	}
 
-	if vault != nil && vault.IsUnlocked() {
-		registerVaultTools(executor, vault)
+	if vault != nil {
+		RegisterVaultDispatcher(executor, vault)
 	}
+
+	registerSecurityAuditTool(executor, SecurityAuditToolConfig{
+		DataDir:       dataDir,
+		Vault:         vault,
+		SSRFGuard:     ssrfGuard,
+		GatewayConfig: gatewayCfg,
+		AllowSudo:     toolGuardCfg.AllowSudo,
+		EmbeddingCfg:  memCfg.Embedding,
+	})
 
 	// Register Google API tool for accessing Gmail, Calendar, Drive, etc.
 	// This tool requires OAuth profiles to be configured via auth_profile_add.
@@ -450,7 +459,7 @@ func registerBashTool(executor *ToolExecutor) {
 
 	// bash — full access command execution inheriting the user's environment.
 	executor.Register(
-		MakeToolDefinition("bash", "Execute a shell command with full system access. Use for git, docker, npm, system administration, or any shell operation. Working directory persists between calls.", map[string]any{
+		MakeToolDefinition("bash", "Execute a shell command. Working directory persists between calls.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{
@@ -1290,506 +1299,10 @@ func (c *osExecCmd) CombinedOutput() ([]byte, error) {
 
 // ---------- Cron / Scheduler Tools ----------
 
-func registerCronTools(executor *ToolExecutor, sched *scheduler.Scheduler, skillDB *SkillDB) {
-	// cron_add
-	executor.Register(
-		MakeToolDefinition("cron_add", "Schedule a task. Use type='at' for ONE-TIME tasks (reminders, delayed messages). Use type='every' or 'cron' ONLY for RECURRING tasks.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"id": map[string]any{
-					"type":        "string",
-					"description": "Unique identifier for this job",
-				},
-				"schedule": map[string]any{
-					"type":        "string",
-					"description": "For type='at': relative duration ('5m','1h') or absolute time ('14:30','2026-01-15 09:00'). For type='every': interval ('5m','1h'). For type='cron': cron expression ('0 9 * * *').",
-				},
-				"type": map[string]any{
-					"type":        "string",
-					"description": "IMPORTANT: 'at' = fires ONCE then auto-removes (use for reminders, delayed tasks). 'every' = fires REPEATEDLY at interval (use for recurring checks). 'cron' = fires by cron schedule (use for daily/weekly tasks).",
-					"enum":        []string{"cron", "every", "at"},
-				},
-				"command": map[string]any{
-					"type":        "string",
-					"description": "The prompt/command to execute when the job fires",
-				},
-				"channel": map[string]any{
-					"type":        "string",
-					"description": "Target channel for the response (e.g. 'whatsapp')",
-				},
-				"chat_id": map[string]any{
-					"type":        "string",
-					"description": "Target chat/group ID for the response",
-				},
-			},
-			"required": []string{"id", "schedule", "command"},
-		}),
-		func(ctx context.Context, args map[string]any) (any, error) {
-			id, _ := args["id"].(string)
-			schedule, _ := args["schedule"].(string)
-			jobType, _ := args["type"].(string)
-			command, _ := args["command"].(string)
-			channel, _ := args["channel"].(string)
-			chatID, _ := args["chat_id"].(string)
-
-			if id == "" || schedule == "" || command == "" {
-				return nil, fmt.Errorf("id, schedule, and command are required")
-			}
-			if jobType == "" {
-				jobType = "cron"
-			}
-
-			// Auto-fill channel/chatID from the context-propagated delivery target.
-			// This is goroutine-safe: each agent run carries its own context
-			// with the delivery target (channel + chatID) set separately from
-			// the opaque session ID.
-			if channel == "" || chatID == "" {
-				dt := DeliveryTargetFromContext(ctx)
-				if dt.Channel != "" && channel == "" {
-					channel = dt.Channel
-				}
-				if dt.ChatID != "" && chatID == "" {
-					chatID = dt.ChatID
-				}
-			}
-
-			job := &scheduler.Job{
-				ID:       id,
-				Schedule: schedule,
-				Type:     jobType,
-				Command:  command,
-				Channel:  channel,
-				ChatID:   chatID,
-				Enabled:  true,
-			}
-
-			if err := sched.Add(job); err != nil {
-				return nil, err
-			}
-
-			// Save reminder to tracking table (for search/history)
-			if skillDB != nil {
-				if err := skillDB.SaveReminder(id, jobType, schedule, command, channel, chatID); err != nil {
-					// Log error but don't fail - the job was already scheduled
-					// This is a best-effort tracking mechanism
-				}
-			}
-
-			return fmt.Sprintf("Job '%s' scheduled: %s (%s) → %s:%s", id, schedule, jobType, channel, chatID), nil
-		},
-	)
-
-	// cron_list
-	executor.Register(
-		MakeToolDefinition("cron_list", "List all scheduled jobs/tasks.", map[string]any{
-			"type":                 "object",
-			"properties":           map[string]any{},
-			"additionalProperties": false,
-		}),
-		func(_ context.Context, _ map[string]any) (any, error) {
-			jobs := sched.List()
-			if len(jobs) == 0 {
-				return "No scheduled jobs.", nil
-			}
-
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("Scheduled jobs (%d):\n\n", len(jobs)))
-			for _, j := range jobs {
-				status := "enabled"
-				if !j.Enabled {
-					status = "disabled"
-				}
-				sb.WriteString(fmt.Sprintf("- **%s** [%s] schedule=%s type=%s\n  Command: %s\n  Runs: %d",
-					j.ID, status, j.Schedule, j.Type, j.Command, j.RunCount))
-				if j.LastRunAt != nil {
-					sb.WriteString(fmt.Sprintf("  Last run: %s", j.LastRunAt.Format("2006-01-02 15:04")))
-				}
-				if j.LastError != "" {
-					sb.WriteString(fmt.Sprintf("  Last error: %s", j.LastError))
-				}
-				sb.WriteString("\n")
-			}
-			return sb.String(), nil
-		},
-	)
-
-	// cron_remove
-	executor.Register(
-		MakeToolDefinition("cron_remove", "Remove a scheduled job by its ID. IMPORTANT: Only use when the user explicitly asks to remove/delete a specific job. Do NOT remove multiple jobs without explicit user confirmation for each.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"id": map[string]any{
-					"type":        "string",
-					"description": "The job ID to remove",
-				},
-				"confirm": map[string]any{
-					"type":        "boolean",
-					"description": "Set to true to confirm removal. Required for safety.",
-				},
-			},
-			"required": []string{"id", "confirm"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			id, _ := args["id"].(string)
-			confirm, _ := args["confirm"].(bool)
-			if id == "" {
-				return nil, fmt.Errorf("id is required")
-			}
-			if !confirm {
-				return nil, fmt.Errorf("removal not confirmed. Set confirm=true to remove job '%s'", id)
-			}
-			if err := sched.Remove(id); err != nil {
-				return nil, err
-			}
-
-			// Mark reminder as removed in tracking table (for search/history)
-			if skillDB != nil {
-				if err := skillDB.MarkReminderRemoved(id); err != nil {
-					// Log error but don't fail - the job was already removed
-				}
-			}
-
-			return fmt.Sprintf("Job '%s' removed.", id), nil
-		},
-	)
-
-	// reminder_search - search for reminders (including removed ones)
-	if skillDB != nil {
-		executor.Register(
-			MakeToolDefinition("reminder_search", "Search for reminders by keyword. Use this when user asks about past or current reminders. Returns reminders from the tracking database (includes removed ones for history).", map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "Search query (searches in command and job_id). Leave empty to list all.",
-					},
-					"include_removed": map[string]any{
-						"type":        "boolean",
-						"description": "Include removed reminders in results (default: false)",
-					},
-					"limit": map[string]any{
-						"type":        "integer",
-						"description": "Maximum results (default: 20, max: 100)",
-					},
-				},
-			}),
-			func(_ context.Context, args map[string]any) (any, error) {
-				query, _ := args["query"].(string)
-				includeRemoved, _ := args["include_removed"].(bool)
-				limit := 20
-				if l, ok := args["limit"].(float64); ok {
-					limit = int(l)
-				}
-
-				reminders, err := skillDB.SearchReminders(query, includeRemoved, limit)
-				if err != nil {
-					return nil, fmt.Errorf("search reminders: %w", err)
-				}
-
-				if len(reminders) == 0 {
-					if query != "" {
-						return fmt.Sprintf("No reminders found matching '%s'.", query), nil
-					}
-					return "No reminders found.", nil
-				}
-
-				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("Reminders found (%d):\n\n", len(reminders)))
-				for _, r := range reminders {
-					status := r.Status
-					if status == "removed" {
-						status = "removed ✓"
-					}
-					sb.WriteString(fmt.Sprintf("- **%s** [%s] type=%s\n  Schedule: %s\n  Command: %s\n  Created: %s\n",
-						r.JobID, status, r.JobType, r.Schedule, r.Command, r.CreatedAt))
-					if r.RemovedAt != "" {
-						sb.WriteString(fmt.Sprintf("  Removed: %s\n", r.RemovedAt))
-					}
-					sb.WriteString("\n")
-				}
-				return sb.String(), nil
-			},
-		)
-	}
-}
-
-// ---------- Vault Tools ----------
-
-func registerVaultTools(executor *ToolExecutor, vault *Vault) {
-	// vault_save — store a secret in the encrypted vault.
-	executor.Register(
-		MakeToolDefinition("vault_save", "Store a secret securely (API keys, tokens, passwords). AES-256-GCM encrypted. IMPORTANT: Automatically overwrites - NO need to delete before saving.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Secret name/key - any descriptive name (e.g. 'OPENAI_API_KEY', 'DATABASE_URL', 'GITHUB_TOKEN')",
-				},
-				"value": map[string]any{
-					"type":        "string",
-					"description": "The secret value to store securely",
-				},
-			},
-			"required": []string{"name", "value"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			name, _ := args["name"].(string)
-			value, _ := args["value"].(string)
-			if name == "" || value == "" {
-				return nil, fmt.Errorf("name and value are required")
-			}
-			if err := vault.Set(name, value); err != nil {
-				return nil, fmt.Errorf("failed to save to vault: %w", err)
-			}
-			return fmt.Sprintf("Secret '%s' saved to encrypted vault.", name), nil
-		},
-	)
-
-	// vault_get — retrieve a secret from the encrypted vault.
-	executor.Register(
-		MakeToolDefinition("vault_get", "Retrieve a stored secret by name. Returns empty if not found. Use vault_list to see available keys.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Secret name/key to retrieve",
-				},
-			},
-			"required": []string{"name"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			name, _ := args["name"].(string)
-			if name == "" {
-				return nil, fmt.Errorf("name is required")
-			}
-			val, err := vault.Get(name)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read from vault: %w", err)
-			}
-			if val == "" {
-				return fmt.Sprintf("Secret '%s' not found in vault.", name), nil
-			}
-			return val, nil
-		},
-	)
-
-	// vault_list — list all secret names in the vault (without values).
-	executor.Register(
-		MakeToolDefinition("vault_list", "List all secret names in the vault. Shows names only, never values.", map[string]any{
-			"type":                 "object",
-			"properties":           map[string]any{},
-			"additionalProperties": false,
-		}),
-		func(_ context.Context, _ map[string]any) (any, error) {
-			names := vault.List()
-			if len(names) == 0 {
-				return "Vault is empty.", nil
-			}
-			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("Vault contains %d secrets:\n", len(names)))
-			for _, name := range names {
-				sb.WriteString(fmt.Sprintf("- %s\n", name))
-			}
-			return sb.String(), nil
-		},
-	)
-
-	// vault_delete — remove a secret from the vault.
-	executor.Register(
-		MakeToolDefinition("vault_delete", "Permanently remove a secret. Use ONLY when user explicitly asks to delete. NEVER delete before vault_save (it overwrites automatically).", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name": map[string]any{
-					"type":        "string",
-					"description": "Secret name/key to delete",
-				},
-			},
-			"required": []string{"name"},
-		}),
-		func(_ context.Context, args map[string]any) (any, error) {
-			name, _ := args["name"].(string)
-			if name == "" {
-				return nil, fmt.Errorf("name is required")
-			}
-			if err := vault.Delete(name); err != nil {
-				return nil, fmt.Errorf("failed to delete from vault: %w", err)
-			}
-			return fmt.Sprintf("Secret '%s' removed from vault.", name), nil
-		},
-	)
-}
-
-// ─── Session Management Tools ───
-
-// RegisterSessionTools registers sessions_list and sessions_send in the executor.
-// These tools enable multi-agent routing: agents can discover other sessions and
-// send messages to them, enabling inter-agent communication.
-func RegisterSessionTools(executor *ToolExecutor, wm *WorkspaceManager) {
-	if wm == nil {
-		return
-	}
-
-	// sessions_list — List active sessions across all workspaces.
-	executor.Register(
-		MakeToolDefinition("sessions_list",
-			"List active chat sessions. Shows session IDs, channels, message counts, and "+
-				"last activity. Use to discover sessions for inter-agent communication or "+
-				"to understand the current conversation landscape.",
-			map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"channel_filter": map[string]any{
-						"type":        "string",
-						"description": "Filter by channel name (e.g. 'whatsapp', 'webui'). Empty = all.",
-					},
-				},
-			},
-		),
-		func(_ context.Context, args map[string]any) (any, error) {
-			channelFilter, _ := args["channel_filter"].(string)
-
-			allSessions := wm.ListAllSessions()
-			if len(allSessions) == 0 {
-				return "No active sessions.", nil
-			}
-
-			var b strings.Builder
-			count := 0
-			for _, info := range allSessions {
-				if channelFilter != "" && info.Channel != channelFilter {
-					continue
-				}
-				ago := time.Since(info.LastActiveAt).Round(time.Second)
-				b.WriteString(fmt.Sprintf("- [%s] %s (id: %s, ws: %s) — %d msgs — last active: %s ago\n",
-					info.Channel, info.ChatID, info.ID, info.WorkspaceID, info.MessageCount, ago))
-				count++
-			}
-
-			if count == 0 {
-				return fmt.Sprintf("No sessions found for channel '%s'.", channelFilter), nil
-			}
-
-			return fmt.Sprintf("Active sessions (%d):\n%s", count, b.String()), nil
-		},
-	)
-
-	// sessions_delete — Delete a session by ID.
-	executor.Register(
-		MakeToolDefinition("sessions_delete",
-			"Delete a chat session by its ID. Use with caution — this removes all conversation "+
-				"history for the session. Useful for cleaning up test sessions or stale conversations.",
-			map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"session_id": map[string]any{
-						"type":        "string",
-						"description": "The session ID to delete (from sessions_list).",
-					},
-				},
-				"required": []string{"session_id"},
-			},
-		),
-		func(_ context.Context, args map[string]any) (any, error) {
-			sessionID, _ := args["session_id"].(string)
-			if sessionID == "" {
-				return nil, fmt.Errorf("session_id is required")
-			}
-			if wm.DeleteSessionByID(sessionID) {
-				return fmt.Sprintf("Session %s deleted.", sessionID), nil
-			}
-			return nil, fmt.Errorf("session %q not found", sessionID)
-		},
-	)
-
-	// sessions_export — Export a session's full history as JSON.
-	executor.Register(
-		MakeToolDefinition("sessions_export",
-			"Export a session's complete history and metadata as structured data. "+
-				"Useful for backup, analysis, or transferring context to another agent.",
-			map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"session_id": map[string]any{
-						"type":        "string",
-						"description": "The session ID to export (from sessions_list).",
-					},
-				},
-				"required": []string{"session_id"},
-			},
-		),
-		func(_ context.Context, args map[string]any) (any, error) {
-			sessionID, _ := args["session_id"].(string)
-			if sessionID == "" {
-				return nil, fmt.Errorf("session_id is required")
-			}
-			export := wm.ExportSession(sessionID)
-			if export == nil {
-				return nil, fmt.Errorf("session %q not found", sessionID)
-			}
-			data, err := json.Marshal(export)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal export: %w", err)
-			}
-			// Truncate if too large for context.
-			result := string(data)
-			if len(result) > 20000 {
-				result = result[:20000] + "\n... (truncated, export too large)"
-			}
-			return result, nil
-		},
-	)
-
-	// sessions_send — Send a message to another session (inter-agent communication).
-	executor.Register(
-		MakeToolDefinition("sessions_send",
-			"Send a message to another session by its ID. Use this for inter-agent "+
-				"communication: notifying other sessions about results, forwarding information, "+
-				"or requesting collaboration between agents.",
-			map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"session_id": map[string]any{
-						"type":        "string",
-						"description": "The target session ID (from sessions_list).",
-					},
-					"message": map[string]any{
-						"type":        "string",
-						"description": "The message to inject into the target session.",
-					},
-					"sender_label": map[string]any{
-						"type":        "string",
-						"description": "A label identifying the sender (e.g. 'research-agent', 'main'). Shown in the target session.",
-					},
-				},
-				"required": []string{"session_id", "message"},
-			},
-		),
-		func(_ context.Context, args map[string]any) (any, error) {
-			sessionID, _ := args["session_id"].(string)
-			message, _ := args["message"].(string)
-			senderLabel, _ := args["sender_label"].(string)
-			if sessionID == "" || message == "" {
-				return nil, fmt.Errorf("session_id and message are required")
-			}
-			if senderLabel == "" {
-				senderLabel = "agent"
-			}
-
-			session := wm.FindSessionByID(sessionID)
-			if session == nil {
-				return nil, fmt.Errorf("session %q not found", sessionID)
-			}
-
-			// Inject the message as a system entry in the target session's history.
-			session.AddMessage(
-				fmt.Sprintf("[Inter-agent message from %s]: %s", senderLabel, message),
-				"",
-			)
-
-			return fmt.Sprintf("Message delivered to session %s (channel: %s).", sessionID, session.Channel), nil
-		},
-	)
-}
+// registerCronTools, registerVaultTools, and RegisterSessionTools have been
+// replaced by RegisterSchedulerDispatcher (scheduler_tools.go),
+// RegisterVaultDispatcher (vault_tools.go), and RegisterSessionsDispatcher
+// (session_tools.go) respectively.
 
 // ---------- Capabilities Discovery Tool ----------
 
@@ -1844,7 +1357,7 @@ func registerCapabilitiesTool(executor *ToolExecutor) {
 						continue
 					}
 					// Get tool names for this category
-					names := make([]string, 1, len(categories[cat]))
+					names := make([]string, 0, len(categories[cat]))
 					for _, tool := range categories[cat] {
 						names = append(names, tool.Function.Name)
 					}
@@ -1853,13 +1366,72 @@ func registerCapabilitiesTool(executor *ToolExecutor) {
 			}
 
 			if filter == "skills" || filter == "all" {
-				sb.WriteString("**Skills**: Use list_skills to discover available skills.\n\n")
+				sb.WriteString("**Skills**: Use skill_manage (action=list) to discover available skills.\n\n")
 			}
 
 			sb.WriteString(fmt.Sprintf("Total: %d tools\n", len(executor.Tools())))
 			sb.WriteString("Use tools directly. Errors show expected parameters if unsure.\n")
 
 			return sb.String(), nil
+		},
+	)
+}
+
+// ---------- Security Audit ----------
+
+// SecurityAuditToolConfig holds static config for the security_audit tool.
+type SecurityAuditToolConfig struct {
+	DataDir       string
+	Vault         *Vault
+	SSRFGuard     *security.SSRFGuard
+	GatewayConfig GatewayConfig
+	AllowSudo     bool
+	EmbeddingCfg  memory.EmbeddingConfig
+}
+
+func registerSecurityAuditTool(executor *ToolExecutor, cfg SecurityAuditToolConfig) {
+	executor.Register(
+		MakeToolDefinition("security_audit", "Run a security audit checking for misconfigurations, exposed secrets, and security gaps.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}),
+		func(ctx context.Context, args map[string]any) (any, error) {
+			opts := security.AuditOptions{
+				SSRFEnabled: cfg.SSRFGuard != nil,
+			}
+
+			// Populate vault info.
+			if cfg.Vault != nil {
+				opts.VaultPath = cfg.Vault.Path()
+				opts.VaultConfigured = cfg.Vault.Exists()
+			}
+
+			// Populate paths relative to dataDir.
+			if cfg.DataDir != "" {
+				opts.ConfigPath = filepath.Join(cfg.DataDir, "config.yaml")
+				opts.SessionsDir = filepath.Join(cfg.DataDir, "sessions")
+			}
+
+			// Gateway config.
+			opts.GatewayEnabled = cfg.GatewayConfig.Enabled
+			opts.GatewayBind = cfg.GatewayConfig.Address
+			opts.GatewayAuth = cfg.GatewayConfig.AuthToken != ""
+			opts.CORSOrigins = cfg.GatewayConfig.CORSOrigins
+
+			// Security settings.
+			opts.SudoAllowed = cfg.AllowSudo
+
+			// Embedding config.
+			opts.EmbeddingProvider = cfg.EmbeddingCfg.Provider
+			opts.EmbeddingAPIKey = cfg.EmbeddingCfg.APIKey
+
+			report := security.RunSecurityAudit(opts)
+
+			result, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return nil, fmt.Errorf("marshal audit report: %w", err)
+			}
+			return string(result), nil
 		},
 	)
 }

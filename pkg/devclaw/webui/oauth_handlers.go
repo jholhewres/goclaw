@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -40,6 +41,13 @@ type oauthFlowResult struct {
 	err  error
 }
 
+// HubConfig holds OAuth Hub configuration for Hub mode.
+type HubConfig struct {
+	Enabled bool
+	HubURL  string
+	APIKey  string
+}
+
 // OAuthHandlers manages OAuth-related HTTP handlers.
 type OAuthHandlers struct {
 	tokenManager *oauth.TokenManager
@@ -49,6 +57,9 @@ type OAuthHandlers struct {
 	flows   map[string]*oauthFlow // state -> flow
 
 	dataDir string
+
+	// Hub mode: delegate to OAuth Hub for Google Workspace services
+	hubConfig *HubConfig
 }
 
 // NewOAuthHandlers creates new OAuth handlers.
@@ -80,6 +91,11 @@ func (h *OAuthHandlers) TokenManager() *oauth.TokenManager {
 	return h.tokenManager
 }
 
+// SetHubConfig enables Hub mode for OAuth operations.
+func (h *OAuthHandlers) SetHubConfig(cfg *HubConfig) {
+	h.hubConfig = cfg
+}
+
 // Stop stops the OAuth handlers.
 func (h *OAuthHandlers) Stop() {
 	if h.tokenManager != nil {
@@ -102,6 +118,11 @@ func (h *OAuthHandlers) RegisterRoutes(mux *http.ServeMux, authMiddleware func(h
 	// Google OAuth credentials configuration (HTML page + API)
 	mux.HandleFunc("/oauth/google/setup", authMiddleware(h.handleGoogleSetupPage))
 	mux.HandleFunc("/api/oauth/google/credentials", authMiddleware(h.handleGoogleCredentials))
+
+	// Hub mode routes
+	mux.HandleFunc("/api/oauth/hub/start/", authMiddleware(h.handleHubStart))
+	mux.HandleFunc("/api/oauth/hub/status/", authMiddleware(h.handleHubStatus))
+	mux.HandleFunc("/api/oauth/hub/connections", authMiddleware(h.handleHubConnections))
 }
 
 // OAuthProviderInfo contains provider info for the UI.
@@ -183,6 +204,11 @@ func (h *OAuthHandlers) handleOAuthStart(w http.ResponseWriter, r *http.Request)
 			providers.NewMiniMaxProvider(providers.WithMiniMaxRegion(region)))
 	case "google", "google-gmail", "google-calendar", "google-drive", "google-sheets",
 		"google-docs", "google-slides", "google-contacts", "google-tasks", "google-people":
+		// Hub mode: delegate to OAuth Hub for Google Workspace services
+		if h.hubConfig != nil && h.hubConfig.Enabled {
+			h.startHubFlow(w, r, provider)
+			return
+		}
 		// Google Workspace services - use PKCE OAuth flow
 		h.startGoogleWorkspacePKCEFlow(ctx, w, r, provider)
 	default:
@@ -888,6 +914,136 @@ func (h *OAuthHandlers) cleanupExpiredFlows() {
 			delete(h.flows, state)
 		}
 	}
+}
+
+// --- Hub mode handlers ---
+
+// startHubFlow starts an OAuth flow via the Hub for Google Workspace providers.
+func (h *OAuthHandlers) startHubFlow(w http.ResponseWriter, r *http.Request, provider string) {
+	service := getServiceFromProvider(provider)
+
+	// Call Hub to start connection
+	hubResp, err := h.hubRequest("POST", "/api/v1/connect/start", map[string]any{
+		"provider": "google",
+		"service":  service,
+	})
+	if err != nil {
+		writeOAuthError(w, http.StatusBadGateway, "hub connection failed: "+err.Error())
+		return
+	}
+	defer hubResp.Body.Close()
+
+	if hubResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(hubResp.Body)
+		writeOAuthError(w, hubResp.StatusCode, "hub error: "+string(body))
+		return
+	}
+
+	var session struct {
+		SessionID  string `json:"session_id"`
+		ConnectURL string `json:"connect_url"`
+		ExpiresIn  int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(hubResp.Body).Decode(&session); err != nil {
+		writeOAuthError(w, http.StatusInternalServerError, "invalid hub response")
+		return
+	}
+
+	writeOAuthJSON(w, http.StatusOK, OAuthStartResponse{
+		FlowType: "hub",
+		AuthURL:  session.ConnectURL,
+		Provider: provider,
+	})
+}
+
+// handleHubStart starts a connection flow via the Hub (alternative endpoint).
+func (h *OAuthHandlers) handleHubStart(w http.ResponseWriter, r *http.Request) {
+	if h.hubConfig == nil || !h.hubConfig.Enabled {
+		writeOAuthError(w, http.StatusBadRequest, "hub mode not enabled")
+		return
+	}
+
+	provider := strings.TrimPrefix(r.URL.Path, "/api/oauth/hub/start/")
+	if provider == "" {
+		writeOAuthError(w, http.StatusBadRequest, "provider required")
+		return
+	}
+
+	h.startHubFlow(w, r, provider)
+}
+
+// handleHubStatus checks the status of a Hub OAuth session.
+func (h *OAuthHandlers) handleHubStatus(w http.ResponseWriter, r *http.Request) {
+	if h.hubConfig == nil || !h.hubConfig.Enabled {
+		writeOAuthError(w, http.StatusBadRequest, "hub mode not enabled")
+		return
+	}
+
+	sessionID := strings.TrimPrefix(r.URL.Path, "/api/oauth/hub/status/")
+	if sessionID == "" {
+		writeOAuthError(w, http.StatusBadRequest, "session_id required")
+		return
+	}
+
+	hubResp, err := h.hubRequest("GET", "/api/v1/connect/status/"+sessionID, nil)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadGateway, "hub connection failed: "+err.Error())
+		return
+	}
+	defer hubResp.Body.Close()
+
+	body, _ := io.ReadAll(hubResp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(hubResp.StatusCode)
+	w.Write(body)
+}
+
+// handleHubConnections lists connections from the Hub.
+func (h *OAuthHandlers) handleHubConnections(w http.ResponseWriter, r *http.Request) {
+	if h.hubConfig == nil || !h.hubConfig.Enabled {
+		writeOAuthError(w, http.StatusBadRequest, "hub mode not enabled")
+		return
+	}
+
+	hubResp, err := h.hubRequest("GET", "/api/v1/connections", nil)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadGateway, "hub connection failed: "+err.Error())
+		return
+	}
+	defer hubResp.Body.Close()
+
+	body, _ := io.ReadAll(hubResp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(hubResp.StatusCode)
+	w.Write(body)
+}
+
+// hubRequest makes an authenticated HTTP request to the Hub.
+func (h *OAuthHandlers) hubRequest(method, path string, body any) (*http.Response, error) {
+	if h.hubConfig == nil {
+		return nil, fmt.Errorf("hub not configured")
+	}
+
+	var bodyReader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		bodyReader = strings.NewReader(string(data))
+	}
+
+	url := strings.TrimRight(h.hubConfig.HubURL, "/") + path
+	req, err := http.NewRequest(method, url, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+h.hubConfig.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	return client.Do(req)
 }
 
 // Helper functions

@@ -525,9 +525,15 @@ func (c *LLMClient) applyModelDefaults(req *chatRequest) {
 	}
 
 	// Prompt caching: mark system messages with cache_control for supported providers.
-	// Anthropic and Z.AI (anthropic proxy) support prompt caching via cache_control.
+	// Anthropic and Z.AI (anthropic proxy) support it natively.
+	// OpenRouter passes cache_control through to Anthropic backends when the model
+	// is a Claude model — the field is forwarded in the API request as-is.
 	if c.supportsCacheControl() {
 		c.applyPromptCaching(req)
+		if c.provider == "openrouter" {
+			c.logger.Debug("prompt caching applied via OpenRouter pass-through",
+				"model", c.model)
+		}
 	}
 
 	// Z.AI tool_stream: enable real-time tool call streaming by default.
@@ -540,14 +546,26 @@ func (c *LLMClient) applyModelDefaults(req *chatRequest) {
 	}
 }
 
-// supportsCacheControl returns true if the provider supports prompt caching.
+// supportsCacheControl returns true if the provider supports prompt caching
+// via the cache_control message field.
+// - Anthropic and Z.AI-Anthropic always support it natively.
+// - OpenRouter supports it as a pass-through when routing to an Anthropic model;
+//   the cache_control field is forwarded in the request body to the upstream backend.
 func (c *LLMClient) supportsCacheControl() bool {
 	switch c.provider {
 	case "anthropic", "zai-anthropic":
 		return true
+	case "openrouter":
+		return isAnthropicModel(c.model)
 	default:
 		return false
 	}
+}
+
+// isAnthropicModel returns true if the model name indicates an Anthropic Claude model.
+func isAnthropicModel(model string) bool {
+	lower := strings.ToLower(model)
+	return strings.Contains(lower, "claude") || strings.Contains(lower, "anthropic")
 }
 
 // isZAI returns true if the provider is Z.AI (GLM or Z.AI coding).
@@ -598,16 +616,38 @@ func (c *LLMClient) paramBool(key string) bool {
 	}
 }
 
-// applyPromptCaching marks the system message and last user message with
-// cache_control for providers that support prompt caching. This allows the
-// provider to cache the system prompt across requests, reducing costs by up to
-// 90% for repeated conversations with the same system prompt.
+// paramString reads a string parameter from the provider params map.
+func (c *LLMClient) paramString(key string) string {
+	if c.params == nil {
+		return ""
+	}
+	v, ok := c.params[key]
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
+}
+
+// applyPromptCaching marks messages with cache_control for providers that
+// support prompt caching. Reduces costs by up to 90% for repeated conversations.
+//
+// Behavior controlled by the "cache_retention" param:
+//   - "none": skip caching entirely
+//   - "short" (default): cache system prompt + second-to-last user message
+//   - "long": cache system prompt + earliest user messages for deeper prefix caching
 func (c *LLMClient) applyPromptCaching(req *chatRequest) {
 	if len(req.Messages) == 0 {
 		return
 	}
 
-	// Mark the system message as cacheable (it rarely changes).
+	// Check cache_retention param.
+	retention := c.paramString("cache_retention")
+	if retention == "none" {
+		return
+	}
+
+	// Always cache the system message (it rarely changes).
 	for i := range req.Messages {
 		if req.Messages[i].Role == "system" {
 			req.Messages[i].CacheControl = &cacheControl{Type: "ephemeral"}
@@ -615,13 +655,24 @@ func (c *LLMClient) applyPromptCaching(req *chatRequest) {
 		}
 	}
 
-	// Mark the last user message as a cache breakpoint.
+	if retention == "long" {
+		// Long retention: also mark the first user message as a cache breakpoint.
+		// This creates a deep cache prefix covering system + initial context.
+		for i := range req.Messages {
+			if req.Messages[i].Role == "user" {
+				req.Messages[i].CacheControl = &cacheControl{Type: "ephemeral"}
+				break
+			}
+		}
+	}
+
+	// Default ("short"): mark second-to-last user message as a cache breakpoint.
 	// This creates a two-tier cache: stable system prompt + recent conversation prefix.
 	userCount := 0
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		if req.Messages[i].Role == "user" {
 			userCount++
-			if userCount == 2 { // second-to-last user message = good breakpoint
+			if userCount == 2 {
 				req.Messages[i].CacheControl = &cacheControl{Type: "ephemeral"}
 				break
 			}

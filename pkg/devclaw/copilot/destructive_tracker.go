@@ -15,7 +15,8 @@ type DestructiveToolsConfig struct {
 	Enabled bool `yaml:"enabled"`
 
 	// Tools lists tool names that are considered destructive.
-	// Default: ["cron_remove", "vault_delete", "sessions_delete"]
+	// With dispatcher consolidation, destructive actions are sub-actions
+	// within dispatchers; action-level protection is in each dispatcher handler.
 	Tools []string `yaml:"tools"`
 
 	// RateLimitPerMinute is the maximum number of calls per tool per minute.
@@ -40,7 +41,7 @@ type DestructiveToolsConfig struct {
 func DefaultDestructiveToolsConfig() DestructiveToolsConfig {
 	return DestructiveToolsConfig{
 		Enabled:                        true,
-		Tools:                          []string{"cron_remove", "vault_delete", "sessions_delete"},
+		Tools:                          []string{},
 		RateLimitPerMinute:             3,
 		BatchThreshold:                 3,
 		RequireInteractiveConfirmation: false,
@@ -89,9 +90,8 @@ func NewDestructiveTracker(cfg DestructiveToolsConfig, logger *slog.Logger) *Des
 	if cfg.CooldownSeconds <= 0 {
 		cfg.CooldownSeconds = 5
 	}
-	if len(cfg.Tools) == 0 {
-		cfg.Tools = []string{"cron_remove", "vault_delete", "sessions_delete"}
-	}
+	// No default destructive tools after dispatcher consolidation.
+	// Destructive actions are now sub-actions within dispatchers.
 
 	return &DestructiveTracker{
 		config:    cfg,

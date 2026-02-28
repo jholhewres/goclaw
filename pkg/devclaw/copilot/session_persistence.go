@@ -132,11 +132,15 @@ func (p *SessionPersistence) SaveEntry(sessionID string, entry ConversationEntry
 		}
 	}()
 
+	meta := map[string]interface{}{}
+	if entry.ToolSummary != "" {
+		meta["tool_summary"] = entry.ToolSummary
+	}
 	je := jsonlEntry{
 		TS:        entry.Timestamp.UTC().Format(time.RFC3339),
 		User:      entry.UserMessage,
 		Assistant: entry.AssistantResponse,
-		Meta:      map[string]interface{}{},
+		Meta:      meta,
 	}
 	data, err := json.Marshal(je)
 	if err != nil {
@@ -341,11 +345,20 @@ func (p *SessionPersistence) readJSONL(path string) ([]ConversationEntry, error)
 			p.logger.Warn("skip invalid jsonl line", "path", path, "line", line, "err", err)
 			continue
 		}
+		// Skip compaction summary entries — they are metadata, not conversation.
+		if typeVal, _ := je.Meta["type"].(string); typeVal == "compaction_summary" {
+			continue
+		}
 		ts, _ := time.Parse(time.RFC3339, je.TS)
+		var toolSummary string
+		if tsVal, ok := je.Meta["tool_summary"].(string); ok {
+			toolSummary = tsVal
+		}
 		entries = append(entries, ConversationEntry{
 			UserMessage:       je.User,
 			AssistantResponse: je.Assistant,
 			Timestamp:         ts,
+			ToolSummary:       toolSummary,
 		})
 	}
 	if err := scanner.Err(); err != nil {
@@ -460,11 +473,15 @@ func (p *SessionPersistence) Rotate(sessionID string, maxLines int) error {
 	defer f.Close()
 
 	for _, e := range keep {
+		meta := map[string]interface{}{}
+		if e.ToolSummary != "" {
+			meta["tool_summary"] = e.ToolSummary
+		}
 		je := jsonlEntry{
 			TS:        e.Timestamp.UTC().Format(time.RFC3339),
 			User:      e.UserMessage,
 			Assistant: e.AssistantResponse,
-			Meta:      map[string]interface{}{},
+			Meta:      meta,
 		}
 		data, _ := json.Marshal(je)
 		if _, err := f.Write(append(data, '\n')); err != nil {

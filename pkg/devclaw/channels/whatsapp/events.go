@@ -216,10 +216,10 @@ func (w *WhatsApp) handleLoggedOut(evt *events.LoggedOut) {
 		},
 	})
 
-	// Request new QR code.
+	// Clean up the invalidated session and prepare for re-login.
 	w.lastQR = nil
 	go func() {
-		if err := w.loginWithQR(w.ctx); err != nil {
+		if err := w.resetClientForQR(w.ctx); err != nil {
 			w.logger.Warn("whatsapp: QR re-login failed", "error", err)
 		}
 	}()

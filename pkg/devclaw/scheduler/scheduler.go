@@ -647,7 +647,7 @@ func resolveStableCronOffset(jobID string, maxStagger time.Duration) time.Durati
 // (e.g. "0 * * * *", "@hourly", "0 0 * * *", "@daily").
 func isTopOfHourSchedule(schedule string) bool {
 	s := strings.TrimSpace(strings.ToLower(schedule))
-	if s == "@hourly" || s == "@daily" || s == "@weekly" || s == "@monthly" || s == "@yearly" || s == "@annually" {
+	if s == "@hourly" || s == "@daily" || s == "@midnight" || s == "@weekly" || s == "@monthly" || s == "@yearly" || s == "@annually" {
 		return true
 	}
 	fields := strings.Fields(s)
